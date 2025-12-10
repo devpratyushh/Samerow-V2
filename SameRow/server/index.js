@@ -17,6 +17,10 @@ const port = 3000;
 app.use(cors());
 app.use(express.json());
 
+// In-memory room state storage
+// Structure: { [roomId]: { youtubeState: { url, isPlaying, timestamp, lastUpdate } } }
+const rooms = {};
+
 app.get('/api/status', (req, res) => {
   res.json({ message: 'Server is running' });
 });
@@ -27,11 +31,71 @@ io.on('connection', (socket) => {
   // Join room with username
   socket.on('join-room', (roomId, userName) => {
     socket.join(roomId);
-    // Broadcast to others: "User X connected with ID Y"
+
+    // Initialize room state if not exists
+    if (!rooms[roomId]) {
+      rooms[roomId] = {
+        youtubeState: {
+          url: null,
+          isPlaying: false,
+          timestamp: 0,
+          lastUpdate: Date.now()
+        }
+      };
+    }
+
     socket.to(roomId).emit('user-connected', { userId: socket.id, userName });
   });
 
-  // Relay signal. Include username so the receiver knows who is signaling.
+  // Sync Request: New user asks for current state
+  socket.on('sync-request', (roomId) => {
+    if (rooms[roomId] && rooms[roomId].youtubeState) {
+      // Calculate interpolated timestamp if playing logic is needed, 
+      // but for simplicity, we send the last known state and let client handle seek if needed.
+      socket.emit('youtube-change', rooms[roomId].youtubeState.url);
+      socket.emit('youtube-state-change', rooms[roomId].youtubeState);
+    }
+  });
+
+  // YouTube Events
+  socket.on('youtube-change', ({ roomId, url }) => {
+    if (!rooms[roomId]) {
+      rooms[roomId] = {
+        youtubeState: {
+          url: null, isPlaying: false, timestamp: 0, lastUpdate: Date.now()
+        }
+      };
+    }
+
+    rooms[roomId].youtubeState = {
+      url,
+      isPlaying: true, // Auto-play new video
+      timestamp: 0,
+      lastUpdate: Date.now()
+    };
+    io.to(roomId).emit('youtube-change', url);
+  });
+
+  socket.on('youtube-state-change', ({ roomId, isPlaying, timestamp }) => {
+    if (!rooms[roomId]) {
+      rooms[roomId] = { youtubeState: { url: null, isPlaying: false, timestamp: 0, lastUpdate: Date.now() } };
+    }
+    rooms[roomId].youtubeState = {
+      ...rooms[roomId].youtubeState,
+      isPlaying,
+      timestamp,
+      lastUpdate: Date.now()
+    };
+    // Broadcast to everyone ELSE in the room (prevent loop back to sender if possible, 
+    // but io.to(roomId) sends to everyone. using socket.to(roomId) excludes sender)
+    // We want to exclude sender to avoid feedback loops!
+    socket.to(roomId).emit('youtube-state-change', { isPlaying, timestamp });
+  });
+
+  socket.on('update-user-state', ({ roomId, type, enabled }) => {
+    socket.to(roomId).emit('user-state-updated', { userId: socket.id, type, enabled });
+  });
+
   socket.on('signal', ({ signal, to, userName }) => {
     io.to(to).emit('signal', { signal, from: socket.id, userName });
   });
