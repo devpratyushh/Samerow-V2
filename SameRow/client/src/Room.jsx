@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import Peer from "simple-peer";
 import styled, { keyframes } from "styled-components";
 import ReactPlayer from "react-player";
-import { FaMicrophone, FaMicrophoneSlash, FaVideo, FaVideoSlash, FaPhoneSlash, FaEllipsisV, FaSignal, FaExpand, FaTh, FaYoutube, FaSpinner, FaShareAlt, FaTimes } from "react-icons/fa";
+import { FaMicrophone, FaMicrophoneSlash, FaVideo, FaVideoSlash, FaPhoneSlash, FaEllipsisV, FaSignal, FaExpand, FaTh, FaYoutube, FaSpinner, FaShareAlt, FaTimes, FaDesktop } from "react-icons/fa";
 
 const RoomContainer = styled.div`
   display: flex;
@@ -13,6 +13,83 @@ const RoomContainer = styled.div`
   color: white;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   overflow: hidden;
+`;
+
+const SplitLayout = styled.div`
+  display: flex;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  
+  @media (max-width: 768px) {
+    flex-direction: column;
+  }
+`;
+
+const Sidebar = styled.div`
+  width: 280px;
+  background-color: #1c1c1e;
+  display: flex;
+  flex-direction: column;
+  padding: 16px;
+  gap: 16px;
+  overflow-y: auto;
+  border-right: 1px solid rgba(255,255,255,0.1);
+  z-index: 10;
+  
+  /* Hide scrollbar */
+  &::-webkit-scrollbar { display: none; }
+  -ms-overflow-style: none; scrollbar-width: none;
+
+  @media (max-width: 768px) {
+    width: 100%;
+    height: 160px; /* Fixed height for bottom strip */
+    flex-direction: row;
+    overflow-x: auto;
+    overflow-y: hidden;
+    border-right: none;
+    border-top: 1px solid rgba(255,255,255,0.1);
+    order: 2; /* Put at bottom */
+    padding: 10px;
+    
+    /* Child VideoWrappers */
+    & > div {
+       min-width: 200px;
+       height: 100%;
+       width: auto !important; /* Override VideoWrapper width */
+       aspect-ratio: 16/9;
+    }
+  }
+`;
+
+const MainStage = styled.div`
+  flex: 1;
+  background-color: #000;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 20px;
+  position: relative;
+`;
+
+const OverlayButton = styled.button`
+  position: absolute;
+  bottom: 120px; /* Moved up to avoid ControlsBar */
+  left: 50%;
+  transform: translateX(-50%);
+  background-color: #ff3b30;
+  color: white;
+  border: none;
+  padding: 12px 24px;
+  border-radius: 30px;
+  font-weight: 600;
+  font-size: 16px;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+  z-index: 200; /* Higher than ControlsBar (100) */
+  transition: transform 0.2s;
+  
+  &:hover { transform: translateX(-50%) scale(1.05); background-color: #ff453a; }
 `;
 
 // Shared Player Container
@@ -64,14 +141,14 @@ const VideoGrid = styled.div`
 
 const VideoWrapper = styled.div`
   position: relative;
-  width: ${props => props.isFullScreen ? '100vw' : '100%'};
-  height: ${props => props.isFullScreen ? '100vh' : 'auto'};
-  max-width: ${props => props.isFullScreen ? 'none' : '600px'};
-  aspect-ratio: ${props => props.isFullScreen ? 'auto' : '16 / 9'};
+  width: ${props => props.isFullScreen ? '100vw' : props.isMainStage ? '100%' : '100%'};
+  height: ${props => props.isFullScreen ? '100vh' : props.isMainStage ? '100%' : 'auto'};
+  max-width: ${props => (props.isFullScreen || props.isMainStage) ? 'none' : '600px'};
+  aspect-ratio: ${props => (props.isFullScreen || props.isMainStage) ? 'auto' : '16 / 9'};
   background-color: #2c2c2e;
-  border-radius: ${props => props.isFullScreen ? '0' : '18px'};
+  border-radius: ${props => (props.isFullScreen || props.isMainStage) ? '0' : '18px'};
   overflow: hidden;
-  box-shadow: ${props => props.isFullScreen ? 'none' : '0 8px 30px rgba(0, 0, 0, 0.4)'};
+  box-shadow: ${props => (props.isFullScreen || props.isMainStage) ? 'none' : '0 8px 30px rgba(0, 0, 0, 0.4)'};
   display: flex;
   justify-content: center;
   align-items: center;
@@ -140,11 +217,21 @@ const ControlsBar = styled.div`
   left: 50%;
   transform: translateX(-50%);
   width: auto;
+  min-width: 300px; /* Ensure fit */
+  max-width: 90%;
   border-radius: 40px;
-  padding: 0 40px;
+  padding: 0 20px;
   border: 1px solid rgba(255,255,255,0.1);
   z-index: 100;
   box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+  
+  @media (max-width: 768px) {
+    bottom: 20px;
+    height: 70px;
+    gap: 15px;
+    padding: 0 15px;
+    width: max-content;
+  }
 `;
 
 const ControlButton = styled.button`
@@ -345,14 +432,28 @@ const PEER_CONFIG = {
     }
 };
 
-const Video = ({ stream, userName, peerState, peer, isFullScreen }) => {
+const Video = React.memo(({ stream, userName, peerState, peer, isFullScreen, isMainStage }) => {
     const ref = useRef();
     const [videoEnabled, setVideoEnabled] = useState(true);
     const [showStats, setShowStats] = useState(false);
     const [stats, setStats] = useState({ rtt: '0ms', packetLoss: '0', resolution: 'N/A', fps: '0' });
 
+    // Use callback ref to ensure stream is attached immediately on mount/update
+    const setVideoRef = React.useCallback((el) => {
+        ref.current = el;
+        if (el && stream) {
+            el.srcObject = stream;
+            // Force play in case it paused during transition
+            el.play().catch(e => console.error("Auto-play failed:", e));
+        }
+    }, [stream]);
+
+    // Keep useEffect for updates to stream prop while mounted
     useEffect(() => {
-        if (stream && ref.current) ref.current.srcObject = stream;
+        if (ref.current && stream) {
+            ref.current.srcObject = stream;
+            ref.current.play().catch(e => console.error("Stream update play failed:", e));
+        }
     }, [stream]);
 
     useEffect(() => {
@@ -385,8 +486,8 @@ const Video = ({ stream, userName, peerState, peer, isFullScreen }) => {
     const isMuted = peerState ? !peerState.audio : false;
 
     return (
-        <VideoWrapper isFullScreen={isFullScreen}>
-            <StyledVideo playsInline autoPlay ref={ref} isHidden={!videoEnabled} />
+        <VideoWrapper isFullScreen={isFullScreen} isMainStage={isMainStage}>
+            <StyledVideo playsInline autoPlay ref={setVideoRef} isHidden={!videoEnabled} />
             {!videoEnabled && <InitialsAvatar>{initials}</InitialsAvatar>}
             <MenuTrigger onClick={() => setShowStats(!showStats)}><FaEllipsisV size={14} /></MenuTrigger>
             {showStats && (
@@ -404,7 +505,7 @@ const Video = ({ stream, userName, peerState, peer, isFullScreen }) => {
             </NameTag>
         </VideoWrapper>
     );
-};
+});
 
 const Room = ({ socket, roomId, userName, leaveRoom, userStream, initialMuted, initialVideoOff }) => {
     const [peers, setPeers] = useState([]);
@@ -429,6 +530,10 @@ const Room = ({ socket, roomId, userName, leaveRoom, userStream, initialMuted, i
     // SharePlay UI State
     const [showAppSelector, setShowAppSelector] = useState(false);
     const [showUrlInput, setShowUrlInput] = useState(false);
+
+    // --- SCREEN SHARE STATE ---
+    const [myScreenStream, setMyScreenStream] = useState(null);
+    const screenStreamRef = useRef(null);
 
     // Draggable State
     const [dragPos, setDragPos] = useState({ x: 20, y: 20 });
@@ -458,9 +563,14 @@ const Room = ({ socket, roomId, userName, leaveRoom, userStream, initialMuted, i
     const createDummyStream = () => {
         const canvas = document.createElement('canvas'); canvas.width = 640; canvas.height = 480;
         const ctx = canvas.getContext('2d');
-        const draw = () => { ctx.fillStyle = '#111'; ctx.fillRect(0, 0, 640, 480); requestAnimationFrame(draw); };
+        // Reduced framerate drawing to save CPU
+        const draw = () => {
+            ctx.fillStyle = '#111'; ctx.fillRect(0, 0, 640, 480);
+            // Reuse timeout instead of RAF for lower frequency background task
+        };
         draw();
-        const stream = canvas.captureStream(30);
+        // 10 FPS is enough for a black screen stream
+        const stream = canvas.captureStream(10);
         const audioCtx = new AudioContext(); const dst = audioCtx.createMediaStreamDestination();
         stream.addTrack(dst.stream.getAudioTracks()[0]); stream.getTracks().forEach(t => t.enabled = false);
         return stream;
@@ -489,18 +599,34 @@ const Room = ({ socket, roomId, userName, leaveRoom, userStream, initialMuted, i
 
         const handleUserConnected = ({ userId, userName: remoteName }) => {
             if (userId === socket.id) return;
-            if (peersRef.current.some(p => p.peerID === userId)) return;
-            console.log(`[Room] Connecting to new user: ${userId}`);
+            if (peersRef.current.some(p => p.peerID === userId && !p.isScreenShare)) return;
+            console.log(`[Room] Connecting to new user: ${userId} (${remoteName})`);
+
             const peer = createPeer(userId, socket.id, currentStream, remoteName);
-            peersRef.current.push({ peerID: userId, peer, userName: remoteName });
-            setPeers(users => [...users, { peer, userName: remoteName, peerID: userId, stream: null }]);
+            peersRef.current.push({ peerID: userId, peer, userName: remoteName, isScreenShare: false });
+
+            setPeers(prev => {
+                if (prev.some(p => p.peerID === userId && !p.isScreenShare)) return prev;
+                return [...prev, { peer, userName: remoteName, peerID: userId, stream: null, isScreenShare: false }];
+            });
+
+            // If we are currently sharing screen, initiate a screen share connection to this new user too
+            if (screenStreamRef.current) {
+                const screenPeer = createPeer(userId, socket.id, screenStreamRef.current, remoteName, true);
+                peersRef.current.push({ peerID: userId, peer: screenPeer, userName: remoteName, isScreenShare: true });
+                // We don't add to state here because we are initiator, but if we did, we'd use the same check
+            }
+
             socket.emit('update-user-state', { roomId, type: 'audio', enabled: !muted });
             socket.emit('update-user-state', { roomId, type: 'video', enabled: !videoOff });
         };
 
         const handleUserDisconnected = (userId) => {
-            const peerObj = peersRef.current.find(p => p.peerID === userId);
-            if (peerObj) peerObj.peer.destroy();
+            // Remove all peers associated with this user (camera and screen)
+            const peerObjs = peersRef.current.filter(p => p.peerID === userId);
+            peerObjs.forEach(p => {
+                if (p.peer) p.peer.destroy();
+            });
             const newPeers = peersRef.current.filter(p => p.peerID !== userId);
             peersRef.current = newPeers;
             setPeers(newPeers);
@@ -509,13 +635,25 @@ const Room = ({ socket, roomId, userName, leaveRoom, userStream, initialMuted, i
 
         const handleSignal = (payload) => {
             if (payload.from === socket.id) return;
-            const peerObj = peersRef.current.find(p => p.peerID === payload.from);
-            if (peerObj) peerObj.peer.signal(payload.signal);
-            else {
-                if (peersRef.current.some(p => p.peerID === payload.from)) return;
-                const item = addPeer(payload.signal, payload.from, currentStream, payload.userName);
-                peersRef.current.push({ peerID: payload.from, peer: item.peer, userName: payload.userName });
-                setPeers(users => [...users, { peer: item.peer, userName: payload.userName, peerID: payload.from, stream: null }]);
+
+            const isScreen = !!payload.isScreenShare;
+            console.log(`[Room] Signal received from ${payload.from} (Screen: ${isScreen ? 'Yes' : 'No'})`);
+
+            const peerObj = peersRef.current.find(p => p.peerID === payload.from && !!p.isScreenShare === isScreen);
+
+            if (peerObj) {
+                peerObj.peer.signal(payload.signal);
+            } else {
+                if (peersRef.current.some(p => p.peerID === payload.from && !!p.isScreenShare === isScreen)) return;
+
+                const item = addPeer(payload.signal, payload.from, currentStream, payload.userName, isScreen);
+                peersRef.current.push({ peerID: payload.from, peer: item.peer, userName: payload.userName, isScreenShare: isScreen });
+
+                const displayUserName = isScreen ? `${payload.userName} (Screen)` : payload.userName;
+                setPeers(prev => {
+                    if (prev.some(p => p.peerID === payload.from && !!p.isScreenShare === isScreen)) return prev;
+                    return [...prev, { peer: item.peer, userName: displayUserName, peerID: payload.from, stream: null, isScreenShare: isScreen }];
+                });
             }
         };
 
@@ -568,24 +706,100 @@ const Room = ({ socket, roomId, userName, leaveRoom, userStream, initialMuted, i
         };
     }, []);
 
-    const updatePeerStream = (peerId, stream) => {
-        setPeers(currentPeers => currentPeers.map(p => p.peerID === peerId ? { ...p, stream: stream } : p));
-    };
-
-    function createPeer(userToSignal, callerID, stream, remoteName) {
+    function createPeer(userToSignal, callerID, stream, remoteName, isScreenShare = false) {
         const peer = new Peer({ initiator: true, trickle: true, stream, config: PEER_CONFIG });
-        peer.on("signal", signal => { socket.emit("signal", { signal, to: userToSignal, userName }); });
-        peer.on("stream", remoteStream => { updatePeerStream(userToSignal, remoteStream); });
+        peer.on("signal", signal => { socket.emit("signal", { signal, to: userToSignal, userName, isScreenShare }); });
+        peer.on("stream", remoteStream => { updatePeerStream(userToSignal, remoteStream, isScreenShare); });
+        peer.on("close", () => {
+            console.log(`[Room] Peer closed: ${userToSignal} (Screen: ${isScreenShare})`);
+            const newPeers = peersRef.current.filter(p => !(p.peerID === userToSignal && p.isScreenShare === isScreenShare));
+            peersRef.current = newPeers;
+            setPeers(newPeers);
+        });
         return peer;
     }
 
-    function addPeer(incomingSignal, callerID, stream, remoteName) {
-        const peer = new Peer({ initiator: false, trickle: true, stream, config: PEER_CONFIG });
-        peer.on("signal", signal => { socket.emit("signal", { signal, to: callerID, userName }); });
+    function addPeer(incomingSignal, callerID, stream, remoteName, isScreenShare = false) {
+        const peer = new Peer({ initiator: false, trickle: true, stream: isScreenShare ? null : stream, config: PEER_CONFIG }); // Don't send our cam stream to their screen share peer
+        peer.on("signal", signal => { socket.emit("signal", { signal, to: callerID, userName, isScreenShare }); });
         peer.signal(incomingSignal);
-        peer.on("stream", remoteStream => { updatePeerStream(callerID, remoteStream); });
+        peer.on("stream", remoteStream => { updatePeerStream(callerID, remoteStream, isScreenShare); });
+        peer.on("close", () => {
+            console.log(`[Room] Peer closed: ${callerID} (Screen: ${isScreenShare})`);
+            const newPeers = peersRef.current.filter(p => !(p.peerID === callerID && p.isScreenShare === isScreenShare));
+            peersRef.current = newPeers;
+            setPeers(newPeers);
+        });
         return { peer };
     }
+
+    const updatePeerStream = (peerId, stream, isScreenShare = false) => {
+        setPeers(currentPeers => currentPeers.map(p => (p.peerID === peerId && !!p.isScreenShare === isScreenShare) ? { ...p, stream: stream } : p));
+    };
+
+    const stopScreenShare = () => {
+        if (screenStreamRef.current) {
+            screenStreamRef.current.getTracks().forEach(track => {
+                track.stop();
+                // Important: remove the event listener to avoid double-calling if browser triggers it later
+                track.onended = null;
+            });
+            screenStreamRef.current = null;
+            setMyScreenStream(null);
+
+            // Destroy all screen share peers
+            const screenPeers = peersRef.current.filter(p => p.isScreenShare);
+            screenPeers.forEach(p => {
+                if (p.peer) {
+                    p.peer.destroy(); // This sends close signal to remote
+                }
+            });
+
+            // STRICT cleanup of state to remove ghost tiles immediately
+            const remainingPeers = peersRef.current.filter(p => !p.isScreenShare);
+            peersRef.current = remainingPeers;
+            setPeers(remainingPeers);
+
+            // Force garbage collection hint (not real JS GC, but releasing references)
+            console.log("[Room] Screen share stopped and peers destroyed.");
+        }
+    };
+
+    const startScreenShare = async () => {
+        try {
+            const stream = await navigator.mediaDevices.getDisplayMedia({ cursor: true, video: true, audio: true });
+
+            setMyScreenStream(stream);
+            screenStreamRef.current = stream;
+
+            stream.getVideoTracks()[0].onended = () => {
+                stopScreenShare();
+            };
+
+            // Initiate connections to all existing peers for this new stream
+            // Filter unique user IDs to avoid double signaling if logic was flawed, but peersRef should be unique users (for camera)
+            const uniqueUsers = peersRef.current.filter(p => !p.isScreenShare);
+
+            uniqueUsers.forEach(targetUser => {
+                // Check if we already have a screen share peer for this user (deduplication)
+                if (peersRef.current.some(p => p.peerID === targetUser.peerID && p.isScreenShare)) return;
+
+                const peer = createPeer(targetUser.peerID, socket.id, stream, userName, true);
+                peersRef.current.push({
+                    peerID: targetUser.peerID,
+                    peer: peer,
+                    userName: targetUser.userName,
+                    isScreenShare: true
+                });
+                // Remove setPeers call that was here
+            });
+
+            setShowAppSelector(false); // Close menu
+
+        } catch (err) {
+            console.error("Failed to start screen share", err);
+        }
+    };
 
     const toggleMute = () => {
         setMuted(!muted);
@@ -668,7 +882,14 @@ const Room = ({ socket, roomId, userName, leaveRoom, userStream, initialMuted, i
     };
 
     const myInitials = userName ? userName.split(" ").map(n => n[0]).join("").toUpperCase().substring(0, 2) : "ME";
-    const uniquePeers = Array.from(new Set(peers.map(p => p.peerID))).map(id => peers.find(p => p.peerID === id));
+
+    // We want to show ALL peers, not filter by ID, because a user might have 2 peers (Video + Screen)
+    // But we might want to filter out 'null' peers or invalid ones if any
+    const peersToRender = peers;
+
+    // --- DETECT ACTIVE SCREEN SHARE ---
+    const remoteScreenShare = peers.find(p => p.isScreenShare);
+    const isSharingMode = !!myScreenStream || !!remoteScreenShare;
 
     return (
         <RoomContainer onMouseMove={onDrag} onMouseUp={stopDrag}>
@@ -678,6 +899,14 @@ const Room = ({ socket, roomId, userName, leaveRoom, userStream, initialMuted, i
                 <FaShareAlt />
             </ShareButton>
 
+            {/* DEBUG OVERLAY */}
+            <div style={{ position: 'absolute', top: 10, left: 10, background: 'rgba(0,0,0,0.5)', padding: 10, borderRadius: 8, fontSize: 12, zIndex: 9999, pointerEvents: 'none' }}>
+                <div>Socket: {socket.connected ? 'Connected' : 'Disconnected'} ({socket.id})</div>
+                <div>Room: {roomId}</div>
+                <div>Peers: {peers.length}</div>
+                <div>My Screen: {myScreenStream ? 'Active' : 'None'}</div>
+            </div>
+
             {/* App Selector Modal */}
             {showAppSelector && (
                 <ModalOverlay onClick={() => setShowAppSelector(false)}>
@@ -686,6 +915,17 @@ const Room = ({ socket, roomId, userName, leaveRoom, userStream, initialMuted, i
                             <h3>SharePlay</h3>
                             <div style={{ cursor: 'pointer' }} onClick={() => setShowAppSelector(false)}><FaTimes /></div>
                         </ModalHeader>
+                        <AppOption onClick={() => {
+                            if (myScreenStream) {
+                                stopScreenShare();
+                                setShowAppSelector(false);
+                            } else {
+                                startScreenShare();
+                            }
+                        }}>
+                            <FaDesktop color={myScreenStream ? "#ff3b30" : "#30d158"} size={24} />
+                            <span>{myScreenStream ? "Stop Sharing" : "Share Screen"}</span>
+                        </AppOption>
                         <AppOption onClick={() => { setShowAppSelector(false); setShowUrlInput(true); }}>
                             <FaYoutube color="#ff0000" size={24} />
                             <span>YouTube</span>
@@ -717,7 +957,7 @@ const Room = ({ socket, roomId, userName, leaveRoom, userStream, initialMuted, i
                 </ModalOverlay>
             )}
 
-            {/* Shared Player (Hidden if no URL) */}
+            {/* Shared Player (Hidden if no URL) - Keeps original logic for now, or could move to MainStage if unifying */}
             <SharedPlayerWrapper visible={!!youtubeUrl}>
                 {youtubeUrl && (
                     <>
@@ -740,8 +980,6 @@ const Room = ({ socket, roomId, userName, leaveRoom, userStream, initialMuted, i
                             }}
                             style={{ opacity: isPlayerReady ? 1 : 0, transition: 'opacity 0.5s' }}
                         />
-
-                        {/* Loading/Buffering Overlay - Shows when not ready OR buffering */}
                         {(!isPlayerReady || isBuffering) && (
                             <LoadingOverlay>
                                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px' }}>
@@ -756,48 +994,117 @@ const Room = ({ socket, roomId, userName, leaveRoom, userStream, initialMuted, i
                 )}
             </SharedPlayerWrapper>
 
-            <VideoGrid mode={viewMode}>
-                {/* LOCAL VIDEO: Conditional Rendering (PiP or Grid) */}
-                {viewMode === 'grid' ? (
-                    <VideoWrapper>
-                        <StyledVideo muted ref={userVideo} autoPlay playsInline isHidden={videoOff} />
-                        {videoOff && <InitialsAvatar>{myInitials}</InitialsAvatar>}
-                        <NameTag>
-                            {userName} (You)
-                            {muted && <StatusIcon><FaMicrophoneSlash /></StatusIcon>}
-                            {videoOff && <StatusIcon><FaVideoSlash /></StatusIcon>}
-                        </NameTag>
-                    </VideoWrapper>
-                ) : (
-                    <DraggableWrapper
-                        x={dragPos.x}
-                        y={dragPos.y}
-                        onMouseDown={startDrag}
-                    >
-                        <StyledVideo muted ref={userVideo} autoPlay playsInline isHidden={videoOff} />
-                        {videoOff && <InitialsAvatar>{myInitials}</InitialsAvatar>}
-                        <NameTag style={{ fontSize: '10px', padding: '4px 8px' }}>
-                            {userName} (You)
-                        </NameTag>
-                    </DraggableWrapper>
-                )}
+            {/* LAYOUT SWITCHING */}
+            {isSharingMode ? (
+                <SplitLayout>
+                    <Sidebar>
+                        {/* 1. Local User Camera */}
+                        <VideoWrapper style={{ aspectRatio: '16/9', borderRadius: '12px' }}>
+                            <StyledVideo
+                                muted
+                                ref={el => { if (el && activeStream) el.srcObject = activeStream; }}
+                                autoPlay
+                                playsInline
+                                isHidden={videoOff}
+                            />
+                            {videoOff && <InitialsAvatar>{myInitials}</InitialsAvatar>}
+                            <NameTag>{userName} (You)</NameTag>
+                        </VideoWrapper>
 
-                {/* REMOTE PEERS */}
-                {/* REMOTE PEERS - In PiP, only show the first one as background */}
-                {uniquePeers
-                    .slice(0, viewMode === 'pip' ? 1 : uniquePeers.length)
-                    .map((p, index) => (
+                        {/* 2. Remote User Cameras (Filter out screen shares) */}
+                        {peersToRender.filter(p => !p.isScreenShare).map((p) => (
+                            <Video
+                                key={p.peerID + '-video'}
+                                stream={p.stream}
+                                userName={p.userName}
+                                peer={p.peer}
+                                peerState={peerStates[p.peerID] || { audio: true, video: true }}
+                            />
+                        ))}
+                    </Sidebar>
+
+                    <MainStage>
+                        {/* Render Active Screen Share */}
+                        {myScreenStream ? (
+                            // Local Screen Share
+                            <div style={{ width: '100%', height: '100%', position: 'relative' }}>
+                                <video
+                                    ref={el => { if (el) el.srcObject = myScreenStream; }}
+                                    autoPlay
+                                    playsInline
+                                    muted
+                                    style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+                                />
+                                <OverlayButton onClick={stopScreenShare}>Stop Sharing</OverlayButton>
+                            </div>
+                        ) : remoteScreenShare ? (
+                            // Remote Screen Share
+                            <Video
+                                key={remoteScreenShare.peerID}
+                                stream={remoteScreenShare.stream}
+                                userName={remoteScreenShare.userName}
+                                peer={remoteScreenShare.peer}
+                                peerState={peerStates[remoteScreenShare.peerID] || { audio: true, video: true }}
+                                isMainStage={true}
+                            />
+                        ) : null}
+                    </MainStage>
+                </SplitLayout>
+            ) : (
+                // STANDARD GRID LAYOUT
+                <VideoGrid mode={viewMode}>
+                    {/* LOCAL VIDEO */}
+                    {viewMode === 'grid' ? (
+                        <VideoWrapper>
+                            <StyledVideo
+                                muted
+                                ref={el => {
+                                    userVideo.current = el; // Keep ref sync
+                                    if (el && activeStream) el.srcObject = activeStream;
+                                }}
+                                autoPlay
+                                playsInline
+                                isHidden={videoOff}
+                            />
+                            {videoOff && <InitialsAvatar>{myInitials}</InitialsAvatar>}
+                            <NameTag>
+                                {userName} (You)
+                                {muted && <StatusIcon><FaMicrophoneSlash /></StatusIcon>}
+                                {videoOff && <StatusIcon><FaVideoSlash /></StatusIcon>}
+                            </NameTag>
+                        </VideoWrapper>
+                    ) : (
+                        <DraggableWrapper x={dragPos.x} y={dragPos.y} onMouseDown={startDrag}>
+                            <StyledVideo
+                                muted
+                                ref={el => {
+                                    userVideo.current = el;
+                                    if (el && activeStream) el.srcObject = activeStream;
+                                }}
+                                autoPlay
+                                playsInline
+                                isHidden={videoOff}
+                            />
+                            {videoOff && <InitialsAvatar>{myInitials}</InitialsAvatar>}
+                            <NameTag style={{ fontSize: '10px', padding: '4px 8px' }}>{userName} (You)</NameTag>
+                        </DraggableWrapper>
+                    )}
+
+                    {/* REMOTE PEERS */}
+                    {peersToRender.map((p, index) => (
                         <Video
-                            key={p.peerID}
+                            key={p.peerID + (p.isScreenShare ? '-screen' : '-video')}
                             stream={p.stream}
                             userName={p.userName}
                             peer={p.peer}
                             peerState={peerStates[p.peerID] || { audio: true, video: true }}
-                            isFullScreen={viewMode === 'pip'}
+                            isFullScreen={viewMode === 'pip' && index === 0}
                         />
                     ))}
-                {/* If PiP mode and no peers, Grid background is empty or handled by CSS */}
-            </VideoGrid>
+                </VideoGrid>
+            )
+            }
+
 
             <ControlsBar>
                 {/* LAYOUT TOGGLE */}
@@ -815,7 +1122,7 @@ const Room = ({ socket, roomId, userName, leaveRoom, userStream, initialMuted, i
                     <FaPhoneSlash />
                 </ControlButton>
             </ControlsBar>
-        </RoomContainer>
+        </RoomContainer >
     );
 };
 

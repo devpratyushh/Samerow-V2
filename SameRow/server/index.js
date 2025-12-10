@@ -96,8 +96,8 @@ io.on('connection', (socket) => {
     socket.to(roomId).emit('user-state-updated', { userId: socket.id, type, enabled });
   });
 
-  socket.on('signal', ({ signal, to, userName }) => {
-    io.to(to).emit('signal', { signal, from: socket.id, userName });
+  socket.on('signal', ({ signal, to, userName, isScreenShare }) => {
+    io.to(to).emit('signal', { signal, from: socket.id, userName, isScreenShare });
   });
 
   socket.on('disconnect', () => {

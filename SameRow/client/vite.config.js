@@ -8,4 +8,15 @@ export default defineConfig({
     react(),
     nodePolyfills()
   ],
+  server: {
+    host: true, // Expose to network
+    proxy: {
+      '/socket.io': {
+        target: 'http://localhost:3000',
+        ws: true,
+        changeOrigin: true
+      },
+      '/api': 'http://localhost:3000'
+    }
+  }
 })
