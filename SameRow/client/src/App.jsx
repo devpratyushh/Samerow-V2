@@ -4,7 +4,6 @@ import Lobby from './Lobby';
 import Room from './Room';
 import './App.css';
 
-<<<<<<< HEAD
 import { auth } from './firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 
@@ -20,9 +19,6 @@ const socket = io(SOCKET_URL, {
 socket.on('connect_error', (err) => {
   console.error("Socket Connection Error:", err.message);
 });
-=======
-const socket = io('https://samerow-v2.onrender.com');
->>>>>>> 494abd4c75f6c9440057ef000aae1da7a2f995b6
 
 function App() {
   const [roomId, setRoomId] = useState(null);
