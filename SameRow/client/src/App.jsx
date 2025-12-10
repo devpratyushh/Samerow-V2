@@ -4,7 +4,7 @@ import Lobby from './Lobby';
 import Room from './Room';
 import './App.css';
 
-const socket = io('http://localhost:3000');
+const socket = io('https://samerow-v2.onrender.com');
 
 function App() {
   const [roomId, setRoomId] = useState(null);
