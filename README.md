@@ -1,5 +1,4 @@
-Here is a comprehensive README.md for your GitHub repository. It includes the architecture diagram you generated, deployment instructions, and a professional description of the project's technical features.
-# SameRow
+
 
 **SameRow** is a real-time collaborative platform that combines **peer-to-peer video calling** with **synchronized media playback**. It allows users to watch YouTube videos together in perfect sync while seeing and talking to each other in a virtual room.
 
@@ -7,7 +6,7 @@ This project is designed to demonstrate advanced concepts in **distributed syste
 
 ## 🚀 Live Demo
 
-* **Client:** [https://your-vercel-url.vercel.app](https://calls.patyux.me) (Replace with your actual Vercel URL)
+* **Client:** [https://your-vercel-url.vercel.app]([https://calls.patyux.me](https://calls.patyux.me)) (Replace with your actual Vercel URL)
 * **Server:** [https://samerow-v2.onrender.com](https://samerow-v2.onrender.com)
 
 ---
