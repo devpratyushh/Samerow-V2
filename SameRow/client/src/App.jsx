@@ -7,8 +7,10 @@ import './App.css';
 import { auth } from './firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 
-// Use Render backend URL
-const SOCKET_URL = 'https://samerow-v2.onrender.com';
+// For Docker Compose, the backend is typically exposed on the same origin or via a specific env variable.
+// Using import.meta.env.VITE_SERVER_URL allows configuration, defaulting to window.location.origin
+// if served from the same server, or development default.
+const SOCKET_URL = import.meta.env.VITE_SERVER_URL || (import.meta.env.DEV ? 'http://localhost:3000' : window.location.origin);
 
 const socket = io(SOCKET_URL, {
   transports: ['websocket', 'polling'],

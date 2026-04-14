@@ -518,8 +518,10 @@ const Room = ({ socket, roomId, userName, leaveRoom, userStream, initialMuted, i
     const [peerStates, setPeerStates] = useState({});
     const [viewMode, setViewMode] = useState('grid'); // 'grid' or 'pip'
 
-    // --- YOUTUBE SYNC STATE ---
-    const [youtubeUrl, setYoutubeUrl] = useState('');
+    // --- MEDIA SYNC STATE ---
+    const [webhookToken, setWebhookToken] = useState('');
+    const [mediaUrl, setMediaUrl] = useState('');
+    const [mediaSource, setMediaSource] = useState('youtube');
     const [isPlaying, setIsPlaying] = useState(false);
     const [isBuffering, setIsBuffering] = useState(false);
     const [isPlayerReady, setIsPlayerReady] = useState(false); // New state to track if stream is loaded
@@ -594,7 +596,7 @@ const Room = ({ socket, roomId, userName, leaveRoom, userStream, initialMuted, i
         socket.emit('update-user-state', { roomId, type: 'audio', enabled: !initialMuted });
         socket.emit('update-user-state', { roomId, type: 'video', enabled: !initialVideoOff });
 
-        // Request sync for YouTube
+        // Request sync for Media
         socket.emit('sync-request', roomId);
 
         const handleUserConnected = ({ userId, userName: remoteName }) => {
@@ -661,22 +663,63 @@ const Room = ({ socket, roomId, userName, leaveRoom, userStream, initialMuted, i
             setPeerStates(prev => ({ ...prev, [userId]: { ...prev[userId], [type]: enabled } }));
         };
 
-        // --- YouTube Socket Handlers ---
-        const handleYouTubeChange = (url) => {
-            setYoutubeUrl(url);
+        // --- Media Socket Handlers ---
+        const handleWebhookToken = (token) => {
+            setWebhookToken(token);
+        };
+
+        const handleMediaChange = ({ url, source }) => {
+            setMediaUrl(url);
+            setMediaSource(source);
             setIsPlaying(true);
         };
 
-        const handleYouTubeState = ({ isPlaying: remotePlaying, timestamp }) => {
+        const handleMediaState = async ({ isPlaying: remotePlaying, timestamp, source }) => {
             isRemoteUpdate.current = true;
 
+            if (source) setMediaSource(source);
             setIsPlaying(remotePlaying);
 
-            if (playerRef.current) {
+            if ((!source || source === 'youtube') && playerRef.current) {
                 const currentTime = playerRef.current.getCurrentTime();
                 // If time difference is > 2 seconds, sync it
                 if (Math.abs(currentTime - timestamp) > 2) {
                     playerRef.current.seekTo(timestamp, 'seconds');
+                }
+            } else if (source === 'jellyfin') {
+                // To control Jellyfin in the iframe, we use the Jellyfin API if credentials are provided
+                const jellyfinUrl = localStorage.getItem('jellyfinUrl');
+                const jellyfinApiKey = localStorage.getItem('jellyfinApiKey');
+
+                if (jellyfinUrl && jellyfinApiKey) {
+                    try {
+                        // 1. Get Active Sessions
+                        const sessionsRes = await fetch(`${jellyfinUrl}/Sessions?api_key=${jellyfinApiKey}`);
+                        const sessions = await sessionsRes.json();
+
+                        // Find the session that is currently playing or the most recently active one
+                        // Usually we just look for any session that has a NowPlayingItem or is active
+                        const activeSession = sessions.find(s => s.NowPlayingItem) || sessions[0];
+
+                        if (activeSession) {
+                            const sessionId = activeSession.Id;
+
+                            // 2. Send Command based on state
+                            if (remotePlaying) {
+                                // Sync timestamp first (ticks = seconds * 10,000,000)
+                                const ticks = Math.floor(timestamp * 10000000);
+                                await fetch(`${jellyfinUrl}/Sessions/${sessionId}/Playing/Seek?SeekPositionTicks=${ticks}&api_key=${jellyfinApiKey}`, { method: 'POST' });
+                                await fetch(`${jellyfinUrl}/Sessions/${sessionId}/Playing/Unpause?api_key=${jellyfinApiKey}`, { method: 'POST' });
+                            } else {
+                                await fetch(`${jellyfinUrl}/Sessions/${sessionId}/Playing/Pause?api_key=${jellyfinApiKey}`, { method: 'POST' });
+                            }
+                            console.log(`[Jellyfin] Synced remote state: playing=${remotePlaying}, time=${timestamp}s`);
+                        }
+                    } catch (e) {
+                        console.error("[Jellyfin API] Failed to sync state", e);
+                    }
+                } else {
+                    console.warn("[Jellyfin] Cannot sync state because Jellyfin API credentials are not set in localStorage.");
                 }
             }
 
@@ -689,8 +732,9 @@ const Room = ({ socket, roomId, userName, leaveRoom, userStream, initialMuted, i
         socket.on("signal", handleSignal);
         socket.on("user-state-updated", handleStateUpdate);
 
-        socket.on("youtube-change", handleYouTubeChange);
-        socket.on("youtube-state-change", handleYouTubeState);
+        socket.on("webhook-token", handleWebhookToken);
+        socket.on("media-change", handleMediaChange);
+        socket.on("media-state-change", handleMediaState);
 
         return () => {
             socket.off("user-connected", handleUserConnected);
@@ -698,8 +742,9 @@ const Room = ({ socket, roomId, userName, leaveRoom, userStream, initialMuted, i
             socket.off("signal", handleSignal);
             socket.off("user-state-updated", handleStateUpdate);
 
-            socket.off("youtube-change", handleYouTubeChange);
-            socket.off("youtube-state-change", handleYouTubeState);
+            socket.off("webhook-token", handleWebhookToken);
+            socket.off("media-change", handleMediaChange);
+            socket.off("media-state-change", handleMediaState);
 
             peersRef.current.forEach(p => p.peer.destroy());
             peersRef.current = [];
@@ -813,23 +858,23 @@ const Room = ({ socket, roomId, userName, leaveRoom, userStream, initialMuted, i
         socket.emit('update-user-state', { roomId, type: 'video', enabled: !(!videoOff) });
     };
 
-    // --- YouTube Handlers ---
+    // --- Media Handlers ---
     const handleUrlSubmit = () => {
         if (!inputUrl) return;
 
-        if (!ReactPlayer.canPlay(inputUrl)) {
-            alert("Please enter a valid YouTube URL.");
-            return;
-        }
+        // Try to guess if it's Jellyfin or YouTube
+        const isJellyfin = inputUrl.toLowerCase().includes('jellyfin') || inputUrl.toLowerCase().includes('/web/index.html');
+        const source = isJellyfin ? 'jellyfin' : 'youtube';
 
-        // --- JSON Data Extraction for Console ---
+        // If it's a generic jellyfin URL from the UI, we'll embed it in an iframe
+        // ReactPlayer will be used for YouTube.
+
         try {
             const urlObj = new URL(inputUrl);
             const videoId = urlObj.searchParams.get("v") || inputUrl.split('/').pop();
-            const startTime = urlObj.searchParams.get("t") || 0;
 
             const metaData = {
-                source: "youtube",
+                source: source,
                 originalUrl: inputUrl,
                 videoId: videoId,
                 params: Object.fromEntries(urlObj.searchParams),
@@ -842,16 +887,17 @@ const Room = ({ socket, roomId, userName, leaveRoom, userStream, initialMuted, i
             console.error("Failed to parse URL metadata", e);
         }
 
-        setYoutubeUrl(inputUrl);
+        setMediaUrl(inputUrl);
+        setMediaSource(source);
         setIsPlayerReady(false); // Reset ready state
-        socket.emit('youtube-change', { roomId, url: inputUrl });
+        socket.emit('media-change', { roomId, url: inputUrl, source });
         setInputUrl('');
         setShowUrlInput(false); // Close Modal
     };
 
     // --- Player Callbacks ---
     const onPlayerReady = () => {
-        console.log(">>> STREAM FETCHED & READY. Playing:", youtubeUrl);
+        console.log(">>> STREAM FETCHED & READY. Playing:", mediaUrl);
         setIsPlayerReady(true);
         setIsBuffering(false);
     };
@@ -861,7 +907,7 @@ const Room = ({ socket, roomId, userName, leaveRoom, userStream, initialMuted, i
         if (!isRemoteUpdate.current && !isPlaying) {
             setIsPlaying(true);
             const time = playerRef.current ? playerRef.current.getCurrentTime() : 0;
-            socket.emit('youtube-state-change', { roomId, isPlaying: true, timestamp: time });
+            socket.emit('media-state-change', { roomId, isPlaying: true, timestamp: time, source: mediaSource });
         }
     };
 
@@ -869,7 +915,7 @@ const Room = ({ socket, roomId, userName, leaveRoom, userStream, initialMuted, i
         if (!isRemoteUpdate.current && isPlaying) {
             setIsPlaying(false);
             const time = playerRef.current ? playerRef.current.getCurrentTime() : 0;
-            socket.emit('youtube-state-change', { roomId, isPlaying: false, timestamp: time });
+            socket.emit('media-state-change', { roomId, isPlaying: false, timestamp: time, source: mediaSource });
         }
     };
 
@@ -928,14 +974,13 @@ const Room = ({ socket, roomId, userName, leaveRoom, userStream, initialMuted, i
                         </AppOption>
                         <AppOption onClick={() => { setShowAppSelector(false); setShowUrlInput(true); }}>
                             <FaYoutube color="#ff0000" size={24} />
-                            <span>YouTube</span>
+                            <span>Watch Media (YouTube / Jellyfin)</span>
                         </AppOption>
-                        {/* More apps can go here later */}
                     </AppSelector>
                 </ModalOverlay>
             )}
 
-            {/* YouTube URL Input Modal */}
+            {/* Media URL Input Modal */}
             {showUrlInput && (
                 <ModalOverlay onClick={() => setShowUrlInput(false)}>
                     <InputModal onClick={e => e.stopPropagation()}>
@@ -943,27 +988,51 @@ const Room = ({ socket, roomId, userName, leaveRoom, userStream, initialMuted, i
                             <h3>Paste Link</h3>
                             <div style={{ cursor: 'pointer' }} onClick={() => setShowUrlInput(false)}><FaTimes /></div>
                         </ModalHeader>
+
+                        {webhookToken && (
+                            <div style={{ marginBottom: '15px', background: 'rgba(255,255,255,0.05)', padding: '12px', borderRadius: '8px', fontSize: '12px', color: '#ccc', textAlign: 'center' }}>
+                                <strong>Jellyfin Webhook Config:</strong><br/>
+                                To sync your Jellyfin server, set the Webhook URL in your Jellyfin dashboard to:<br/>
+                                <code style={{ userSelect: 'all', display: 'block', marginTop: '8px', background: 'rgba(0,0,0,0.5)', padding: '8px', borderRadius: '4px', color: '#30d158', wordBreak: 'break-all' }}>
+                                    {socket.io.uri}/api/webhook/jellyfin?roomId={roomId}&amp;token={webhookToken}
+                                </code>
+                            </div>
+                        )}
+
                         <UrlInput
-                            placeholder="https://youtube.com/watch?v=..."
+                            placeholder="https://youtube.com/watch?v=... or Jellyfin URL"
                             value={inputUrl}
                             autoFocus
                             onChange={(e) => setInputUrl(e.target.value)}
                             onKeyDown={(e) => e.key === 'Enter' && handleUrlSubmit()}
                         />
-                        <ActionButton onClick={handleUrlSubmit} disabled={!inputUrl}>
+
+                        {inputUrl.toLowerCase().includes('jellyfin') && (
+                            <UrlInput
+                                placeholder="Jellyfin API Key (required for remote control)"
+                                value={jellyfinApiKey}
+                                style={{ marginTop: '10px' }}
+                                onChange={(e) => {
+                                    setJellyfinApiKey(e.target.value);
+                                    localStorage.setItem('jellyfinApiKey', e.target.value);
+                                }}
+                            />
+                        )}
+
+                        <ActionButton onClick={handleUrlSubmit} disabled={!inputUrl} style={{ marginTop: '10px' }}>
                             Start Watching
                         </ActionButton>
                     </InputModal>
                 </ModalOverlay>
             )}
 
-            {/* Shared Player (Hidden if no URL) - Keeps original logic for now, or could move to MainStage if unifying */}
-            <SharedPlayerWrapper visible={!!youtubeUrl}>
-                {youtubeUrl && (
+            {/* Shared Player (Hidden if no URL) */}
+            <SharedPlayerWrapper visible={!!mediaUrl}>
+                {mediaUrl && mediaSource === 'youtube' && (
                     <>
                         <ReactPlayer
                             ref={playerRef}
-                            url={youtubeUrl}
+                            url={mediaUrl}
                             playing={isPlaying}
                             controls={true}
                             width="100%"
@@ -991,6 +1060,16 @@ const Room = ({ socket, roomId, userName, leaveRoom, userStream, initialMuted, i
                             </LoadingOverlay>
                         )}
                     </>
+                )}
+                {mediaUrl && mediaSource === 'jellyfin' && (
+                    <iframe
+                        src={mediaUrl}
+                        width="100%"
+                        height="100%"
+                        style={{ border: 'none' }}
+                        allow="fullscreen; autoplay; encrypted-media"
+                        onLoad={() => setIsPlayerReady(true)}
+                    />
                 )}
             </SharedPlayerWrapper>
 
