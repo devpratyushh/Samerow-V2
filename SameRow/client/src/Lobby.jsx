@@ -272,10 +272,20 @@ const Lobby = ({ joinRoom, userStream, toggleMute, toggleVideo, isMuted, isVideo
           )}
 
           <Controls>
-            <ControlButton active={!isMuted} onClick={(e) => { e.preventDefault(); toggleMute(); }}>
+            <ControlButton
+              active={!isMuted}
+              onClick={(e) => { e.preventDefault(); toggleMute(); }}
+              title={isMuted ? "Unmute microphone" : "Mute microphone"}
+              aria-label={isMuted ? "Unmute microphone" : "Mute microphone"}
+            >
               {isMuted ? <FaMicrophoneSlash /> : <FaMicrophone />}
             </ControlButton>
-            <ControlButton active={!isVideoOff} onClick={(e) => { e.preventDefault(); toggleVideo(); }}>
+            <ControlButton
+              active={!isVideoOff}
+              onClick={(e) => { e.preventDefault(); toggleVideo(); }}
+              title={isVideoOff ? "Turn on camera" : "Turn off camera"}
+              aria-label={isVideoOff ? "Turn on camera" : "Turn off camera"}
+            >
               {isVideoOff ? <FaVideoSlash /> : <FaVideo />}
             </ControlButton>
           </Controls>
@@ -294,7 +304,7 @@ const Lobby = ({ joinRoom, userStream, toggleMute, toggleVideo, isMuted, isVideo
             <UserProfile>
               <img src={authUser.photoURL} alt="Avatar" />
               <span>{authUser.displayName}</span>
-              <button onClick={() => signOut(auth)} title="Sign Out">
+              <button onClick={() => signOut(auth)} title="Sign Out" aria-label="Sign Out">
                 <FaSignOutAlt />
               </button>
             </UserProfile>

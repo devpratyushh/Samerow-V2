@@ -1,0 +1,3 @@
+## 2024-05-24 - Added aria-labels and title tooltips to icon-only control buttons
+**Learning:** Found a widespread pattern across Lobby.jsx and Room.jsx where critical interactive controls (mute, video toggle, room leave, layout toggle) were implemented as icon-only `<button>` or `<ControlButton>` elements without `aria-label`s or `title`s. This lack of text alternatives makes it difficult for screen reader users to understand the buttons' purpose and also provides no tooltip hint for sighted users.
+**Action:** Next time working on custom styled control buttons or any icon-only interactive elements, ensure they either have visible text or include explicit `aria-label`s along with `title` attributes to provide both screen-reader accessibility and visual tooltips.

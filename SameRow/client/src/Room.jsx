@@ -895,7 +895,11 @@ const Room = ({ socket, roomId, userName, leaveRoom, userStream, initialMuted, i
         <RoomContainer onMouseMove={onDrag} onMouseUp={stopDrag}>
 
             {/* SharePlay Floating Button */}
-            <ShareButton onClick={() => setShowAppSelector(true)}>
+            <ShareButton
+                onClick={() => setShowAppSelector(true)}
+                title="Share application"
+                aria-label="Share application"
+            >
                 <FaShareAlt />
             </ShareButton>
 
@@ -1108,17 +1112,36 @@ const Room = ({ socket, roomId, userName, leaveRoom, userStream, initialMuted, i
 
             <ControlsBar>
                 {/* LAYOUT TOGGLE */}
-                <ControlButton onClick={() => setViewMode(viewMode === 'grid' ? 'pip' : 'grid')}>
+                <ControlButton
+                    onClick={() => setViewMode(viewMode === 'grid' ? 'pip' : 'grid')}
+                    title={viewMode === 'grid' ? "Switch to Picture-in-Picture view" : "Switch to Grid view"}
+                    aria-label={viewMode === 'grid' ? "Switch to Picture-in-Picture view" : "Switch to Grid view"}
+                >
                     {viewMode === 'grid' ? <FaExpand /> : <FaTh />}
                 </ControlButton>
 
-                <ControlButton active={muted} onClick={toggleMute}>
+                <ControlButton
+                    active={muted}
+                    onClick={toggleMute}
+                    title={muted ? "Unmute microphone" : "Mute microphone"}
+                    aria-label={muted ? "Unmute microphone" : "Mute microphone"}
+                >
                     {muted ? <FaMicrophoneSlash /> : <FaMicrophone />}
                 </ControlButton>
-                <ControlButton active={videoOff} onClick={toggleVideo}>
+                <ControlButton
+                    active={videoOff}
+                    onClick={toggleVideo}
+                    title={videoOff ? "Turn on camera" : "Turn off camera"}
+                    aria-label={videoOff ? "Turn on camera" : "Turn off camera"}
+                >
                     {videoOff ? <FaVideoSlash /> : <FaVideo />}
                 </ControlButton>
-                <ControlButton danger onClick={leaveRoom}>
+                <ControlButton
+                    danger
+                    onClick={leaveRoom}
+                    title="Leave room"
+                    aria-label="Leave room"
+                >
                     <FaPhoneSlash />
                 </ControlButton>
             </ControlsBar>
