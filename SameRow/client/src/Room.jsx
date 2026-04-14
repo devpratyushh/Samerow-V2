@@ -261,9 +261,12 @@ const MenuTrigger = styled.button`
   border: none; width: 32px; height: 32px; border-radius: 50%;
   display: flex; justify-content: center; align-items: center;
   cursor: pointer; backdrop-filter: blur(5px);
-  transition: background-color 0.2s;
+  transition: all 0.2s ease-in-out;
   z-index: 20;
-  &:hover { background-color: rgba(0,0,0,0.6); }
+  &:hover {
+      background-color: rgba(0,0,0,0.6);
+      transform: scale(1.1);
+  }
 `;
 
 const StatsMenu = styled.div`
@@ -301,7 +304,10 @@ const ShareButton = styled(ControlButton)`
   color: white;
   width: 64px; height: 64px;
   
-  &:hover { background-color: #007aff; }
+  &:hover {
+      background-color: #007aff;
+      transform: scale(1.1);
+  }
 `;
 
 const ModalOverlay = styled.div`
