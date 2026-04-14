@@ -19,7 +19,11 @@ app.use(express.json());
 
 // In-memory room state storage
 // Structure: { [roomId]: { youtubeState: { url, isPlaying, timestamp, lastUpdate } } }
-const rooms = {};
+const rooms = Object.create(null);
+
+const isValidRoomId = (roomId) => {
+  return typeof roomId === 'string' && /^[a-zA-Z0-9_-]{1,64}$/.test(roomId);
+};
 
 app.get('/api/status', (req, res) => {
   res.json({ message: 'Server is running' });
@@ -30,6 +34,7 @@ io.on('connection', (socket) => {
 
   // Join room with username
   socket.on('join-room', (roomId, userName) => {
+    if (!isValidRoomId(roomId)) return;
     socket.join(roomId);
 
     // Initialize room state if not exists
@@ -49,6 +54,7 @@ io.on('connection', (socket) => {
 
   // Sync Request: New user asks for current state
   socket.on('sync-request', (roomId) => {
+    if (!isValidRoomId(roomId)) return;
     if (rooms[roomId] && rooms[roomId].youtubeState) {
       // Calculate interpolated timestamp if playing logic is needed, 
       // but for simplicity, we send the last known state and let client handle seek if needed.
@@ -59,6 +65,7 @@ io.on('connection', (socket) => {
 
   // YouTube Events
   socket.on('youtube-change', ({ roomId, url }) => {
+    if (!isValidRoomId(roomId)) return;
     if (!rooms[roomId]) {
       rooms[roomId] = {
         youtubeState: {
@@ -77,6 +84,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('youtube-state-change', ({ roomId, isPlaying, timestamp }) => {
+    if (!isValidRoomId(roomId)) return;
     if (!rooms[roomId]) {
       rooms[roomId] = { youtubeState: { url: null, isPlaying: false, timestamp: 0, lastUpdate: Date.now() } };
     }
@@ -93,6 +101,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('update-user-state', ({ roomId, type, enabled }) => {
+    if (!isValidRoomId(roomId)) return;
     socket.to(roomId).emit('user-state-updated', { userId: socket.id, type, enabled });
   });
 
