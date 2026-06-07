@@ -23,7 +23,7 @@ const RoomContainer = styled.div`
 const SplitLayout = styled.div`
   display: flex;
   flex: ${props => props.isTheater ? 'none' : '1'};
-  width: ${props => props.isTheater ? '280px' : '100%'};
+  width: ${props => props.isTheater ? 'auto' : '100%'};
   height: 100%;
   overflow: hidden;
   
@@ -33,7 +33,10 @@ const SplitLayout = styled.div`
 `;
 
 const Sidebar = styled.div`
-  width: 280px;
+  width: ${props => props.width ? props.width + 'px' : '280px'};
+  min-width: 200px;
+  max-width: 600px;
+  flex-shrink: 0;
   background-color: #1c1c1e;
   display: flex;
   flex-direction: column;
@@ -74,8 +77,20 @@ const MainStage = styled.div`
   display: flex;
   justify-content: center;
   align-items: center;
-  padding: 20px;
   position: relative;
+`;
+
+const Resizer = styled.div`
+  width: 8px;
+  cursor: col-resize;
+  background-color: transparent;
+  transition: background-color 0.2s;
+  z-index: 20;
+  flex-shrink: 0;
+  
+  &:hover, &:active {
+    background-color: #0a84ff;
+  }
 `;
 
 const OverlayButton = styled.button`
@@ -685,6 +700,8 @@ const Room = ({ socket, roomId, userName, leaveRoom, userStream, initialMuted, i
     const [peerStates, setPeerStates] = useState({});
     const [viewMode, setViewMode] = useState('grid'); // 'grid' or 'pip'
     const [mediaLayout, setMediaLayout] = useState('standard'); // 'standard' or 'theater'
+    const [sidebarWidth, setSidebarWidth] = useState(280);
+    const [isResizingSidebar, setIsResizingSidebar] = useState(false);
 
     // --- YOUTUBE SYNC STATE ---
     const [youtubeUrl, setYoutubeUrl] = useState('');
@@ -776,6 +793,35 @@ const Room = ({ socket, roomId, userName, leaveRoom, userStream, initialMuted, i
                             msePlayerRef.current.setCurrentTime(Math.max(0, msg.currentTime - jellyfinPlayheadOffsetRef.current));
                         }
                     }
+                } else if (msg.type === 'REQUEST_PLAY_PAUSE' && isJellyfinHost) {
+                    const newState = msg.isPlaying;
+                    setJellyfinPlaying(newState);
+                    if (msePlayerRef.current) {
+                        if (newState) msePlayerRef.current.play();
+                        else msePlayerRef.current.pause();
+                    }
+                    broadcastJellyfinMsg({ type: 'JELLYFIN_STATE', isPlaying: newState, currentTime: msePlayerRef.current ? msePlayerRef.current.getCurrentTime() : 0 });
+                } else if (msg.type === 'REQUEST_SEEK' && isJellyfinHost) {
+                    const newTime = msg.targetTime;
+                    setJellyfinPlaying(false);
+                    if (msePlayerRef.current) msePlayerRef.current.pause();
+                    
+                    broadcastJellyfinMsg({ type: 'JELLYFIN_FLUSH' });
+                    broadcastJellyfinMsg({ type: 'JELLYFIN_OFFSET', offset: newTime });
+                    broadcastJellyfinMsg({ type: 'JELLYFIN_STATE', isPlaying: false, currentTime: newTime });
+                    
+                    if (msePlayerRef.current) {
+                        msePlayerRef.current.flush();
+                        jellyfinPlayheadOffsetRef.current = newTime;
+                    }
+                    
+                    if (jellyfinPumpRef.current) jellyfinPumpRef.current.restartPump(newTime);
+                    
+                    setTimeout(() => {
+                        setJellyfinPlaying(true);
+                        if (msePlayerRef.current) msePlayerRef.current.play();
+                        broadcastJellyfinMsg({ type: 'JELLYFIN_STATE', isPlaying: true, currentTime: newTime });
+                    }, 2000);
                 }
             } catch (e) { console.error("Error parsing Jellyfin control data", e); }
         } else {
@@ -836,6 +882,10 @@ const Room = ({ socket, roomId, userName, leaveRoom, userStream, initialMuted, i
     };
 
     const handleJellyfinPlayPause = () => {
+        if (!isJellyfinHost) {
+            broadcastJellyfinMsg({ type: 'REQUEST_PLAY_PAUSE', isPlaying: !jellyfinPlaying });
+            return;
+        }
         const newState = !jellyfinPlaying;
         setJellyfinPlaying(newState);
         if (msePlayerRef.current) {
@@ -850,11 +900,16 @@ const Room = ({ socket, roomId, userName, leaveRoom, userStream, initialMuted, i
     };
 
     const handleJellyfinScrub = (e) => {
-        if (!isJellyfinHost || !jellyfinDuration) return; // Only host can seek
+        if (!jellyfinDuration) return;
         const rect = e.currentTarget.getBoundingClientRect();
         const percent = (e.clientX - rect.left) / rect.width;
         const newTime = percent * jellyfinDuration;
         
+        if (!isJellyfinHost) {
+            broadcastJellyfinMsg({ type: 'REQUEST_SEEK', targetTime: newTime });
+            return;
+        }
+
         // 1. Pause
         setJellyfinPlaying(false);
         if (msePlayerRef.current) msePlayerRef.current.pause();
@@ -920,15 +975,22 @@ const Room = ({ socket, roomId, userName, leaveRoom, userStream, initialMuted, i
     };
 
     const onDrag = (e) => {
-        if (!isDragging) return;
-        setDragPos({
-            x: e.clientX - dragOffset.current.x,
-            y: e.clientY - dragOffset.current.y
-        });
+        if (isDragging) {
+            setDragPos({
+                x: e.clientX - dragOffset.current.x,
+                y: e.clientY - dragOffset.current.y
+            });
+        }
+        if (isResizingSidebar) {
+            // Prevent text selection while dragging
+            e.preventDefault();
+            setSidebarWidth(Math.max(200, Math.min(e.clientX, 600)));
+        }
     };
 
     const stopDrag = () => {
         setIsDragging(false);
+        setIsResizingSidebar(false);
     };
 
     const createDummyStream = () => {
@@ -1620,8 +1682,8 @@ const Room = ({ socket, roomId, userName, leaveRoom, userStream, initialMuted, i
 
             {/* LAYOUT SWITCHING */}
             {isSharingMode ? (
-                <SplitLayout isTheater={isTheaterActive}>
-                    <Sidebar>
+                <SplitLayout isTheater={isTheaterActive} sidebarWidth={sidebarWidth}>
+                    <Sidebar width={sidebarWidth}>
                         {/* 1. Local User Camera */}
                         <VideoWrapper style={{ aspectRatio: '16/9', borderRadius: '12px' }}>
                             <StyledVideo
@@ -1646,7 +1708,8 @@ const Room = ({ socket, roomId, userName, leaveRoom, userStream, initialMuted, i
                             />
                         ))}
                     </Sidebar>
-
+                    {/* Draggable boundary between Sidebar and MainStage/Player */}
+                    <Resizer onMouseDown={() => setIsResizingSidebar(true)} />
                     <MainStage>
                         {/* Render Active Screen Share */}
                         {myScreenStream ? (
