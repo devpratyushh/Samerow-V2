@@ -8,8 +8,10 @@ import './App.css';
 import { auth } from './firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 
-// Use local backend URL for testing
-const SOCKET_URL = 'http://localhost:3000';
+// Use Render backend in production, and localhost for local development
+const SOCKET_URL = window.location.hostname === 'localhost' 
+  ? 'http://localhost:3000' 
+  : 'https://samerow-v2.onrender.com';
 
 const socket = io(SOCKET_URL, {
   transports: ['websocket', 'polling'],
