@@ -172,4 +172,5 @@ The client should now be running at `http://localhost:5173`.
 * **Mobile Responsiveness:** Optimize the UI for mobile browsers.
 
 ## 📄 License
-This project is open-source and available under the MIT License.
+Copyright (c) 2026 devpratyushh. All Rights Reserved.
+This project is proprietary and closed-source. No permission is granted to reproduce, distribute, or modify this code.
