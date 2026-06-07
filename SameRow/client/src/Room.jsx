@@ -11,7 +11,7 @@ import MSEPlayer from './MSEPlayer';
 
 const RoomContainer = styled.div`
   display: flex;
-  flex-direction: column;
+  flex-direction: ${props => props.isTheater ? 'row-reverse' : 'column'};
   height: 100vh;
   width: 100vw;
   background: linear-gradient(135deg, #0f0f13, #1a1a1a);
@@ -22,8 +22,8 @@ const RoomContainer = styled.div`
 
 const SplitLayout = styled.div`
   display: flex;
-  flex: 1;
-  width: 100%;
+  flex: ${props => props.isTheater ? 'none' : '1'};
+  width: ${props => props.isTheater ? '280px' : '100%'};
   height: 100%;
   overflow: hidden;
   
@@ -123,14 +123,17 @@ const CloseButton = styled.button`
 // Shared Player Container
 const SharedPlayerWrapper = styled.div`
   width: 100%;
-  max-width: 800px;
-  aspect-ratio: 16/9;
+  max-width: ${props => props.isTheater ? 'none' : '800px'};
+  height: ${props => props.isTheater ? '100%' : 'auto'};
+  flex: ${props => props.isTheater ? '1' : 'none'};
+  aspect-ratio: ${props => props.isTheater ? 'auto' : '16/9'};
   margin: 0 auto;
   background: black;
   display: ${props => props.visible ? 'block' : 'none'};
-  margin-bottom: 20px;
-  border-radius: 12px; overflow: hidden;
-  box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+  margin-bottom: ${props => props.isTheater ? '0' : '20px'};
+  border-radius: ${props => props.isTheater ? '0' : '12px'};
+  overflow: hidden;
+  box-shadow: ${props => props.isTheater ? 'none' : '0 10px 30px rgba(0,0,0,0.5)'};
   position: relative;
   z-index: 40;
 `;
@@ -675,6 +678,7 @@ const Room = ({ socket, roomId, userName, leaveRoom, userStream, initialMuted, i
     const [videoOff, setVideoOff] = useState(initialVideoOff);
     const [peerStates, setPeerStates] = useState({});
     const [viewMode, setViewMode] = useState('grid'); // 'grid' or 'pip'
+    const [mediaLayout, setMediaLayout] = useState('theater'); // 'standard' or 'theater'
 
     // --- YOUTUBE SYNC STATE ---
     const [youtubeUrl, setYoutubeUrl] = useState('');
@@ -1310,10 +1314,11 @@ const Room = ({ socket, roomId, userName, leaveRoom, userStream, initialMuted, i
 
     // --- DETECT ACTIVE SCREEN SHARE ---
     const remoteScreenShare = peers.find(p => p.isScreenShare);
-    const isSharingMode = !!myScreenStream || !!remoteScreenShare;
+    const isTheaterActive = mediaLayout === 'theater' && (!!youtubeUrl || showJellyfin) && !myScreenStream && !remoteScreenShare;
+    const isSharingMode = !!myScreenStream || !!remoteScreenShare || isTheaterActive;
 
     return (
-        <RoomContainer onMouseMove={onDrag} onMouseUp={stopDrag}>
+        <RoomContainer isTheater={isTheaterActive} onMouseMove={onDrag} onMouseUp={stopDrag}>
 
             {/* SharePlay Floating Button */}
             <ShareButton onClick={() => setShowAppSelector(true)}>
@@ -1387,7 +1392,7 @@ const Room = ({ socket, roomId, userName, leaveRoom, userStream, initialMuted, i
             )}
 
             {/* Shared Player (Hidden if no URL) */}
-            <SharedPlayerWrapper visible={!!youtubeUrl || showJellyfin} onMouseMove={handleMouseMove} onMouseLeave={() => setControlsVisible(false)}>
+            <SharedPlayerWrapper isTheater={isTheaterActive} visible={!!youtubeUrl || showJellyfin} onMouseMove={handleMouseMove} onMouseLeave={() => setControlsVisible(false)}>
                 <div style={{ position: 'relative', width: '100%', height: '100%', display: showJellyfin ? 'block' : 'none' }}>
                     <CloseButton onClick={() => setShowJellyfin(false)}><FaTimes /></CloseButton>
                     <MSEPlayer 
@@ -1597,7 +1602,7 @@ const Room = ({ socket, roomId, userName, leaveRoom, userStream, initialMuted, i
 
             {/* LAYOUT SWITCHING */}
             {isSharingMode ? (
-                <SplitLayout>
+                <SplitLayout isTheater={isTheaterActive}>
                     <Sidebar>
                         {/* 1. Local User Camera */}
                         <VideoWrapper style={{ aspectRatio: '16/9', borderRadius: '12px' }}>
@@ -1713,8 +1718,16 @@ const Room = ({ socket, roomId, userName, leaveRoom, userStream, initialMuted, i
 
             <ControlsBar>
                 {/* LAYOUT TOGGLE */}
-                <ControlButton onClick={() => setViewMode(viewMode === 'grid' ? 'pip' : 'grid')} title="Toggle Layout">
-                    {viewMode === 'grid' ? <FaExpand /> : <FaTh />}
+                <ControlButton onClick={() => {
+                    if (youtubeUrl || showJellyfin) {
+                        setMediaLayout(mediaLayout === 'standard' ? 'theater' : 'standard');
+                    } else {
+                        setViewMode(viewMode === 'grid' ? 'pip' : 'grid');
+                    }
+                }} title="Toggle Layout">
+                    {(youtubeUrl || showJellyfin) 
+                        ? (mediaLayout === 'standard' ? <FaExpand /> : <FaTh />)
+                        : (viewMode === 'grid' ? <FaExpand /> : <FaTh />)}
                 </ControlButton>
 
                 <ControlButton active={showChat} onClick={() => setShowChat(!showChat)} title="Toggle Chat">
