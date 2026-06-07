@@ -43,10 +43,10 @@ const Sidebar = styled.div`
   padding: 16px;
   gap: 16px;
   overflow-y: auto;
-  border-right: 1px solid rgba(255,255,255,0.1);
+  border-right: none;
   z-index: 10;
   
-  /* Hide scrollbar */
+  /* Scrollbar styling */
   &::-webkit-scrollbar { display: none; }
   -ms-overflow-style: none; scrollbar-width: none;
 
@@ -261,7 +261,7 @@ const ControlsBar = styled.div`
   gap: 20px;
   position: fixed; 
   bottom: ${props => props.isTheater ? '120px' : '40px'}; 
-  left: 50%;
+  left: ${props => props.isTheater ? `calc(${props.sidebarWidth}px + (100vw - ${props.sidebarWidth}px) / 2)` : '50%'};
   transform: translateX(-50%);
   width: auto;
   min-width: 300px; /* Ensure fit */
@@ -1795,7 +1795,7 @@ const Room = ({ socket, roomId, userName, leaveRoom, userStream, initialMuted, i
             }
 
 
-            <ControlsBar isTheater={isTheaterActive} isHidden={isTheaterActive && !controlsVisible}>
+            <ControlsBar isTheater={isTheaterActive} isHidden={isTheaterActive && !controlsVisible} sidebarWidth={sidebarWidth}>
                 {/* LAYOUT TOGGLE */}
                 <ControlButton onClick={() => setViewMode(viewMode === 'grid' ? 'pip' : 'grid')} title="Toggle Layout">
                     {viewMode === 'grid' ? <FaExpand /> : <FaTh />}
