@@ -1603,7 +1603,7 @@ const Room = ({ socket, roomId, userName, leaveRoom, userStream, initialMuted, i
                         <VideoWrapper style={{ aspectRatio: '16/9', borderRadius: '12px' }}>
                             <StyledVideo
                                 muted
-                                ref={el => { if (el && activeStream) el.srcObject = activeStream; }}
+                                ref={el => { if (el && activeStream && el.srcObject !== activeStream) el.srcObject = activeStream; }}
                                 autoPlay
                                 playsInline
                                 isHidden={videoOff}
@@ -1630,7 +1630,7 @@ const Room = ({ socket, roomId, userName, leaveRoom, userStream, initialMuted, i
                             // Local Screen Share
                             <div style={{ width: '100%', height: '100%', position: 'relative' }}>
                                 <video
-                                    ref={el => { if (el) el.srcObject = myScreenStream; }}
+                                    ref={el => { if (el && el.srcObject !== myScreenStream) el.srcObject = myScreenStream; }}
                                     autoPlay
                                     playsInline
                                     muted
@@ -1663,7 +1663,7 @@ const Room = ({ socket, roomId, userName, leaveRoom, userStream, initialMuted, i
                                 muted
                                 ref={el => {
                                     userVideo.current = el; // Keep ref sync
-                                    if (el && activeStream) el.srcObject = activeStream;
+                                    if (el && activeStream && el.srcObject !== activeStream) el.srcObject = activeStream;
                                 }}
                                 autoPlay
                                 playsInline
@@ -1682,7 +1682,7 @@ const Room = ({ socket, roomId, userName, leaveRoom, userStream, initialMuted, i
                                 muted
                                 ref={el => {
                                     userVideo.current = el;
-                                    if (el && activeStream) el.srcObject = activeStream;
+                                    if (el && activeStream && el.srcObject !== activeStream) el.srcObject = activeStream;
                                 }}
                                 autoPlay
                                 playsInline
