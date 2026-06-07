@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import Peer from "simple-peer";
 import styled, { keyframes } from "styled-components";
 import ReactPlayer from "react-player";
-import { FaMicrophone, FaMicrophoneSlash, FaVideo, FaVideoSlash, FaPhoneSlash, FaEllipsisV, FaSignal, FaExpand, FaCompress, FaTh, FaYoutube, FaSpinner, FaShareAlt, FaTimes, FaDesktop, FaCopy, FaCommentAlt, FaPlayCircle, FaPlay, FaPause } from "react-icons/fa";
+import { FaMicrophone, FaMicrophoneSlash, FaVideo, FaVideoSlash, FaPhoneSlash, FaEllipsisV, FaSignal, FaExpand, FaTh, FaYoutube, FaSpinner, FaShareAlt, FaTimes, FaDesktop, FaCopy, FaCommentAlt, FaPlayCircle, FaPlay, FaPause } from "react-icons/fa";
 import { db } from './firebase';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import Chat from './Chat';
@@ -11,7 +11,7 @@ import MSEPlayer from './MSEPlayer';
 
 const RoomContainer = styled.div`
   display: flex;
-  flex-direction: ${props => props.isTheater ? 'row-reverse' : 'column'};
+  flex-direction: column;
   height: 100vh;
   width: 100vw;
   background: linear-gradient(135deg, #0f0f13, #1a1a1a);
@@ -22,8 +22,8 @@ const RoomContainer = styled.div`
 
 const SplitLayout = styled.div`
   display: flex;
-  flex: ${props => props.isTheater ? 'none' : '1'};
-  width: ${props => props.isTheater ? '280px' : '100%'};
+  flex: 1;
+  width: 100%;
   height: 100%;
   overflow: hidden;
   
@@ -123,17 +123,14 @@ const CloseButton = styled.button`
 // Shared Player Container
 const SharedPlayerWrapper = styled.div`
   width: 100%;
-  max-width: ${props => props.isTheater ? 'none' : '800px'};
-  height: ${props => props.isTheater ? '100%' : 'auto'};
-  flex: ${props => props.isTheater ? '1' : 'none'};
-  aspect-ratio: ${props => props.isTheater ? 'auto' : '16/9'};
+  max-width: 800px;
+  aspect-ratio: 16/9;
   margin: 0 auto;
   background: black;
   display: ${props => props.visible ? 'block' : 'none'};
-  margin-bottom: ${props => props.isTheater ? '0' : '20px'};
-  border-radius: ${props => props.isTheater ? '0' : '12px'};
-  overflow: hidden;
-  box-shadow: ${props => props.isTheater ? 'none' : '0 10px 30px rgba(0,0,0,0.5)'};
+  margin-bottom: 20px;
+  border-radius: 12px; overflow: hidden;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.5);
   position: relative;
   z-index: 40;
 `;
@@ -244,7 +241,7 @@ const ControlsBar = styled.div`
   display: flex; justify-content: center; align-items: center;
   gap: 20px;
   position: fixed; 
-  bottom: ${props => props.isTheater ? '120px' : '40px'}; 
+  bottom: 40px; 
   left: 50%;
   transform: translateX(-50%);
   width: auto;
@@ -254,9 +251,6 @@ const ControlsBar = styled.div`
   padding: 0 20px;
   border: 1px solid rgba(255,255,255,0.1);
   z-index: 100;
-  opacity: ${props => props.isHidden ? 0 : 1};
-  pointer-events: ${props => props.isHidden ? 'none' : 'auto'};
-  transition: opacity 0.3s, bottom 0.3s;
   box-shadow: 0 10px 30px rgba(0,0,0,0.3);
   
   @media (max-width: 768px) {
@@ -328,15 +322,12 @@ const StatItem = styled.div`
 
 const ShareButton = styled(ControlButton)`
   position: fixed;
-  bottom: ${props => props.isTheater ? '120px' : '40px'};
+  bottom: 40px;
   right: 40px;
   z-index: 100;
   background-color: #0a84ff;
   color: white;
   width: 64px; height: 64px;
-  opacity: ${props => props.isHidden ? 0 : 1};
-  pointer-events: ${props => props.isHidden ? 'none' : 'auto'};
-  transition: opacity 0.3s, bottom 0.3s, background-color 0.2s;
   
   &:hover { background-color: #007aff; }
 `;
@@ -684,7 +675,6 @@ const Room = ({ socket, roomId, userName, leaveRoom, userStream, initialMuted, i
     const [videoOff, setVideoOff] = useState(initialVideoOff);
     const [peerStates, setPeerStates] = useState({});
     const [viewMode, setViewMode] = useState('grid'); // 'grid' or 'pip'
-    const [mediaLayout, setMediaLayout] = useState('standard'); // 'standard' or 'theater'
 
     // --- YOUTUBE SYNC STATE ---
     const [youtubeUrl, setYoutubeUrl] = useState('');
@@ -1320,14 +1310,13 @@ const Room = ({ socket, roomId, userName, leaveRoom, userStream, initialMuted, i
 
     // --- DETECT ACTIVE SCREEN SHARE ---
     const remoteScreenShare = peers.find(p => p.isScreenShare);
-    const isTheaterActive = mediaLayout === 'theater' && (!!youtubeUrl || showJellyfin) && !myScreenStream && !remoteScreenShare;
-    const isSharingMode = !!myScreenStream || !!remoteScreenShare || isTheaterActive;
+    const isSharingMode = !!myScreenStream || !!remoteScreenShare;
 
     return (
-        <RoomContainer isTheater={isTheaterActive} onMouseMove={onDrag} onMouseUp={stopDrag}>
+        <RoomContainer onMouseMove={onDrag} onMouseUp={stopDrag}>
 
             {/* SharePlay Floating Button */}
-            <ShareButton isTheater={isTheaterActive} isHidden={isTheaterActive && !controlsVisible} onClick={() => setShowAppSelector(true)}>
+            <ShareButton onClick={() => setShowAppSelector(true)}>
                 <FaShareAlt />
             </ShareButton>
 
@@ -1398,7 +1387,7 @@ const Room = ({ socket, roomId, userName, leaveRoom, userStream, initialMuted, i
             )}
 
             {/* Shared Player (Hidden if no URL) */}
-            <SharedPlayerWrapper isTheater={isTheaterActive} visible={!!youtubeUrl || showJellyfin} onMouseMove={handleMouseMove} onMouseLeave={() => setControlsVisible(false)}>
+            <SharedPlayerWrapper visible={!!youtubeUrl || showJellyfin} onMouseMove={handleMouseMove} onMouseLeave={() => setControlsVisible(false)}>
                 <div style={{ position: 'relative', width: '100%', height: '100%', display: showJellyfin ? 'block' : 'none' }}>
                     <CloseButton onClick={() => setShowJellyfin(false)}><FaTimes /></CloseButton>
                     <MSEPlayer 
@@ -1504,18 +1493,13 @@ const Room = ({ socket, roomId, userName, leaveRoom, userStream, initialMuted, i
                             ))}
                             <ScrubBarFill style={{ width: jellyfinDuration ? `${(jellyfinCurrentTime / jellyfinDuration) * 100}%` : '0%' }} />
                         </ScrubBarContainer>
-                        <ControlsRow style={{ justifyContent: 'space-between' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                                <PlayPauseButton onClick={handleJellyfinPlayPause}>
-                                    {jellyfinPlaying ? <FaPause /> : <FaPlay />}
-                                </PlayPauseButton>
-                                <TimeDisplay>
-                                    {formatTime(jellyfinCurrentTime)} / {formatTime(jellyfinDuration)}
-                                </TimeDisplay>
-                            </div>
-                            <PlayPauseButton onClick={() => setMediaLayout(mediaLayout === 'standard' ? 'theater' : 'standard')} title="Toggle Theater Mode">
-                                {mediaLayout === 'standard' ? <FaExpand /> : <FaCompress />}
+                        <ControlsRow>
+                            <PlayPauseButton onClick={handleJellyfinPlayPause}>
+                                {jellyfinPlaying ? <FaPause /> : <FaPlay />}
                             </PlayPauseButton>
+                            <TimeDisplay>
+                                {formatTime(jellyfinCurrentTime)} / {formatTime(jellyfinDuration)}
+                            </TimeDisplay>
                         </ControlsRow>
                     </VideoControlsContainer>
                 </div>
@@ -1523,13 +1507,6 @@ const Room = ({ socket, roomId, userName, leaveRoom, userStream, initialMuted, i
                 {youtubeUrl && !showJellyfin ? (
                     <div style={{ position: 'relative', width: '100%', height: '100%' }}>
                         <CloseButton onClick={() => setYoutubeUrl('')}><FaTimes /></CloseButton>
-                        <CloseButton 
-                            style={{ right: '50px', backgroundColor: 'rgba(0,0,0,0.6)' }}
-                            onClick={() => setMediaLayout(mediaLayout === 'standard' ? 'theater' : 'standard')}
-                            title="Toggle Theater Mode"
-                        >
-                            {mediaLayout === 'standard' ? <FaExpand /> : <FaCompress />}
-                        </CloseButton>
                         {/* loading overlay */}
                         {isBuffering && !isPlaying && (
                             <LoadingOverlay>
@@ -1620,7 +1597,7 @@ const Room = ({ socket, roomId, userName, leaveRoom, userStream, initialMuted, i
 
             {/* LAYOUT SWITCHING */}
             {isSharingMode ? (
-                <SplitLayout isTheater={isTheaterActive}>
+                <SplitLayout>
                     <Sidebar>
                         {/* 1. Local User Camera */}
                         <VideoWrapper style={{ aspectRatio: '16/9', borderRadius: '12px' }}>
@@ -1734,7 +1711,7 @@ const Room = ({ socket, roomId, userName, leaveRoom, userStream, initialMuted, i
             }
 
 
-            <ControlsBar isTheater={isTheaterActive} isHidden={isTheaterActive && !controlsVisible}>
+            <ControlsBar>
                 {/* LAYOUT TOGGLE */}
                 <ControlButton onClick={() => setViewMode(viewMode === 'grid' ? 'pip' : 'grid')} title="Toggle Layout">
                     {viewMode === 'grid' ? <FaExpand /> : <FaTh />}
