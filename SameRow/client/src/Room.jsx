@@ -723,14 +723,25 @@ const Room = ({ socket, roomId, userName, leaveRoom, userStream, initialMuted, i
     // Jellyfin P2P State
     const [showJellyfin, setShowJellyfin] = useState(false);
     const [isJellyfinHost, setIsJellyfinHost] = useState(false);
+    const isJellyfinHostRef = useRef(false);
+    useEffect(() => { isJellyfinHostRef.current = isJellyfinHost; }, [isJellyfinHost]);
+
     const [showJellyfinInput, setShowJellyfinInput] = useState(false);
     const msePlayerRef = useRef(null);
     const jellyfinPumpRef = useRef(null);
+
     const [jellyfinDuration, setJellyfinDuration] = useState(0);
+    const jellyfinDurationRef = useRef(0);
+    useEffect(() => { jellyfinDurationRef.current = jellyfinDuration; }, [jellyfinDuration]);
+
     const [jellyfinCurrentTime, setJellyfinCurrentTime] = useState(0);
     const jellyfinPlayheadOffsetRef = useRef(0);
     const jellyfinCurrentTimeRef = useRef(0);
+
     const [jellyfinPlaying, setJellyfinPlaying] = useState(true);
+    const jellyfinPlayingRef = useRef(true);
+    useEffect(() => { jellyfinPlayingRef.current = jellyfinPlaying; }, [jellyfinPlaying]);
+
     const [jellyfinBuffering, setJellyfinBuffering] = useState(false);
     const [jellyfinBuffered, setJellyfinBuffered] = useState([]);
     const [controlsVisible, setControlsVisible] = useState(true);
@@ -801,7 +812,7 @@ const Room = ({ socket, roomId, userName, leaveRoom, userStream, initialMuted, i
                         msePlayerRef.current.setCurrentTime(Math.max(0, msg.currentTime - jellyfinPlayheadOffsetRef.current));
                     }
                 }
-            } else if (msg.type === 'REQUEST_PLAY_PAUSE' && isJellyfinHost) {
+            } else if (msg.type === 'REQUEST_PLAY_PAUSE' && isJellyfinHostRef.current) {
                 const newState = msg.isPlaying;
                 setJellyfinPlaying(newState);
                 if (msePlayerRef.current) {
@@ -809,7 +820,7 @@ const Room = ({ socket, roomId, userName, leaveRoom, userStream, initialMuted, i
                     else msePlayerRef.current.pause();
                 }
                 broadcastJellyfinMsg({ type: 'JELLYFIN_STATE', isPlaying: newState, currentTime: msePlayerRef.current ? msePlayerRef.current.getCurrentTime() : 0 });
-            } else if (msg.type === 'REQUEST_SEEK' && isJellyfinHost) {
+            } else if (msg.type === 'REQUEST_SEEK' && isJellyfinHostRef.current) {
                 const newTime = msg.targetTime;
                 setJellyfinPlaying(false);
                 if (msePlayerRef.current) msePlayerRef.current.pause();
@@ -1160,7 +1171,7 @@ const Room = ({ socket, roomId, userName, leaveRoom, userStream, initialMuted, i
         peer.on("stream", remoteStream => { updatePeerStream(userToSignal, remoteStream, isScreenShare); });
         peer.on("data", handleJellyfinData);
         peer.on("connect", () => {
-            if (isJellyfinHost && jellyfinPumpRef.current && msePlayerRef.current) {
+            if (isJellyfinHostRef.current && jellyfinPumpRef.current && msePlayerRef.current) {
                 // A new peer joined! Restart pump to sync them to our current playback head
                 const logicalTime = jellyfinCurrentTimeRef.current;
                 setTimeout(() => {
@@ -1169,10 +1180,10 @@ const Room = ({ socket, roomId, userName, leaveRoom, userStream, initialMuted, i
                     jellyfinCurrentTimeRef.current = logicalTime;
                     setJellyfinCurrentTime(logicalTime);
                     
-                    broadcastJellyfinMsg({ type: 'JELLYFIN_METADATA', duration: jellyfinDuration });
+                    broadcastJellyfinMsg({ type: 'JELLYFIN_METADATA', duration: jellyfinDurationRef.current });
                     broadcastJellyfinMsg({ type: 'JELLYFIN_FLUSH' });
                     broadcastJellyfinMsg({ type: 'JELLYFIN_OFFSET', offset: logicalTime });
-                    broadcastJellyfinMsg({ type: 'JELLYFIN_STATE', isPlaying: jellyfinPlaying, currentTime: logicalTime });
+                    broadcastJellyfinMsg({ type: 'JELLYFIN_STATE', isPlaying: jellyfinPlayingRef.current, currentTime: logicalTime });
                     jellyfinPumpRef.current.restartPump(logicalTime);
                 }, 50);
             }
@@ -1191,7 +1202,7 @@ const Room = ({ socket, roomId, userName, leaveRoom, userStream, initialMuted, i
         peer.on("signal", signal => { socket.emit("signal", { signal, to: callerID, userName, isScreenShare }); });
         peer.on("data", handleJellyfinData);
         peer.on("connect", () => {
-            if (isJellyfinHost && jellyfinPumpRef.current && msePlayerRef.current) {
+            if (isJellyfinHostRef.current && jellyfinPumpRef.current && msePlayerRef.current) {
                 // A new peer joined! Restart pump to sync them to our current playback head
                 const logicalTime = jellyfinCurrentTimeRef.current;
                 setTimeout(() => {
@@ -1200,10 +1211,10 @@ const Room = ({ socket, roomId, userName, leaveRoom, userStream, initialMuted, i
                     jellyfinCurrentTimeRef.current = logicalTime;
                     setJellyfinCurrentTime(logicalTime);
 
-                    broadcastJellyfinMsg({ type: 'JELLYFIN_METADATA', duration: jellyfinDuration });
+                    broadcastJellyfinMsg({ type: 'JELLYFIN_METADATA', duration: jellyfinDurationRef.current });
                     broadcastJellyfinMsg({ type: 'JELLYFIN_FLUSH' });
                     broadcastJellyfinMsg({ type: 'JELLYFIN_OFFSET', offset: logicalTime });
-                    broadcastJellyfinMsg({ type: 'JELLYFIN_STATE', isPlaying: jellyfinPlaying, currentTime: logicalTime });
+                    broadcastJellyfinMsg({ type: 'JELLYFIN_STATE', isPlaying: jellyfinPlayingRef.current, currentTime: logicalTime });
                     jellyfinPumpRef.current.restartPump(logicalTime);
                 }, 50);
             }
