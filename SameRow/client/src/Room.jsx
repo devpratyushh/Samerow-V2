@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import Peer from "simple-peer";
 import styled, { keyframes } from "styled-components";
 import ReactPlayer from "react-player";
-import { FaMicrophone, FaMicrophoneSlash, FaVideo, FaVideoSlash, FaPhoneSlash, FaEllipsisV, FaSignal, FaExpand, FaTh, FaYoutube, FaSpinner, FaShareAlt, FaTimes, FaDesktop, FaCopy, FaCommentAlt, FaPlayCircle, FaPlay, FaPause } from "react-icons/fa";
+import { FaMicrophone, FaMicrophoneSlash, FaVideo, FaVideoSlash, FaPhoneSlash, FaEllipsisV, FaSignal, FaExpand, FaCompress, FaTh, FaYoutube, FaSpinner, FaShareAlt, FaTimes, FaDesktop, FaCopy, FaCommentAlt, FaPlayCircle, FaPlay, FaPause } from "react-icons/fa";
 import { db } from './firebase';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import Chat from './Chat';
@@ -244,7 +244,7 @@ const ControlsBar = styled.div`
   display: flex; justify-content: center; align-items: center;
   gap: 20px;
   position: fixed; 
-  bottom: 40px; 
+  bottom: ${props => props.isTheater ? '120px' : '40px'}; 
   left: 50%;
   transform: translateX(-50%);
   width: auto;
@@ -254,6 +254,9 @@ const ControlsBar = styled.div`
   padding: 0 20px;
   border: 1px solid rgba(255,255,255,0.1);
   z-index: 100;
+  opacity: ${props => props.isHidden ? 0 : 1};
+  pointer-events: ${props => props.isHidden ? 'none' : 'auto'};
+  transition: opacity 0.3s, bottom 0.3s;
   box-shadow: 0 10px 30px rgba(0,0,0,0.3);
   
   @media (max-width: 768px) {
@@ -325,12 +328,15 @@ const StatItem = styled.div`
 
 const ShareButton = styled(ControlButton)`
   position: fixed;
-  bottom: 40px;
+  bottom: ${props => props.isTheater ? '120px' : '40px'};
   right: 40px;
   z-index: 100;
   background-color: #0a84ff;
   color: white;
   width: 64px; height: 64px;
+  opacity: ${props => props.isHidden ? 0 : 1};
+  pointer-events: ${props => props.isHidden ? 'none' : 'auto'};
+  transition: opacity 0.3s, bottom 0.3s, background-color 0.2s;
   
   &:hover { background-color: #007aff; }
 `;
@@ -678,7 +684,7 @@ const Room = ({ socket, roomId, userName, leaveRoom, userStream, initialMuted, i
     const [videoOff, setVideoOff] = useState(initialVideoOff);
     const [peerStates, setPeerStates] = useState({});
     const [viewMode, setViewMode] = useState('grid'); // 'grid' or 'pip'
-    const [mediaLayout, setMediaLayout] = useState('theater'); // 'standard' or 'theater'
+    const [mediaLayout, setMediaLayout] = useState('standard'); // 'standard' or 'theater'
 
     // --- YOUTUBE SYNC STATE ---
     const [youtubeUrl, setYoutubeUrl] = useState('');
@@ -1321,7 +1327,7 @@ const Room = ({ socket, roomId, userName, leaveRoom, userStream, initialMuted, i
         <RoomContainer isTheater={isTheaterActive} onMouseMove={onDrag} onMouseUp={stopDrag}>
 
             {/* SharePlay Floating Button */}
-            <ShareButton onClick={() => setShowAppSelector(true)}>
+            <ShareButton isTheater={isTheaterActive} isHidden={isTheaterActive && !controlsVisible} onClick={() => setShowAppSelector(true)}>
                 <FaShareAlt />
             </ShareButton>
 
@@ -1498,13 +1504,18 @@ const Room = ({ socket, roomId, userName, leaveRoom, userStream, initialMuted, i
                             ))}
                             <ScrubBarFill style={{ width: jellyfinDuration ? `${(jellyfinCurrentTime / jellyfinDuration) * 100}%` : '0%' }} />
                         </ScrubBarContainer>
-                        <ControlsRow>
-                            <PlayPauseButton onClick={handleJellyfinPlayPause}>
-                                {jellyfinPlaying ? <FaPause /> : <FaPlay />}
+                        <ControlsRow style={{ justifyContent: 'space-between' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                                <PlayPauseButton onClick={handleJellyfinPlayPause}>
+                                    {jellyfinPlaying ? <FaPause /> : <FaPlay />}
+                                </PlayPauseButton>
+                                <TimeDisplay>
+                                    {formatTime(jellyfinCurrentTime)} / {formatTime(jellyfinDuration)}
+                                </TimeDisplay>
+                            </div>
+                            <PlayPauseButton onClick={() => setMediaLayout(mediaLayout === 'standard' ? 'theater' : 'standard')} title="Toggle Theater Mode">
+                                {mediaLayout === 'standard' ? <FaExpand /> : <FaCompress />}
                             </PlayPauseButton>
-                            <TimeDisplay>
-                                {formatTime(jellyfinCurrentTime)} / {formatTime(jellyfinDuration)}
-                            </TimeDisplay>
                         </ControlsRow>
                     </VideoControlsContainer>
                 </div>
@@ -1512,6 +1523,13 @@ const Room = ({ socket, roomId, userName, leaveRoom, userStream, initialMuted, i
                 {youtubeUrl && !showJellyfin ? (
                     <div style={{ position: 'relative', width: '100%', height: '100%' }}>
                         <CloseButton onClick={() => setYoutubeUrl('')}><FaTimes /></CloseButton>
+                        <CloseButton 
+                            style={{ right: '50px', backgroundColor: 'rgba(0,0,0,0.6)' }}
+                            onClick={() => setMediaLayout(mediaLayout === 'standard' ? 'theater' : 'standard')}
+                            title="Toggle Theater Mode"
+                        >
+                            {mediaLayout === 'standard' ? <FaExpand /> : <FaCompress />}
+                        </CloseButton>
                         {/* loading overlay */}
                         {isBuffering && !isPlaying && (
                             <LoadingOverlay>
@@ -1716,18 +1734,10 @@ const Room = ({ socket, roomId, userName, leaveRoom, userStream, initialMuted, i
             }
 
 
-            <ControlsBar>
+            <ControlsBar isTheater={isTheaterActive} isHidden={isTheaterActive && !controlsVisible}>
                 {/* LAYOUT TOGGLE */}
-                <ControlButton onClick={() => {
-                    if (youtubeUrl || showJellyfin) {
-                        setMediaLayout(mediaLayout === 'standard' ? 'theater' : 'standard');
-                    } else {
-                        setViewMode(viewMode === 'grid' ? 'pip' : 'grid');
-                    }
-                }} title="Toggle Layout">
-                    {(youtubeUrl || showJellyfin) 
-                        ? (mediaLayout === 'standard' ? <FaExpand /> : <FaTh />)
-                        : (viewMode === 'grid' ? <FaExpand /> : <FaTh />)}
+                <ControlButton onClick={() => setViewMode(viewMode === 'grid' ? 'pip' : 'grid')} title="Toggle Layout">
+                    {viewMode === 'grid' ? <FaExpand /> : <FaTh />}
                 </ControlButton>
 
                 <ControlButton active={showChat} onClick={() => setShowChat(!showChat)} title="Toggle Chat">
