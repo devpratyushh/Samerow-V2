@@ -723,25 +723,14 @@ const Room = ({ socket, roomId, userName, leaveRoom, userStream, initialMuted, i
     // Jellyfin P2P State
     const [showJellyfin, setShowJellyfin] = useState(false);
     const [isJellyfinHost, setIsJellyfinHost] = useState(false);
-    const isJellyfinHostRef = useRef(false);
-    useEffect(() => { isJellyfinHostRef.current = isJellyfinHost; }, [isJellyfinHost]);
-
     const [showJellyfinInput, setShowJellyfinInput] = useState(false);
     const msePlayerRef = useRef(null);
     const jellyfinPumpRef = useRef(null);
-
     const [jellyfinDuration, setJellyfinDuration] = useState(0);
-    const jellyfinDurationRef = useRef(0);
-    useEffect(() => { jellyfinDurationRef.current = jellyfinDuration; }, [jellyfinDuration]);
-
     const [jellyfinCurrentTime, setJellyfinCurrentTime] = useState(0);
     const jellyfinPlayheadOffsetRef = useRef(0);
     const jellyfinCurrentTimeRef = useRef(0);
-
     const [jellyfinPlaying, setJellyfinPlaying] = useState(true);
-    const jellyfinPlayingRef = useRef(true);
-    useEffect(() => { jellyfinPlayingRef.current = jellyfinPlaying; }, [jellyfinPlaying]);
-
     const [jellyfinBuffering, setJellyfinBuffering] = useState(false);
     const [jellyfinBuffered, setJellyfinBuffered] = useState([]);
     const [controlsVisible, setControlsVisible] = useState(true);
@@ -766,84 +755,77 @@ const Room = ({ socket, roomId, userName, leaveRoom, userStream, initialMuted, i
 
     // Jellyfin Metadata and Chunk routing
     const handleJellyfinData = (data) => {
-        let isControlMessage = false;
-        let parsedMsg = null;
-
-        if (typeof data === 'string') {
+        let isString = typeof data === 'string';
+        let textData = data;
+        
+        // Browsers handle WebRTC string channels differently.
+        // If it's a small Uint8Array starting with '{' (123), it's likely our JSON metadata.
+        if (!isString && data instanceof Uint8Array && data.length < 1000 && data[0] === 123) {
             try {
-                parsedMsg = JSON.parse(data);
-                isControlMessage = true;
-            } catch (e) {
-                console.error("Error parsing string control data", e);
-            }
-        } else if (data instanceof Uint8Array && data.length < 1000 && data[0] === 123) {
-            try {
-                const textData = new TextDecoder().decode(data);
-                parsedMsg = JSON.parse(textData);
-                isControlMessage = true;
-            } catch (e) {
-                // Not valid JSON, must be a binary chunk that just happened to start with 123.
-                // We intentionally ignore this error and fall back to appending it.
-            }
+                textData = new TextDecoder().decode(data);
+                isString = true;
+            } catch (e) { }
         }
 
-        if (isControlMessage && parsedMsg) {
-            const msg = parsedMsg;
-            // Show the Jellyfin player panel IMMEDIATELY when we receive any control message!
-            if (msg.type && msg.type.startsWith('JELLYFIN_')) {
-                setShowJellyfin(true);
-            }
-            if (msg.type === 'JELLYFIN_METADATA') {
-                setJellyfinDuration(msg.duration);
-            } else if (msg.type === 'JELLYFIN_FLUSH') {
-                if (msePlayerRef.current) msePlayerRef.current.flush();
-            } else if (msg.type === 'JELLYFIN_OFFSET') {
-                jellyfinPlayheadOffsetRef.current = msg.offset;
-                jellyfinCurrentTimeRef.current = msg.offset;
-                setJellyfinCurrentTime(msg.offset);
-            } else if (msg.type === 'JELLYFIN_STATE') {
-                setJellyfinPlaying(msg.isPlaying);
-                if (!msg.isPlaying && msePlayerRef.current) msePlayerRef.current.pause();
-                else if (msg.isPlaying && msePlayerRef.current) msePlayerRef.current.play();
-                // IF difference > 2 seconds, auto-seek to sync with host!
-                if (msePlayerRef.current && msg.currentTime !== undefined) {
-                    const logicalTime = msePlayerRef.current.getCurrentTime() + jellyfinPlayheadOffsetRef.current;
-                    if (Math.abs(logicalTime - msg.currentTime) > 2) {
-                        msePlayerRef.current.setCurrentTime(Math.max(0, msg.currentTime - jellyfinPlayheadOffsetRef.current));
+        if (isString) {
+            try {
+                const msg = JSON.parse(textData);
+                // Show the Jellyfin player panel IMMEDIATELY when we receive any control message!
+                // This way the peer sees a buffering screen instead of nothing.
+                if (msg.type && msg.type.startsWith('JELLYFIN_')) {
+                    setShowJellyfin(true);
+                }
+                if (msg.type === 'JELLYFIN_METADATA') {
+                    setJellyfinDuration(msg.duration);
+                } else if (msg.type === 'JELLYFIN_FLUSH') {
+                    if (msePlayerRef.current) msePlayerRef.current.flush();
+                } else if (msg.type === 'JELLYFIN_OFFSET') {
+                    jellyfinPlayheadOffsetRef.current = msg.offset;
+                    jellyfinCurrentTimeRef.current = msg.offset;
+                    setJellyfinCurrentTime(msg.offset);
+                } else if (msg.type === 'JELLYFIN_STATE') {
+                    setJellyfinPlaying(msg.isPlaying);
+                    if (!msg.isPlaying && msePlayerRef.current) msePlayerRef.current.pause();
+                    else if (msg.isPlaying && msePlayerRef.current) msePlayerRef.current.play();
+                    // IF difference > 2 seconds, auto-seek to sync with host!
+                    if (msePlayerRef.current && msg.currentTime !== undefined) {
+                        const logicalTime = msePlayerRef.current.getCurrentTime() + jellyfinPlayheadOffsetRef.current;
+                        if (Math.abs(logicalTime - msg.currentTime) > 2) {
+                            msePlayerRef.current.setCurrentTime(Math.max(0, msg.currentTime - jellyfinPlayheadOffsetRef.current));
+                        }
                     }
+                } else if (msg.type === 'REQUEST_PLAY_PAUSE' && isJellyfinHost) {
+                    const newState = msg.isPlaying;
+                    setJellyfinPlaying(newState);
+                    if (msePlayerRef.current) {
+                        if (newState) msePlayerRef.current.play();
+                        else msePlayerRef.current.pause();
+                    }
+                    broadcastJellyfinMsg({ type: 'JELLYFIN_STATE', isPlaying: newState, currentTime: msePlayerRef.current ? msePlayerRef.current.getCurrentTime() : 0 });
+                } else if (msg.type === 'REQUEST_SEEK' && isJellyfinHost) {
+                    const newTime = msg.targetTime;
+                    setJellyfinPlaying(false);
+                    if (msePlayerRef.current) msePlayerRef.current.pause();
+                    
+                    broadcastJellyfinMsg({ type: 'JELLYFIN_FLUSH' });
+                    broadcastJellyfinMsg({ type: 'JELLYFIN_OFFSET', offset: newTime });
+                    broadcastJellyfinMsg({ type: 'JELLYFIN_STATE', isPlaying: false, currentTime: newTime });
+                    
+                    if (msePlayerRef.current) {
+                        msePlayerRef.current.flush();
+                        jellyfinPlayheadOffsetRef.current = newTime;
+                    }
+                    
+                    if (jellyfinPumpRef.current) jellyfinPumpRef.current.restartPump(newTime);
+                    
+                    setTimeout(() => {
+                        setJellyfinPlaying(true);
+                        if (msePlayerRef.current) msePlayerRef.current.play();
+                        broadcastJellyfinMsg({ type: 'JELLYFIN_STATE', isPlaying: true, currentTime: newTime });
+                    }, 2000);
                 }
-            } else if (msg.type === 'REQUEST_PLAY_PAUSE' && isJellyfinHostRef.current) {
-                const newState = msg.isPlaying;
-                setJellyfinPlaying(newState);
-                if (msePlayerRef.current) {
-                    if (newState) msePlayerRef.current.play();
-                    else msePlayerRef.current.pause();
-                }
-                broadcastJellyfinMsg({ type: 'JELLYFIN_STATE', isPlaying: newState, currentTime: msePlayerRef.current ? msePlayerRef.current.getCurrentTime() : 0 });
-            } else if (msg.type === 'REQUEST_SEEK' && isJellyfinHostRef.current) {
-                const newTime = msg.targetTime;
-                setJellyfinPlaying(false);
-                if (msePlayerRef.current) msePlayerRef.current.pause();
-                
-                broadcastJellyfinMsg({ type: 'JELLYFIN_FLUSH' });
-                broadcastJellyfinMsg({ type: 'JELLYFIN_OFFSET', offset: newTime });
-                broadcastJellyfinMsg({ type: 'JELLYFIN_STATE', isPlaying: false, currentTime: newTime });
-                
-                if (msePlayerRef.current) {
-                    msePlayerRef.current.flush();
-                    jellyfinPlayheadOffsetRef.current = newTime;
-                }
-                
-                if (jellyfinPumpRef.current) jellyfinPumpRef.current.restartPump(newTime);
-                
-                setTimeout(() => {
-                    setJellyfinPlaying(true);
-                    if (msePlayerRef.current) msePlayerRef.current.play();
-                    broadcastJellyfinMsg({ type: 'JELLYFIN_STATE', isPlaying: true, currentTime: newTime });
-                }, 2000);
-            }
+            } catch (e) { console.error("Error parsing Jellyfin control data", e); }
         } else {
-            // It's a video/audio chunk!
             if (msePlayerRef.current) {
                 setShowJellyfin(true);
                 msePlayerRef.current.appendChunk(data);
@@ -1171,7 +1153,7 @@ const Room = ({ socket, roomId, userName, leaveRoom, userStream, initialMuted, i
         peer.on("stream", remoteStream => { updatePeerStream(userToSignal, remoteStream, isScreenShare); });
         peer.on("data", handleJellyfinData);
         peer.on("connect", () => {
-            if (isJellyfinHostRef.current && jellyfinPumpRef.current && msePlayerRef.current) {
+            if (isJellyfinHost && jellyfinPumpRef.current && msePlayerRef.current) {
                 // A new peer joined! Restart pump to sync them to our current playback head
                 const logicalTime = jellyfinCurrentTimeRef.current;
                 setTimeout(() => {
@@ -1180,10 +1162,10 @@ const Room = ({ socket, roomId, userName, leaveRoom, userStream, initialMuted, i
                     jellyfinCurrentTimeRef.current = logicalTime;
                     setJellyfinCurrentTime(logicalTime);
                     
-                    broadcastJellyfinMsg({ type: 'JELLYFIN_METADATA', duration: jellyfinDurationRef.current });
+                    broadcastJellyfinMsg({ type: 'JELLYFIN_METADATA', duration: jellyfinDuration });
                     broadcastJellyfinMsg({ type: 'JELLYFIN_FLUSH' });
                     broadcastJellyfinMsg({ type: 'JELLYFIN_OFFSET', offset: logicalTime });
-                    broadcastJellyfinMsg({ type: 'JELLYFIN_STATE', isPlaying: jellyfinPlayingRef.current, currentTime: logicalTime });
+                    broadcastJellyfinMsg({ type: 'JELLYFIN_STATE', isPlaying: jellyfinPlaying, currentTime: logicalTime });
                     jellyfinPumpRef.current.restartPump(logicalTime);
                 }, 50);
             }
@@ -1202,7 +1184,7 @@ const Room = ({ socket, roomId, userName, leaveRoom, userStream, initialMuted, i
         peer.on("signal", signal => { socket.emit("signal", { signal, to: callerID, userName, isScreenShare }); });
         peer.on("data", handleJellyfinData);
         peer.on("connect", () => {
-            if (isJellyfinHostRef.current && jellyfinPumpRef.current && msePlayerRef.current) {
+            if (isJellyfinHost && jellyfinPumpRef.current && msePlayerRef.current) {
                 // A new peer joined! Restart pump to sync them to our current playback head
                 const logicalTime = jellyfinCurrentTimeRef.current;
                 setTimeout(() => {
@@ -1211,10 +1193,10 @@ const Room = ({ socket, roomId, userName, leaveRoom, userStream, initialMuted, i
                     jellyfinCurrentTimeRef.current = logicalTime;
                     setJellyfinCurrentTime(logicalTime);
 
-                    broadcastJellyfinMsg({ type: 'JELLYFIN_METADATA', duration: jellyfinDurationRef.current });
+                    broadcastJellyfinMsg({ type: 'JELLYFIN_METADATA', duration: jellyfinDuration });
                     broadcastJellyfinMsg({ type: 'JELLYFIN_FLUSH' });
                     broadcastJellyfinMsg({ type: 'JELLYFIN_OFFSET', offset: logicalTime });
-                    broadcastJellyfinMsg({ type: 'JELLYFIN_STATE', isPlaying: jellyfinPlayingRef.current, currentTime: logicalTime });
+                    broadcastJellyfinMsg({ type: 'JELLYFIN_STATE', isPlaying: jellyfinPlaying, currentTime: logicalTime });
                     jellyfinPumpRef.current.restartPump(logicalTime);
                 }, 50);
             }
