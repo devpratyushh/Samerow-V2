@@ -254,8 +254,9 @@ const InitialsAvatar = styled.div`
 
 const ControlsBar = styled.div`
   height: 80px;
-  background-color: rgba(28, 28, 30, 0.7);
-  backdrop-filter: blur(20px);
+  background-color: rgba(28, 28, 30, 0.4);
+  backdrop-filter: blur(25px) saturate(150%);
+  -webkit-backdrop-filter: blur(25px) saturate(150%);
   display: flex; justify-content: center; align-items: center;
   gap: 20px;
   position: fixed; 
@@ -267,12 +268,12 @@ const ControlsBar = styled.div`
   max-width: 90%;
   border-radius: 40px;
   padding: 0 20px;
-  border: 1px solid rgba(255,255,255,0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
   z-index: 100;
   opacity: ${props => props.isHidden ? 0 : 1};
   pointer-events: ${props => props.isHidden ? 'none' : 'auto'};
   transition: opacity 0.3s, bottom 0.3s;
-  box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+  box-shadow: 0 10px 30px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.1);
   
   @media (max-width: 768px) {
     bottom: 20px;
@@ -1388,10 +1389,7 @@ const Room = ({ socket, roomId, userName, leaveRoom, userStream, initialMuted, i
     return (
         <RoomContainer isTheater={isTheaterActive} onMouseMove={onDrag} onMouseUp={stopDrag}>
 
-            {/* SharePlay Floating Button */}
-            <ShareButton isTheater={isTheaterActive} isHidden={isTheaterActive && !controlsVisible} onClick={() => setShowAppSelector(true)}>
-                <FaShareAlt />
-            </ShareButton>
+            {/* Removed standalone ShareButton */}
 
             {/* DEBUG OVERLAY */}
             <div style={{ position: 'absolute', top: 10, left: 10, background: 'rgba(0,0,0,0.5)', padding: 10, borderRadius: 8, fontSize: 12, zIndex: 9999, pointerEvents: 'none' }}>
@@ -1803,12 +1801,8 @@ const Room = ({ socket, roomId, userName, leaveRoom, userStream, initialMuted, i
                     {viewMode === 'grid' ? <FaExpand /> : <FaTh />}
                 </ControlButton>
 
-                <ControlButton active={showChat} onClick={() => setShowChat(!showChat)} title="Toggle Chat">
-                    <FaCommentAlt />
-                </ControlButton>
-
-                <ControlButton onClick={copyInviteLink} title="Copy Invite Link">
-                    <FaCopy />
+                <ControlButton onClick={() => setShowAppSelector(true)} title="SharePlay" style={{ color: '#0a84ff' }}>
+                    <FaPlayCircle size={24} />
                 </ControlButton>
 
                 <ControlButton active={muted} onClick={toggleMute} title="Toggle Audio">
