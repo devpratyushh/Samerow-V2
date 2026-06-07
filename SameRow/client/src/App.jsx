@@ -2,13 +2,14 @@ import { useState, useEffect } from 'react';
 import io from 'socket.io-client';
 import Lobby from './Lobby';
 import Room from './Room';
+import JellyfinPump from './JellyfinPump';
 import './App.css';
 
 import { auth } from './firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 
-// Use Render backend URL
-const SOCKET_URL = 'https://samerow-v2.onrender.com';
+// Use local backend URL for testing
+const SOCKET_URL = 'http://localhost:3000';
 
 const socket = io(SOCKET_URL, {
   transports: ['websocket', 'polling'],
@@ -25,6 +26,15 @@ function App() {
   const [userName, setUserName] = useState('');
   const [user, setUser] = useState(null);
   const [serverConnected, setServerConnected] = useState(socket.connected);
+  const [initialRoomFromUrl, setInitialRoomFromUrl] = useState('');
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const roomParam = params.get('room');
+    if (roomParam) {
+      setInitialRoomFromUrl(roomParam);
+    }
+  }, []);
 
   useEffect(() => {
     const onConnect = () => setServerConnected(true);
@@ -109,11 +119,17 @@ function App() {
     window.location.reload();
   };
 
+  // Check if we want to run the test pump route
+  if (window.location.pathname === '/test-pump') {
+    return <JellyfinPump />;
+  }
+
   return (
     <>
       {!roomId ? (
         <Lobby
           joinRoom={joinRoom}
+          initialRoom={initialRoomFromUrl}
           userStream={userStream}
           toggleMute={toggleMute}
           toggleVideo={toggleVideo}

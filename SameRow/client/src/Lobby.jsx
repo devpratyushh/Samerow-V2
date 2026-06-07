@@ -1,8 +1,14 @@
 import React, { useState, useEffect, useRef } from 'react';
-import styled from 'styled-components';
+import styled, { keyframes } from 'styled-components';
 import { FaMicrophone, FaMicrophoneSlash, FaVideo, FaVideoSlash, FaGoogle, FaHistory, FaSignOutAlt, FaTrash } from "react-icons/fa";
 import { signInWithPopup, signOut } from "firebase/auth";
 import { auth, googleProvider } from "./firebase";
+
+const gradientAnimation = keyframes`
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+`;
 
 const LobbyContainer = styled.div`
   display: flex;
@@ -11,10 +17,12 @@ const LobbyContainer = styled.div`
   align-items: center;
   min-height: 100vh;
   width: 100%;
-  background-color: #1a1a1a;
+  background: linear-gradient(-45deg, #0f0f13, #1c1c20, #0a0a0c, #1f1f2e);
+  background-size: 400% 400%;
+  animation: ${gradientAnimation} 15s ease infinite;
   color: white;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  padding: 40px 20px; /* Padding for mobile */
+  padding: 40px 20px;
   box-sizing: border-box;
 `;
 
@@ -37,12 +45,13 @@ const PreviewCard = styled.div`
   position: relative;
   width: 100%;
   max-width: 480px;
-  /* aspect-ratio removed to allow stretching to match height */
-  min-height: 360px; /* Minimum height constraint */
-  background-color: #2c2c2e;
-  border-radius: 20px;
+  min-height: 360px;
+  background-color: rgba(44, 44, 46, 0.4);
+  backdrop-filter: blur(24px);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 24px;
   overflow: hidden;
-  box-shadow: 0 20px 40px rgba(0,0,0,0.4);
+  box-shadow: 0 30px 60px rgba(0,0,0,0.6);
   display: flex;
   justify-content: center;
   align-items: center;
@@ -118,10 +127,10 @@ const HistoryItem = styled.div`
 `;
 
 const JoinCard = styled.div`
-  background-color: rgba(44, 44, 46, 0.8);
-  backdrop-filter: blur(20px);
+  background-color: rgba(30, 30, 34, 0.65);
+  backdrop-filter: blur(24px);
   padding: 40px;
-  border-radius: 20px;
+  border-radius: 24px;
   text-align: center;
   width: 100%;
   max-width: 380px;
@@ -129,6 +138,7 @@ const JoinCard = styled.div`
   display: flex;
   flex-direction: column;
   gap: 20px;
+  box-shadow: 0 30px 60px rgba(0,0,0,0.4);
 `;
 
 const Title = styled.h1`
@@ -152,15 +162,16 @@ const Input = styled.input`
 const Button = styled.button`
   width: 100%;
   padding: 16px;
-  background-color: #0a84ff;
+  background: linear-gradient(135deg, #0a84ff, #005bb5);
   color: white;
   border: none;
-  border-radius: 12px;
+  border-radius: 14px;
   font-size: 16px;
   font-weight: 600;
   cursor: pointer;
-  transition: all 0.2s;
-  &:hover { background-color: #007aff; }
+  transition: all 0.3s ease;
+  box-shadow: 0 8px 20px rgba(10, 132, 255, 0.3);
+  &:hover { transform: translateY(-2px); box-shadow: 0 12px 24px rgba(10, 132, 255, 0.5); }
 `;
 
 const Controls = styled.div`
@@ -175,18 +186,23 @@ const ControlButton = styled.button`
   color: ${props => props.active ? "#000" : "#fff"};
   border: none;
   border-radius: 50%;
-  width: 50px;
-  height: 50px;
+  width: 54px;
+  height: 54px;
   display: flex;
   justify-content: center;
   align-items: center;
   cursor: pointer;
-  transition: all 0.2s;
-  &:hover { transform: scale(1.1); }
+  transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+  box-shadow: 0 8px 16px rgba(0,0,0,0.3);
+  &:hover { transform: scale(1.15); box-shadow: 0 12px 24px rgba(0,0,0,0.4); }
 `;
 
-const Lobby = ({ joinRoom, userStream, toggleMute, toggleVideo, isMuted, isVideoOff, streamError, authUser, serverConnected }) => {
-  const [roomId, setRoomId] = useState('');
+const Lobby = ({ joinRoom, initialRoom, userStream, toggleMute, toggleVideo, isMuted, isVideoOff, streamError, authUser, serverConnected }) => {
+  const [roomId, setRoomId] = useState(initialRoom || '');
+
+  useEffect(() => {
+    if (initialRoom) setRoomId(initialRoom);
+  }, [initialRoom]);
   const [userName, setUserName] = useState('');
   const videoRef = useRef();
   const [history, setHistory] = useState([]);
