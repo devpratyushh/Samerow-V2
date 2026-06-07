@@ -8,10 +8,8 @@ import './App.css';
 import { auth } from './firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 
-// Use Render backend in production, and localhost for local development
-const SOCKET_URL = window.location.hostname === 'localhost' 
-  ? 'http://localhost:3000' 
-  : 'https://samerow-v2.onrender.com';
+// Use Render backend universally so localhost and online clients can communicate
+const SOCKET_URL = 'https://samerow-v2.onrender.com';
 
 const socket = io(SOCKET_URL, {
   transports: ['websocket', 'polling'],
