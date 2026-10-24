@@ -10,7 +10,10 @@ import '../src/index.css';
 if (!import.meta.env.DEV) throw new Error('Development fixture only.');
 window.playerCommands = [];
 window.playerMounts = 0;
-window.blockPlayback = new URLSearchParams(location.search).has('blocked');
+const params = new URLSearchParams(location.search);
+window.blockPlayback = params.has('blocked');
+window.playAttempts = 0;
+window.metadataLoaded = false;
 const FixtureProvider = forwardRef(function FixtureProvider(props, ref) {
   const bind = useCallback(node => {
     if (node && !node._fixtureReady) {
@@ -20,13 +23,21 @@ const FixtureProvider = forwardRef(function FixtureProvider(props, ref) {
         duration: { configurable: true, get() { return 600; } },
         paused: { configurable: true, get() { return this._paused; } },
       });
-      node.play = function() { if (window.blockPlayback) return Promise.reject(new DOMException('Autoplay blocked', 'NotAllowedError')); this._paused = false; this.dispatchEvent(new Event('playing')); return Promise.resolve(); };
+      if (params.has('event-blocked')) {
+        const events = new Map();
+        node.api = { addEventListener: (name, callback) => events.set(name, callback), removeEventListener: name => events.delete(name) };
+        window.signalAutoplayBlocked = () => { events.get('onAutoplayBlocked')?.(); node.dispatchEvent(new Event('pause')); };
+      }
+      node.play = function() { window.playAttempts++; if (window.blockPlayback) {
+        if (params.has('event-blocked')) queueMicrotask(() => window.signalAutoplayBlocked());
+        return params.has('hang') ? new Promise(() => {}) : Promise.reject(new DOMException('Autoplay blocked', 'NotAllowedError'));
+      } this._paused = false; this.dispatchEvent(new Event('playing')); return Promise.resolve(); };
       node.pause = function() { this._paused = true; this.dispatchEvent(new Event('pause')); };
       window.fixturePlayer = node;
     }
     if (typeof ref === 'function') ref(node); else if (ref) ref.current = node;
   }, [ref]);
-  useEffect(() => { const timer = setTimeout(() => window.fixturePlayer.dispatchEvent(new Event('loadedmetadata')), 30); return () => clearTimeout(timer); }, []);
+  useEffect(() => { const timer = setTimeout(() => { window.metadataLoaded = true; window.fixturePlayer.dispatchEvent(new Event('loadedmetadata')); }, Number(params.get('delay')) || 30); return () => clearTimeout(timer); }, []);
   const events = Object.fromEntries(Object.entries(props).filter(([key]) => key.startsWith('on')));
   return <video {...events} ref={bind} controls={props.controls} muted={props.muted} style={{width:'100%',height:'100%',background:'#181b20'}} aria-label="Fixture media provider" />;
 });

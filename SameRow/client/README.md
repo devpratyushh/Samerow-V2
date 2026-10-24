@@ -36,7 +36,7 @@ CSS reflow and visibility, retaining media buffers and stream instances.
 Source focus is local: choosing a different source keeps the other players mounted
 and mutes unfocused shared media. Explicit stop/close actions end the selected
 stream or video. Camera tiles fill their frame; screens and media use contain-fit.
-YouTube and Jellyfin use the same custom playback controls, including keyboard seeking, local volume/mute, and room fullscreen. Fullscreen puts circular participant previews along the left edge and keeps the self-preview near the bottom; players stay mounted. While watching, the top and bottom bars slide away independently without resizing the video. Move to the corresponding window edge to reveal a bar; hovering controls, dragging a slider, or keyboard focus keeps them accessible. Touch taps reveal both bars.
+YouTube and Jellyfin use the same custom playback controls, including keyboard seeking, local volume/mute, and room fullscreen. Fullscreen puts circular participant previews along the left edge and keeps the self-preview near the bottom; players stay mounted. Outside fullscreen, the room header, Everyone / YouTube source row, and call controls stay visible. Video controls fade independently during playback and reappear on video movement, touch, or keyboard focus; they stay visible while paused or loading. In fullscreen, the window edges reveal room controls separately. The YouTube share form preloads the provider and API, and blocked autoplay offers a local join action without pausing the room.
 
 Chat stays mounted to preserve drafts, subscriptions, unread counts, and reading
 position. It docks on wide screens and uses a keyboard-aware dialog on compact ones.

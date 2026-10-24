@@ -31,7 +31,6 @@ export default function RoomView({ roomId, userName, connected = true, participa
   const [barsVisible, setBarsVisible] = useState({ top: true, bottom: true });
   const barTimers = useRef({ top: null, bottom: null });
   const barHovered = useRef({ top: false, bottom: false });
-  const playbackDragging = useRef(false);
   const [columns, setColumns] = useState(2);
   const shellRef = useRef(null);
   const gridRef = useRef(null);
@@ -53,7 +52,7 @@ export default function RoomView({ roomId, userName, connected = true, participa
     const hideWhenIdle = () => {
       // Media providers can replace their event target before pointerleave arrives.
       const hovered = barHovered.current[bar] && shellRef.current?.querySelector(`[data-room-bar="${bar}"]:hover`);
-      if (hovered || (bar === 'bottom' && playbackDragging.current)) {
+      if (hovered) {
         barTimers.current[bar] = setTimeout(hideWhenIdle, 650);
         return;
       }
@@ -62,42 +61,36 @@ export default function RoomView({ roomId, userName, connected = true, participa
     barTimers.current[bar] = setTimeout(hideWhenIdle, delay);
   }, [setBarsVisible]);
   const enterBar = useCallback((bar, event) => {
-    if (event?.pointerType === 'touch') return;
+    if (!immersive || event?.pointerType === 'touch') return;
     barHovered.current[bar] = true;
     scheduleHide(bar, 2800);
     setBarsVisible(previous => previous[bar] ? previous : { ...previous, [bar]: true });
-  }, [scheduleHide, setBarsVisible]);
+  }, [immersive, scheduleHide, setBarsVisible]);
   const leaveBar = useCallback(bar => {
+    if (!immersive) return;
     barHovered.current[bar] = false;
     scheduleHide(bar);
-  }, [scheduleHide]);
+  }, [immersive, scheduleHide]);
   const revealBars = useCallback(() => {
     setBarsVisible({ top: true, bottom: true });
     scheduleHide('top', 2800);
     scheduleHide('bottom', 2800);
   }, [scheduleHide, setBarsVisible]);
   useEffect(() => {
-    if (!contentFocused) return;
+    if (!immersive) return;
     const timers = barTimers.current;
     scheduleHide('top', 2200);
     scheduleHide('bottom', 2200);
-    const finishInteraction = () => {
-      if (!playbackDragging.current) return;
-      playbackDragging.current = false;
-      scheduleHide('bottom');
+    const revealForKeyboard = event => {
+      if (!event.target.closest('.player-controls, .playback-hit-area')) revealBars();
     };
-    document.addEventListener('keydown', revealBars);
-    document.addEventListener('pointerup', finishInteraction);
-    document.addEventListener('pointercancel', finishInteraction);
+    document.addEventListener('keydown', revealForKeyboard);
     return () => {
       clearTimeout(timers.top); clearTimeout(timers.bottom);
       barHovered.current = { top: false, bottom: false };
-      playbackDragging.current = false;
-      document.removeEventListener('keydown', revealBars);
-      document.removeEventListener('pointerup', finishInteraction);
-      document.removeEventListener('pointercancel', finishInteraction);
+      document.removeEventListener('keydown', revealForKeyboard);
     };
-  }, [contentFocused, fullscreen, scheduleHide, revealBars]);
+  }, [immersive, scheduleHide, revealBars]);
 
   useEffect(() => {
     const grid = gridRef.current;
@@ -134,11 +127,9 @@ export default function RoomView({ roomId, userName, connected = true, participa
   };
   const moreAction = (action) => () => { setMoreOpen(false); action(); };
 
-  return <RoomPresentation.Provider value={{ fullscreen, toggleFullscreen, onPlaybackEnter: event => enterBar('bottom', event), onPlaybackLeave: () => leaveBar('bottom') }}>
-  <div className={`room-shell ${fullscreen ? 'is-fullscreen' : ''} ${immersive ? 'is-watching' : ''} ${contentFocused ? 'has-media' : ''} ${contentFocused && !barsVisible.top ? 'top-bar-hidden' : ''} ${contentFocused && !barsVisible.bottom ? 'bottom-bar-hidden' : ''} ${contentFocused && !chromeVisible ? 'chrome-hidden' : ''} ${chatOpen ? 'has-open-chat' : ''} ${theater ? 'is-theater' : ''}`} ref={shellRef} onPointerDown={event => {
-    if (!contentFocused) return;
-    if (event.target.closest('.player-controls')) playbackDragging.current = true;
-    if (event.pointerType !== 'mouse') revealBars();
+  return <RoomPresentation.Provider value={{ fullscreen, toggleFullscreen }}>
+  <div className={`room-shell ${fullscreen ? 'is-fullscreen' : ''} ${immersive ? 'is-watching' : ''} ${contentFocused ? 'has-media' : ''} ${immersive && !barsVisible.top ? 'top-bar-hidden' : ''} ${immersive && !barsVisible.bottom ? 'bottom-bar-hidden' : ''} ${immersive && !chromeVisible ? 'chrome-hidden' : ''} ${chatOpen ? 'has-open-chat' : ''} ${theater ? 'is-theater' : ''}`} ref={shellRef} onPointerDown={event => {
+    if (immersive && event.pointerType !== 'mouse' && !event.target.closest('.playback-hit-area, .player-controls')) revealBars();
   }}>
     <div className="fullscreen-topbar" data-room-bar="top" hidden={!immersive} onPointerEnter={event => enterBar('top', event)} onPointerLeave={() => leaveBar('top')}><span className="fullscreen-source">{currentSource.label}</span><div><button className="icon-button" onClick={() => setRailHidden(value => !value)} aria-label={railHidden ? 'Show fullscreen participants' : 'Hide fullscreen participants'} aria-pressed={!railHidden}><FaUsers /></button><button className="icon-button chat-toggle" aria-label={chatOpen ? 'Close chat' : 'Open chat'} onClick={onChatToggle} aria-expanded={chatOpen}><FaCommentAlt />{unread > 0 && <b className="unread-dot">{unread > 9 ? '9+' : unread}</b>}</button><button className="icon-button" aria-label="Fullscreen room options" onClick={() => setMoreOpen(true)}><FaEllipsisH /></button><button className="icon-button" onClick={toggleFullscreen} aria-label="Exit fullscreen" title="Exit fullscreen"><FaCompress /></button></div></div>
     <header className="room-header" data-room-bar="top" onPointerEnter={event => enterBar('top', event)} onPointerLeave={() => leaveBar('top')}>
@@ -156,7 +147,6 @@ export default function RoomView({ roomId, userName, connected = true, participa
             {screenShares.map(source => <div key={source.id} className="source-pane" hidden={sourceId !== source.id}>{source.node || <MediaTile participant={source} screen hidden={sourceId !== source.id} />}{source.isSelf && <div className="screen-share-actions" data-room-bar="top" onPointerEnter={event => enterBar('top', event)} onPointerLeave={() => leaveBar('top')}><span><i className="live-dot" /> You’re sharing your screen</span><button onClick={onStopScreen}>Stop sharing</button></div>}</div>)}
             <div className="source-pane" hidden={sourceId !== 'youtube'}>{typeof youtube?.node === 'function' ? youtube.node(sourceId === 'youtube') : youtube?.node}</div>
             <div className="source-pane" hidden={sourceId !== 'jellyfin'}>{typeof jellyfin?.node === 'function' ? jellyfin.node(sourceId === 'jellyfin') : jellyfin?.node}</div>
-            {contentFocused && !chromeVisible && <div className="touch-wake-zone" onPointerDown={revealBars} aria-hidden="true" />}
           </section>
           <div className="participant-section" hidden={contentFocused && railHidden}>
             <div className="participant-rail-label"><span>IN THE ROOM <b>{participants.length}</b></span><button className="icon-button" aria-label="Hide participants" onClick={() => setRailHidden(true)}><FaChevronDown /></button></div>
@@ -176,7 +166,7 @@ export default function RoomView({ roomId, userName, connected = true, participa
       <div className="toolbar-end"><FaCircle /><span>SameRow</span></div>
     </footer>
     {notification && <div className="room-toast" role="status">{notification}</div>}
-    {contentFocused && <><div className="room-edge-zone room-edge-zone--top" data-room-bar="top" onPointerEnter={event => enterBar('top', event)} onPointerLeave={() => leaveBar('top')} onPointerDown={revealBars} aria-hidden="true" /><div className="room-edge-zone room-edge-zone--bottom" data-room-bar="bottom" onPointerEnter={event => enterBar('bottom', event)} onPointerLeave={() => leaveBar('bottom')} onPointerDown={revealBars} aria-hidden="true" /></>}
+    {immersive && <><div className="room-edge-zone room-edge-zone--top" data-room-bar="top" onPointerEnter={event => enterBar('top', event)} onPointerLeave={() => leaveBar('top')} onPointerDown={revealBars} aria-hidden="true" /><div className="room-edge-zone room-edge-zone--bottom" data-room-bar="bottom" onPointerEnter={event => enterBar('bottom', event)} onPointerLeave={() => leaveBar('bottom')} onPointerDown={revealBars} aria-hidden="true" /></>}
     <Dialog open={moreOpen} title="Room options" description="View and room settings." onClose={() => setMoreOpen(false)}>
       <div className="room-menu"><button onClick={moreAction(onChatToggle)}><FaCommentAlt /><span>{chatOpen ? 'Close chat' : 'Open chat'}{unread > 0 ? ` (${unread} unread)` : ''}</span></button><button onClick={moreAction(onInvite)}><FaCopy /><span>Invite friends</span></button><button onClick={moreAction(() => { setSelectedSource('people'); setPin(null); })}><FaThLarge /><span>Show everyone in a grid</span></button><button onClick={moreAction(() => { setRailHidden(value => !value); })} disabled={!contentFocused}><FaUsers /><span>{railHidden ? 'Show' : 'Hide'} participant strip</span></button><button onClick={() => { setMoreOpen(false); toggleFullscreen(); }}><FaExpand /><span>{fullscreen ? 'Exit' : 'Enter'} fullscreen</span></button><button onClick={moreAction(() => setDiagnosticsOpen(true))}><FaSlidersH /><span>Connection details</span></button></div>
     </Dialog>

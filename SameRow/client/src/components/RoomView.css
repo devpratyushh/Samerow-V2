@@ -1492,7 +1492,26 @@
 .source-tabs button.is-active { border-color: #dfbd7d45; background: #dfbd7d10; }
 .source-tabs button.is-active > svg { color: var(--accent); }
 .media-tile.is-pinned { border-color: #dfbd7d8c; }
-.room-control.is-active { color: #efe3ce; background: #35332e; border-color: #615a4d; }
+/* Jellyfin-inspired purple and blue accents for the call dock. */
+.toolbar-controls { --accent: #00a4dc; --call-purple: #aa5cc3; }
+.toolbar-controls .room-control {
+  transition: color .15s ease, background-color .15s ease, border-color .15s ease;
+}
+.toolbar-controls .room-control:not(.is-danger) {
+  color: #dfe4ed; background: #272930; border-color: #444650;
+}
+.toolbar-controls .room-control.is-active {
+  color: #ead9f3; background: #aa5cc326; border-color: #aa5cc37a;
+}
+.toolbar-controls .room-control[aria-pressed='false'] {
+  color: #aeb7c7; background: #22242a; border-color: #41434d;
+}
+.toolbar-controls .room-control:not(.is-danger):hover {
+  color: #d5f1fc; background: #00a4dc26; border-color: #00a4dc;
+}
+.toolbar-controls .room-control.is-active:hover {
+  color: #f4eafa; background: #aa5cc33d; border-color: var(--call-purple);
+}
 .tile-avatar span { color: #e4d3b6; background: #464039; }
 .media-tile:nth-child(3n+2) .tile-avatar span { color: #d7e0e5; background: #3b4449; }
 .media-tile:nth-child(3n) .tile-avatar span { color: #d6e0d5; background: #3c463d; }
@@ -1563,56 +1582,32 @@
 .is-fullscreen.is-watching .screen-share-actions { top: 72px; left: 145px; right: 20px; }
 @media (min-width: 1100px) { .is-fullscreen.is-watching.has-open-chat .screen-share-actions { right: 360px; } }
 @media (max-width: 600px) { .is-fullscreen.is-watching .screen-share-actions { top: 64px; left: 90px; right: 12px; } }
-/* Watch-mode bars behave like an auto-hiding taskbar, without resizing the media. */
-.room-shell { position: relative; --watch-header: 58px; --watch-footer: 74px; }
-.has-media:not(.is-fullscreen) .room-header { position: absolute; z-index: 30; inset: 0 0 auto; min-height: var(--watch-header); background: #151617f2; }
-.has-media:not(.is-fullscreen) .room-toolbar { position: absolute; z-index: 20; inset: auto 0 0; background: #1b1c1ef2; }
-.has-media:not(.is-fullscreen) .room-canvas { position: relative; padding-top: 12px; padding-bottom: 12px; }
-.has-media:not(.is-fullscreen) .source-bar { position: absolute; z-index: 25; top: var(--watch-header); left: 28px; right: 28px; padding: 7px 0; background: #151617ed; border-radius: 0 0 8px 8px; }
-.has-media:not(.is-fullscreen) .screen-share-actions { top: calc(var(--watch-header) + 64px); }
+/* Room chrome only retreats in fullscreen; video controls own their visibility. */
+.room-shell { position: relative; }
 .has-media:not(.is-fullscreen) .stage-bottom { display: none; }
-.has-media:not(.is-fullscreen) .player-controls { bottom: calc(var(--watch-footer) + env(safe-area-inset-bottom) + 8px); }
-.has-media:not(.is-fullscreen) .sr-chat-container { margin-top: var(--watch-header); margin-bottom: calc(var(--watch-footer) + env(safe-area-inset-bottom)); }
-.has-media .room-header, .has-media .source-bar, .has-media .fullscreen-topbar,
-.has-media .room-toolbar, .has-media .player-controls, .has-media .screen-share-actions {
-  transition: transform .22s ease, opacity .18s ease, visibility 0s;
+.is-fullscreen.is-watching .fullscreen-topbar,
+.is-fullscreen.is-watching .room-toolbar,
+.is-fullscreen.is-watching .screen-share-actions {
+  transition: transform .2s ease, opacity .18s ease, visibility 0s;
 }
-.has-media.top-bar-hidden .room-header,
-.has-media.top-bar-hidden .source-bar,
-.has-media.top-bar-hidden .fullscreen-topbar,
-.has-media.top-bar-hidden .screen-share-actions {
+.is-fullscreen.is-watching.top-bar-hidden .fullscreen-topbar,
+.is-fullscreen.is-watching.top-bar-hidden .screen-share-actions {
   opacity: 0; visibility: hidden; pointer-events: none;
-  transition: transform .22s ease, opacity .18s ease, visibility 0s .22s;
+  transform: translateY(calc(-100% - 90px));
+  transition: transform .2s ease, opacity .18s ease, visibility 0s .2s;
 }
-.has-media.top-bar-hidden .room-header { transform: translateY(-100%); }
-.has-media.top-bar-hidden .source-bar { transform: translateY(calc(-100% - var(--watch-header))); }
-.has-media.top-bar-hidden .fullscreen-topbar,
-.has-media.top-bar-hidden .screen-share-actions { transform: translateY(calc(-100% - 90px)); }
-.has-media.bottom-bar-hidden .room-toolbar,
-.has-media.bottom-bar-hidden .player-controls {
+.is-fullscreen.is-watching.bottom-bar-hidden .room-toolbar {
   opacity: 0; visibility: hidden; pointer-events: none;
-  transition: transform .22s ease, opacity .18s ease, visibility 0s .22s;
+  transform: translateX(-50%) translateY(calc(100% + 36px));
+  transition: transform .2s ease, opacity .18s ease, visibility 0s .2s;
 }
-.has-media:not(.is-fullscreen).bottom-bar-hidden .room-toolbar { transform: translateY(100%); }
-.is-fullscreen.is-watching.bottom-bar-hidden .room-toolbar { transform: translateX(-50%) translateY(calc(100% + 36px)); }
-.has-media.bottom-bar-hidden .player-controls { transform: translateY(180px); }
-.has-media .room-header:has(:focus-visible),
-.has-media .source-bar:has(:focus-visible),
-.has-media .fullscreen-topbar:has(:focus-visible),
-.has-media .screen-share-actions:has(:focus-visible),
-.has-media .player-controls:has(:focus-visible) { opacity: 1; visibility: visible; pointer-events: auto; transform: none; }
-.has-media:not(.is-fullscreen) .room-toolbar:has(:focus-visible) { opacity: 1; visibility: visible; pointer-events: auto; transform: none; }
-.is-fullscreen.is-watching .room-toolbar:has(:focus-visible) { opacity: 1; visibility: visible; pointer-events: auto; transform: translateX(-50%); }
+.is-fullscreen.is-watching .fullscreen-topbar:has(:focus-visible),
+.is-fullscreen.is-watching .screen-share-actions:has(:focus-visible) {
+  opacity: 1; visibility: visible; pointer-events: auto; transform: none;
+}
+.is-fullscreen.is-watching .room-toolbar:has(:focus-visible) {
+  opacity: 1; visibility: visible; pointer-events: auto; transform: translateX(-50%);
+}
 .room-edge-zone { position: absolute; left: 0; right: 0; z-index: 45; height: 14px; }
 .room-edge-zone--top { top: 0; }
 .room-edge-zone--bottom { bottom: 0; height: max(18px,env(safe-area-inset-bottom)); }
-.touch-wake-zone { display: none; }
-@media (any-pointer: coarse) { .touch-wake-zone { display: block; position: absolute; inset: 0; z-index: 3; } }
-@media (max-width: 600px) {
-  .room-shell { --watch-header: 54px; --watch-footer: 70px; }
-  .has-media:not(.is-fullscreen) .source-bar { left: 12px; right: 12px; }
-}
-@media (max-height: 540px) and (orientation: landscape) {
-  .room-shell { --watch-header: 46px; --watch-footer: 58px; }
-  .has-media:not(.is-fullscreen) .source-bar { padding-block: 3px; }
-}

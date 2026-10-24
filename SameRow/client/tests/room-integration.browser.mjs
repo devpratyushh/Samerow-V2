@@ -23,6 +23,12 @@ try {
   assert.equal(await page.evaluate(()=>window.initialTrack.readyState),'ended');
   console.log('PASS late camera permission replaces fallback track without remount/rejoin');
   await page.getByRole('button',{name:'Share something',exact:true}).click();
+  await page.getByRole('button',{name:'A YouTube video Watch a video together.'}).click();
+  await page.waitForFunction(()=>document.querySelector('link[data-youtube-api]')&&customElements.get('youtube-video'));
+  assert.equal(await page.locator('youtube-video').count(),0,'Prewarming should not start a player');
+  await page.keyboard.press('Escape');
+  console.log('PASS choosing YouTube warms provider and API before starting a video');
+  await page.getByRole('button',{name:'Share something',exact:true}).click();
   await page.getByRole('button',{name:'Your screen Share a tab, an app, or your desktop.'}).click();
   await page.locator('[data-participant="screen-self"]').waitFor();
   await page.evaluate(()=>{window.screenVideo=document.querySelector('[data-participant="screen-self"] video');window.screenTrack=window.screenVideo.srcObject.getVideoTracks()[0];});
