@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const http = require('http');
 const { Server } = require("socket.io");
+const { isVideoUrl, isTimestamp, createState, snapshot, updateState } = require("./youtube");
 
 const app = express();
 const server = http.createServer(app);
@@ -12,7 +13,7 @@ const io = new Server(server, {
   }
 });
 
-const port = 3000;
+const port = process.env.PORT || 3000;
 
 app.use(cors());
 app.use(express.json());
@@ -34,70 +35,41 @@ io.on('connection', (socket) => {
 
   // Join room with username
   socket.on('join-room', (roomId, userName) => {
-    if (!isValidRoomId(roomId)) return;
+    if (!isValidRoomId(roomId) || socket.rooms.has(roomId)) return;
     socket.join(roomId);
 
     // Initialize room state if not exists
     if (!rooms[roomId]) {
-      rooms[roomId] = {
-        youtubeState: {
-          url: null,
-          isPlaying: false,
-          timestamp: 0,
-          lastUpdate: Date.now()
-        }
-      };
+      rooms[roomId] = { youtubeState: createState() };
     }
 
     socket.to(roomId).emit('user-connected', { userId: socket.id, userName });
   });
 
-  // Sync Request: New user asks for current state
+  // Only participants may inspect or change a room's playback.
   socket.on('sync-request', (roomId) => {
-    if (!isValidRoomId(roomId)) return;
-    if (rooms[roomId] && rooms[roomId].youtubeState) {
-      // Calculate interpolated timestamp if playing logic is needed, 
-      // but for simplicity, we send the last known state and let client handle seek if needed.
-      socket.emit('youtube-change', rooms[roomId].youtubeState.url);
-      socket.emit('youtube-state-change', rooms[roomId].youtubeState);
-    }
+    if (!isValidRoomId(roomId) || !socket.rooms.has(roomId) || !rooms[roomId]) return;
+    socket.emit('youtube-sync', snapshot(rooms[roomId].youtubeState));
   });
 
-  // YouTube Events
-  socket.on('youtube-change', ({ roomId, url }) => {
-    if (!isValidRoomId(roomId)) return;
-    if (!rooms[roomId]) {
-      rooms[roomId] = {
-        youtubeState: {
-          url: null, isPlaying: false, timestamp: 0, lastUpdate: Date.now()
-        }
-      };
-    }
-
-    rooms[roomId].youtubeState = {
-      url,
-      isPlaying: true, // Auto-play new video
-      timestamp: 0,
-      lastUpdate: Date.now()
-    };
-    io.to(roomId).emit('youtube-change', url);
+  socket.on('youtube-change', (payload = {}) => {
+    if (!payload) return;
+    const { roomId, url, timestamp = 0 } = payload;
+    if (!isValidRoomId(roomId) || !socket.rooms.has(roomId)) return;
+    if (url !== null && !isVideoUrl(url)) return;
+    if (!isTimestamp(timestamp)) return;
+    rooms[roomId].youtubeState = createState(url, url ? timestamp : 0);
+    io.to(roomId).emit('youtube-sync', snapshot(rooms[roomId].youtubeState));
   });
 
-  socket.on('youtube-state-change', ({ roomId, isPlaying, timestamp }) => {
-    if (!isValidRoomId(roomId)) return;
-    if (!rooms[roomId]) {
-      rooms[roomId] = { youtubeState: { url: null, isPlaying: false, timestamp: 0, lastUpdate: Date.now() } };
-    }
-    rooms[roomId].youtubeState = {
-      ...rooms[roomId].youtubeState,
-      isPlaying,
-      timestamp,
-      lastUpdate: Date.now()
-    };
-    // Broadcast to everyone ELSE in the room (prevent loop back to sender if possible, 
-    // but io.to(roomId) sends to everyone. using socket.to(roomId) excludes sender)
-    // We want to exclude sender to avoid feedback loops!
-    socket.to(roomId).emit('youtube-state-change', { isPlaying, timestamp });
+  socket.on('youtube-state-change', (payload = {}) => {
+    if (!payload) return;
+    const { roomId } = payload;
+    if (!isValidRoomId(roomId) || !socket.rooms.has(roomId) || !rooms[roomId]) return;
+    const next = updateState(rooms[roomId].youtubeState, payload);
+    if (!next) return;
+    rooms[roomId].youtubeState = next;
+    io.to(roomId).emit('youtube-sync', snapshot(next));
   });
 
   socket.on('update-user-state', ({ roomId, type, enabled }) => {
@@ -114,6 +86,10 @@ io.on('connection', (socket) => {
   });
 });
 
-server.listen(port, () => {
-  console.log(`Server running at http://localhost:${port}`);
-});
+if (require.main === module) {
+  server.listen(port, () => {
+    console.log(`Server running at http://localhost:${port}`);
+  });
+}
+
+module.exports = { server, io };

@@ -1,519 +1,16 @@
-import React, { useEffect, useRef, useState } from "react";
-import Peer from "simple-peer";
-import styled, { keyframes } from "styled-components";
-import ReactPlayer from "react-player";
-import { FaMicrophone, FaMicrophoneSlash, FaVideo, FaVideoSlash, FaPhoneSlash, FaEllipsisV, FaSignal, FaExpand, FaTh, FaYoutube, FaSpinner, FaShareAlt, FaTimes, FaDesktop, FaCopy, FaCommentAlt, FaPlayCircle, FaPlay, FaPause } from "react-icons/fa";
-import { db } from './firebase';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { useEffect, useEffectEvent, useRef, useState } from 'react';
+import Peer from 'simple-peer';
+import { FaDesktop, FaYoutube, FaPlayCircle, FaStop } from 'react-icons/fa';
+import YouTubePlayer from './YouTubePlayer';
+import { parseYouTubeUrl } from './youtube';
+import { connectYouTubeRoom } from './youtubeRoom';
 import Chat from './Chat';
 import JellyfinPump from './JellyfinPump';
 import MSEPlayer from './MSEPlayer';
-
-const RoomContainer = styled.div`
-  display: flex;
-  flex-direction: column;
-  height: 100vh;
-  width: 100vw;
-  background: linear-gradient(135deg, #0f0f13, #1a1a1a);
-  color: white;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  overflow: hidden;
-`;
-
-const SplitLayout = styled.div`
-  display: flex;
-  flex: 1;
-  width: 100%;
-  height: 100%;
-  overflow: hidden;
-  
-  @media (max-width: 768px) {
-    flex-direction: column;
-  }
-`;
-
-const Sidebar = styled.div`
-  width: 280px;
-  background-color: #1c1c1e;
-  display: flex;
-  flex-direction: column;
-  padding: 16px;
-  gap: 16px;
-  overflow-y: auto;
-  border-right: 1px solid rgba(255,255,255,0.1);
-  z-index: 10;
-  
-  /* Hide scrollbar */
-  &::-webkit-scrollbar { display: none; }
-  -ms-overflow-style: none; scrollbar-width: none;
-
-  @media (max-width: 768px) {
-    width: 100%;
-    height: 160px; /* Fixed height for bottom strip */
-    flex-direction: row;
-    overflow-x: auto;
-    overflow-y: hidden;
-    border-right: none;
-    border-top: 1px solid rgba(255,255,255,0.1);
-    order: 2; /* Put at bottom */
-    padding: 10px;
-    
-    /* Child VideoWrappers */
-    & > div {
-       min-width: 200px;
-       height: 100%;
-       width: auto !important; /* Override VideoWrapper width */
-       aspect-ratio: 16/9;
-    }
-  }
-`;
-
-const MainStage = styled.div`
-  flex: 1;
-  background-color: #000;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  padding: 20px;
-  position: relative;
-`;
-
-const OverlayButton = styled.button`
-  position: absolute;
-  bottom: 120px; /* Moved up to avoid ControlsBar */
-  left: 50%;
-  transform: translateX(-50%);
-  background-color: #ff3b30;
-  color: white;
-  border: none;
-  padding: 12px 24px;
-  border-radius: 30px;
-  font-weight: 600;
-  font-size: 16px;
-  cursor: pointer;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.5);
-  z-index: 200; /* Higher than ControlsBar (100) */
-  transition: transform 0.2s;
-  
-  &:hover { transform: translateX(-50%) scale(1.05); background-color: #ff453a; }
-`;
-
-const CloseButton = styled.button`
-  position: absolute;
-  top: 10px;
-  right: 10px;
-  background: rgba(0, 0, 0, 0.6);
-  border: none;
-  color: white;
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  cursor: pointer;
-  z-index: 50;
-  transition: background 0.2s;
-  
-  &:hover {
-    background: rgba(255, 59, 48, 0.8);
-  }
-`;
-
-// Shared Player Container
-const SharedPlayerWrapper = styled.div`
-  width: 100%;
-  max-width: 800px;
-  aspect-ratio: 16/9;
-  margin: 0 auto;
-  background: black;
-  display: ${props => props.visible ? 'block' : 'none'};
-  margin-bottom: 20px;
-  border-radius: 12px; overflow: hidden;
-  box-shadow: 0 10px 30px rgba(0,0,0,0.5);
-  position: relative;
-  z-index: 40;
-`;
-
-const spin = keyframes`
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
-`;
-
-const LoadingOverlay = styled.div`
-  position: absolute;
-  top: 0; left: 0; width: 100%; height: 100%;
-  background: rgba(0,0,0,0.7);
-  display: flex; justify-content: center; align-items: center;
-  z-index: 50;
-  backdrop-filter: blur(5px);
-`;
-
-const Spinner = styled(FaSpinner)`
-  animation: ${spin} 1s linear infinite;
-  color: #ff0000;
-  font-size: 40px;
-`;
-
-const VideoGrid = styled.div`
-  flex: 1;
-  display: flex;
-  flex-wrap: ${props => props.mode === 'pip' ? 'nowrap' : 'wrap'};
-  justify-content: center;
-  align-items: center;
-  padding: ${props => props.mode === 'pip' ? '0' : '40px'};
-  gap: ${props => props.mode === 'pip' ? '0' : '20px'};
-  overflow-y: auto;
-  position: relative;
-`;
-
-const VideoWrapper = styled.div`
-  position: relative;
-  width: ${props => props.isFullScreen ? '100vw' : props.isMainStage ? '100%' : '100%'};
-  height: ${props => props.isFullScreen ? '100vh' : props.isMainStage ? '100%' : 'auto'};
-  max-width: ${props => (props.isFullScreen || props.isMainStage) ? 'none' : '600px'};
-  aspect-ratio: ${props => (props.isFullScreen || props.isMainStage) ? 'auto' : '16 / 9'};
-  background-color: #2c2c2e;
-  border-radius: ${props => (props.isFullScreen || props.isMainStage) ? '0' : '18px'};
-  overflow: hidden;
-  box-shadow: ${props => (props.isFullScreen || props.isMainStage) ? 'none' : '0 8px 30px rgba(0, 0, 0, 0.4)'};
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  transition: all 0.3s ease;
-  
-  @media (max-width: 768px) { width: 100%; }
-`;
-
-const DraggableWrapper = styled.div`
-  position: fixed;
-  width: 240px;
-  aspect-ratio: 16 / 9;
-  background-color: #333;
-  border-radius: 12px;
-  box-shadow: 0 10px 40px rgba(0,0,0,0.5);
-  z-index: 50;
-  cursor: grab;
-  overflow: hidden;
-  border: 2px solid rgba(255,255,255,0.1);
-  
-  &:active { cursor: grabbing; }
-
-  top: ${props => props.y}px;
-  left: ${props => props.x}px;
-`;
-
-const StyledVideo = styled.video`
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: ${props => props.isHidden ? 'none' : 'block'};
-`;
-
-const NameTag = styled.div`
-  position: absolute;
-  bottom: 15px; left: 15px;
-  background-color: rgba(0, 0, 0, 0.6);
-  backdrop-filter: blur(10px); color: white;
-  padding: 6px 12px; border-radius: 20px;
-  font-size: 14px; font-weight: 500;
-  z-index: 10;
-  display: flex; align-items: center; gap: 8px;
-`;
-
-const StatusIcon = styled.div`
-  color: #ff453a; font-size: 12px; display: flex; align-items: center;
-`;
-
-const InitialsAvatar = styled.div`
-  width: 100%; height: 100%;
-  border-radius: 0;
-  background: linear-gradient(135deg, #a8c0ff, #3f2b96);
-  color: white;
-  display: flex; justify-content: center; align-items: center;
-  font-size: 48px; font-weight: bold;
-`;
-
-const ControlsBar = styled.div`
-  height: 80px;
-  background-color: rgba(28, 28, 30, 0.7);
-  backdrop-filter: blur(20px);
-  display: flex; justify-content: center; align-items: center;
-  gap: 20px;
-  position: fixed; 
-  bottom: 40px; 
-  left: 50%;
-  transform: translateX(-50%);
-  width: auto;
-  min-width: 300px; /* Ensure fit */
-  max-width: 90%;
-  border-radius: 40px;
-  padding: 0 20px;
-  border: 1px solid rgba(255,255,255,0.1);
-  z-index: 100;
-  box-shadow: 0 10px 30px rgba(0,0,0,0.3);
-  
-  @media (max-width: 768px) {
-    bottom: 20px;
-    height: 70px;
-    gap: 15px;
-    padding: 0 15px;
-    width: max-content;
-  }
-`;
-
-const ControlButton = styled.button`
-  background-color: ${props => props.danger ? "#ff3b30" : props.active ? "#3a3a3c" : "#f2f2f7"};
-  color: ${props => props.active ? "#fff" : "#000"};
-  border: none; border-radius: 50%; width: 56px; height: 56px;
-  display: flex; justify-content: center; align-items: center;
-  cursor: pointer; 
-  transition: all 0.2s ease-in-out;
-  box-shadow: 0 4px 10px rgba(0,0,0,0.2);
-  
-  & > svg {
-      width: 28px;
-      height: 28px;
-      font-size: 28px; /* Backup for react-icons */
-  }
-  
-  &:hover { 
-      transform: scale(1.1); 
-      background-color: ${props => props.danger ? "#ff453a" : props.active ? "#48484a" : "#ffffff"};
-  }
-`;
-
-const MenuTrigger = styled.button`
-  position: absolute; top: 15px; right: 15px;
-  background-color: rgba(0,0,0,0.4); color: white;
-  border: none; width: 32px; height: 32px; border-radius: 50%;
-  display: flex; justify-content: center; align-items: center;
-  cursor: pointer; backdrop-filter: blur(5px);
-  transition: background-color 0.2s;
-  z-index: 20;
-  &:hover { background-color: rgba(0,0,0,0.6); }
-`;
-
-const StatsMenu = styled.div`
-  position: absolute; top: 50px; right: 15px;
-  background-color: rgba(28, 28, 30, 0.95);
-  backdrop-filter: blur(20px);
-  border-radius: 12px;
-  padding: 10px;
-  width: 200px;
-  color: white;
-  font-size: 11px;
-  font-family: monospace;
-  z-index: 30;
-  box-shadow: 0 4px 20px rgba(0,0,0,0.5);
-  border: 1px solid rgba(255,255,255,0.1);
-`;
-
-const StatItem = styled.div`
-  display: flex; justify-content: space-between;
-  padding: 4px 0;
-  border-bottom: 1px solid rgba(255,255,255,0.1);
-  &:last-child { border-bottom: none; }
-  span:first-child { color: #8a8a8e; }
-  span:last-child { color: #30d158; font-weight: bold; }
-`;
-
-// --- SharePlay UI Components ---
-
-const ShareButton = styled(ControlButton)`
-  position: fixed;
-  bottom: 40px;
-  right: 40px;
-  z-index: 100;
-  background-color: #0a84ff;
-  color: white;
-  width: 64px; height: 64px;
-  
-  &:hover { background-color: #007aff; }
-`;
-
-const ModalOverlay = styled.div`
-  position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
-  background: rgba(0,0,0,0.6); backdrop-filter: blur(5px);
-  z-index: 200;
-  display: flex; justify-content: center; align-items: center;
-`;
-
-const AppSelector = styled.div`
-  background: #1c1c1e;
-  padding: 24px;
-  border-radius: 20px;
-  width: 300px;
-  border: 1px solid rgba(255,255,255,0.1);
-  box-shadow: 0 20px 50px rgba(0,0,0,0.5);
-  display: flex; flex-direction: column; gap: 16px;
-`;
-
-const InputModal = styled(AppSelector)`
-  width: 400px;
-`;
-
-const ModalHeader = styled.div`
-  display: flex; justify-content: space-between; align-items: center;
-  margin-bottom: 8px;
-  h3 { margin: 0; font-size: 18px; font-weight: 600; }
-`;
-
-const AppOption = styled.button`
-  background: rgba(255,255,255,0.05);
-  border: none;
-  padding: 16px;
-  border-radius: 12px;
-  color: white;
-  display: flex; align-items: center; gap: 12px;
-  cursor: pointer;
-  transition: all 0.2s;
-  font-size: 16px; font-weight: 500;
-  
-  &:hover { background: rgba(255,255,255,0.1); transform: translateY(-2px); }
-`;
-
-const UrlInput = styled.input`
-  width: 100%;
-  background: rgba(0,0,0,0.3);
-  border: 1px solid rgba(255,255,255,0.2);
-  color: white;
-  padding: 12px;
-  border-radius: 10px;
-  outline: none;
-  font-size: 16px;
-  
-  &:focus { border-color: #0a84ff; }
-`;
-
-const ActionButton = styled.button`
-  background: #0a84ff;
-  color: white;
-  border: none; padding: 12px;
-  border: none;
-  font-size: 20px;
-  color: white;
-  cursor: pointer;
-  transition: color 0.2s;
-  
-  &:hover { color: #0a84ff; }
-`;
-
-// --- Peer Metrics Overlay ---
-const MetricsOverlay = styled.div`
-  position: absolute;
-  top: 60px;
-  right: 20px;
-  background: rgba(0, 0, 0, 0.6);
-  backdrop-filter: blur(8px);
-  padding: 15px;
-  border-radius: 8px;
-  z-index: 60;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  pointer-events: none;
-  min-width: 250px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-`;
-
-const MetricRow = styled.div`
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-size: 13px;
-  color: white;
-  font-family: monospace;
-`;
-
-const MetricUser = styled.span`
-  font-weight: 600;
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-`;
-
-const MetricStatus = styled.span`
-  margin-left: 10px;
-  color: ${props => props.buffering ? '#ffcc00' : (props.playing ? '#34c759' : '#ff3b30')};
-`;
-
-const MetricTime = styled.span`
-  margin-left: 15px;
-  opacity: 0.8;
-  min-width: 45px;
-  text-align: right;
-`;
-
-// --- Custom Video Controls ---
-const VideoControlsContainer = styled.div`
-  position: absolute;
-  bottom: 0; left: 0; right: 0;
-  background: linear-gradient(to top, rgba(0,0,0,0.9), transparent);
-  padding: 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  opacity: 0;
-  transition: opacity 0.3s;
-  z-index: 50;
-
-  ${props => props.visible && `opacity: 1;`}
-`;
-
-const ScrubBarContainer = styled.div`
-  position: relative;
-  width: 100%;
-  height: 8px;
-  background: rgba(255,255,255,0.2);
-  border-radius: 4px;
-  cursor: pointer;
-`;
-
-const ScrubBarFill = styled.div`
-  position: absolute;
-  top: 0; left: 0;
-  height: 100%;
-  background: #0a84ff;
-  border-radius: 4px;
-  pointer-events: none;
-`;
-
-const BufferedRegion = styled.div`
-  position: absolute;
-  top: 0;
-  height: 100%;
-  background: rgba(255,255,255,0.4);
-  border-radius: 4px;
-  pointer-events: none;
-`;
-
-const ControlsRow = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  color: white;
-`;
-
-const PlayPauseButton = styled.button`
-  background: none;
-  border: none;
-  color: white;
-  font-size: 20px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  &:hover { color: #0a84ff; }
-`;
-
-const TimeDisplay = styled.div`
-  font-size: 14px;
-  font-family: monospace;
-`;
-
-// --- SDP Utils ---
+import RoomView, { MediaStatus } from './components/RoomView';
+import Dialog from './components/Dialog';
+import PlaybackControls from './components/PlaybackControls';
+import { formatTime } from './components/roomLayout';
 function setMediaBitrate(sdp, mediaType, bitrate) {
     let lines = sdp.split("\n");
     let line = -1;
@@ -574,1169 +71,295 @@ const PEER_CONFIG = {
     }
 };
 
-const Video = React.memo(({ stream, userName, peerState, peer, isFullScreen, isMainStage }) => {
-    const ref = useRef();
-    const [videoEnabled, setVideoEnabled] = useState(true);
-    const [showStats, setShowStats] = useState(false);
-    const [stats, setStats] = useState({ rtt: '0ms', packetLoss: '0', resolution: 'N/A', fps: '0' });
 
-    // Use callback ref to ensure stream is attached immediately on mount/update
-    const setVideoRef = React.useCallback((el) => {
-        ref.current = el;
-        if (el && stream) {
-            const currentStream = el.srcObject;
-            if (currentStream) {
-                const currentTracks = currentStream.getTracks();
-                const newTracks = stream.getTracks();
-                if (currentTracks.length > 0 && currentTracks.length === newTracks.length && currentTracks.every((t, i) => t.id === newTracks[i].id)) {
-                    return; // Same tracks, prevent flicker
-                }
-            }
-            el.srcObject = stream;
-            // Force play in case it paused during transition
-            el.play().catch(e => console.error("Auto-play failed:", e));
+function createFallbackStream() {
+  const canvas = document.createElement('canvas'); canvas.width = 640; canvas.height = 360;
+  canvas.getContext('2d').fillRect(0, 0, 640, 360);
+  const stream = canvas.captureStream(1);
+  stream.getTracks().forEach(track => { track.enabled = false; });
+  return stream;
+}
+
+function JellyfinControls({ currentTime, duration, playing, isHost, onPlayPause, onSeek, onStop, onSettings, volume, muted, onVolumeChange, onMute }) {
+  return <PlaybackControls label={isHost ? 'for everyone' : 'for me'} playing={playing} currentTime={currentTime} duration={duration} canSeek={isHost} onTogglePlay={onPlayPause} onSeek={onSeek} volume={volume} muted={muted} onVolumeChange={onVolumeChange} onMute={onMute} note={isHost ? 'You control the movie' : 'Host controls seeking'}>{isHost && <><button className="player-control" aria-label="Jellyfin settings" title="Jellyfin settings" onClick={onSettings}><FaPlayCircle /></button><button className="player-control" aria-label="Stop movie for everyone" title="Stop movie for everyone" onClick={onStop}><FaStop /></button></>}</PlaybackControls>;
+}
+
+export default function Room({ socket, roomId, userName, leaveRoom, userStream, initialMuted, initialVideoOff }) {
+  const [activeStream] = useState(() => userStream || createFallbackStream());
+  const [ownsFallback] = useState(() => !userStream);
+  const [peers, setPeers] = useState([]);
+  const peersRef = useRef([]);
+  const [muted, setMuted] = useState(initialMuted);
+  const [videoOff, setVideoOff] = useState(initialVideoOff);
+  const [peerStates, setPeerStates] = useState({});
+  const [connected, setConnected] = useState(socket.connected);
+  const [youtubeState, setYoutubeState] = useState(null);
+  const youtubeRoomRef = useRef(null);
+  const [isSubmittingUrl, setIsSubmittingUrl] = useState(false);
+  const [inputUrl, setInputUrl] = useState('');
+  const [urlError, setUrlError] = useState('');
+  const [showShare, setShowShare] = useState(false);
+  const [showUrlInput, setShowUrlInput] = useState(false);
+  const [showChat, setShowChat] = useState(false);
+  const [unread, setUnread] = useState(0);
+  const [notification, setNotification] = useState('');
+  const toastTimer = useRef(null);
+  const [myScreenStream, setMyScreenStream] = useState(null);
+  const screenStreamRef = useRef(null);
+  const msePlayerRef = useRef(null);
+  const jellyfinPumpRef = useRef(null);
+  const [jellyfinActive, setJellyfinActive] = useState(false);
+  const [isJellyfinHost, setIsJellyfinHost] = useState(false);
+  const [showJellyfinInput, setShowJellyfinInput] = useState(false);
+  const [jellyfinDuration, setJellyfinDuration] = useState(0);
+  const [jellyfinCurrentTime, setJellyfinCurrentTime] = useState(0);
+  const [jellyfinPlaying, setJellyfinPlaying] = useState(true);
+  const [movieVolume, setMovieVolume] = useState(1);
+  const [movieMuted, setMovieMuted] = useState(false);
+  const [jellyfinBuffered, setJellyfinBuffered] = useState(0);
+  const [jellyfinStatus, setJellyfinStatus] = useState({ state: 'idle' });
+  const jellyfinOffsetRef = useRef(0);
+  const jellyfinStateRef = useRef({ host: false, active: false, duration: 0, playing: true, time: 0, pumping: false });
+  const seekTimer = useRef(null);
+
+  useEffect(() => {
+    jellyfinStateRef.current = { ...jellyfinStateRef.current, host: isJellyfinHost, active: jellyfinActive, duration: jellyfinDuration, playing: jellyfinPlaying, time: jellyfinCurrentTime };
+  }, [isJellyfinHost, jellyfinActive, jellyfinDuration, jellyfinPlaying, jellyfinCurrentTime]);
+  const notify = (message) => {
+    clearTimeout(toastTimer.current); setNotification(message);
+    toastTimer.current = setTimeout(() => setNotification(''), 5000);
+  };
+  const broadcastJellyfin = (message) => {
+    const text = JSON.stringify(message);
+    peersRef.current.filter(person => !person.isScreenShare).forEach(({ peer }) => {
+      if (peer?.connected && !peer.destroyed) { try { peer.send(text); } catch { /* A closing peer will be removed by its close handler. */ } }
+    });
+  };
+  const handleJellyfinData = (data) => {
+    let text = typeof data === 'string' ? data : null;
+    if (!text && data instanceof Uint8Array && data.length < 1000 && data[0] === 123) text = new TextDecoder().decode(data);
+    if (text) {
+      try {
+        const message = JSON.parse(text);
+        if (!message.type?.startsWith('JELLYFIN_')) return;
+        if (message.type === 'JELLYFIN_END') { setJellyfinActive(false); return; }
+        setJellyfinActive(true);
+        if (message.type === 'JELLYFIN_METADATA') setJellyfinDuration(message.duration);
+        if (message.type === 'JELLYFIN_COMPLETE') msePlayerRef.current?.endStream();
+        if (message.type === 'JELLYFIN_FLUSH') msePlayerRef.current?.flush();
+        if (message.type === 'JELLYFIN_OFFSET') { jellyfinOffsetRef.current = message.offset; setJellyfinCurrentTime(message.offset); }
+        if (message.type === 'JELLYFIN_STATE') {
+          setJellyfinPlaying(message.isPlaying);
+          if (message.isPlaying) msePlayerRef.current?.play(); else msePlayerRef.current?.pause();
+          const physicalTime = msePlayerRef.current?.getCurrentTime() || 0;
+          if (Number.isFinite(message.currentTime) && Math.abs(physicalTime + jellyfinOffsetRef.current - message.currentTime) > 2) msePlayerRef.current?.setCurrentTime(Math.max(0, message.currentTime - jellyfinOffsetRef.current));
         }
-    }, [stream]);
+      } catch { notify('A movie update could not be read. Try reconnecting to the room.'); }
+    } else { setJellyfinActive(true); msePlayerRef.current?.appendChunk(data); }
+  };
+  const updatePeerStream = (id, stream, screen) => {
+    peersRef.current = peersRef.current.map(person => person.peerID === id && person.isScreenShare === screen ? { ...person, stream } : person);
+    setPeers(previous => previous.map(person => person.peerID === id && person.isScreenShare === screen ? { ...person, stream } : person));
+  };
+  const createPeer = (remoteId, stream, remoteName, screen = false, incomingSignal = null) => {
+    const peer = new Peer({ initiator: !incomingSignal, trickle: true, stream: incomingSignal && screen ? undefined : stream, config: PEER_CONFIG });
+    peer.on('signal', signal => socket.emit('signal', { signal, to: remoteId, userName, isScreenShare: screen }));
+    peer.on('stream', remoteStream => updatePeerStream(remoteId, remoteStream, screen));
+    if (!screen) peer.on('data', handleJellyfinData);
+    peer.on('connect', () => {
+      const movie = jellyfinStateRef.current;
+      if (!screen && movie.host && movie.active && movie.pumping) {
+        const logicalTime = movie.time;
+        msePlayerRef.current?.flush(); jellyfinOffsetRef.current = logicalTime;
+        broadcastJellyfin({ type: 'JELLYFIN_METADATA', duration: movie.duration });
+        broadcastJellyfin({ type: 'JELLYFIN_FLUSH' });
+        broadcastJellyfin({ type: 'JELLYFIN_OFFSET', offset: logicalTime });
+        broadcastJellyfin({ type: 'JELLYFIN_STATE', isPlaying: movie.playing, currentTime: logicalTime });
+        jellyfinPumpRef.current?.restartPump(logicalTime);
+      }
+    });
+    peer.on('close', () => {
+      peersRef.current = peersRef.current.filter(person => person.peer !== peer);
+      setPeers(previous => previous.filter(person => person.peer !== peer));
+    });
+    peer.on('error', () => notify(`The connection to ${remoteName || 'a participant'} was interrupted.`));
+    if (incomingSignal) peer.signal(incomingSignal);
+    return peer;
+  };
+  const addConnection = (id, name, stream, screen = false, signal = null, outgoingScreen = false) => {
+    const peer = createPeer(id, stream, name, screen, signal);
+    const entry = { peerID: id, peer, userName: name, isScreenShare: screen, outgoingScreen, stream: null };
+    peersRef.current.push(entry);
+    if (!outgoingScreen) setPeers(previous => [...previous, entry]);
+  };
 
-    // Keep useEffect for updates to stream prop while mounted
-    useEffect(() => {
-        if (ref.current && stream) {
-            const currentStream = ref.current.srcObject;
-            if (currentStream) {
-                const currentTracks = currentStream.getTracks();
-                const newTracks = stream.getTracks();
-                if (currentTracks.length > 0 && currentTracks.length === newTracks.length && currentTracks.every((t, i) => t.id === newTracks[i].id)) {
-                    return; // Same tracks, prevent flicker
-                }
-            }
-            ref.current.srcObject = stream;
-            ref.current.play().catch(e => console.error("Stream update play failed:", e));
-        }
-    }, [stream]);
+  const onUserConnected = useEffectEvent(({ userId, userName: name }) => {
+    if (userId === socket.id || peersRef.current.some(person => person.peerID === userId && !person.isScreenShare)) return;
+    addConnection(userId, name, activeStream);
+    if (screenStreamRef.current) addConnection(userId, name, screenStreamRef.current, true, null, true);
+    socket.emit('update-user-state', { roomId, type: 'audio', enabled: !muted });
+    socket.emit('update-user-state', { roomId, type: 'video', enabled: !videoOff });
+  });
+  const onSignal = useEffectEvent(payload => {
+    if (payload.from === socket.id) return;
+    const screen = !!payload.isScreenShare;
+    const existing = peersRef.current.find(person => person.peerID === payload.from && person.isScreenShare === screen);
+    if (existing) { try { existing.peer.signal(payload.signal); } catch { /* Late signals can arrive after a peer closes. */ } }
+    else if (payload.signal.type === 'offer') addConnection(payload.from, payload.userName, activeStream, screen, payload.signal);
+  });
+  const onJoin = useEffectEvent(() => {
+    setConnected(true);
+    socket.emit('join-room', roomId, userName);
+    socket.emit('sync-request', roomId);
+    socket.emit('update-user-state', { roomId, type: 'audio', enabled: !muted });
+    socket.emit('update-user-state', { roomId, type: 'video', enabled: !videoOff });
+  });
 
-    useEffect(() => {
-        if (peerState) setVideoEnabled(peerState.video);
-    }, [peerState]);
+  useEffect(() => {
+    const room = connectYouTubeRoom({
+      socket, roomId, userName, joinRoom: false,
+      onState: setYoutubeState,
+      onSubmitted: () => {
+        setIsSubmittingUrl(false);
+        setInputUrl(''); setUrlError(''); setShowUrlInput(false);
+      },
+      onError: message => {
+        setIsSubmittingUrl(false);
+        setUrlError(message); setShowUrlInput(true);
+      }
+    });
+    youtubeRoomRef.current = room;
+    return () => { room.dispose(); youtubeRoomRef.current = null; };
+  }, [socket, roomId, userName]);
 
-    useEffect(() => {
-        if (!showStats || !peer || !peer._pc) return;
-        const interval = setInterval(async () => {
-            try {
-                if (peer.destroyed) return;
-                const stats = await peer._pc.getStats();
-                let rtt = '0'; let packetsLost = 0; let fps = 0; let width = 0; let height = 0;
-                stats.forEach(report => {
-                    if (report.type === 'candidate-pair' && report.state === 'succeeded') rtt = (report.currentRoundTripTime * 1000).toFixed(0);
-                    if (report.type === 'inbound-rtp' && report.kind === 'video') {
-                        packetsLost = report.packetsLost;
-                        if (report.framesPerSecond) fps = report.framesPerSecond;
-                        if (report.frameWidth) width = report.frameWidth;
-                        if (report.frameHeight) height = report.frameHeight;
-                    }
-                });
-                setStats({ rtt: `${rtt}ms`, bitrate: 'High', packetLoss: `${packetsLost}`, resolution: width ? `${width}x${height}` : 'N/A', fps: fps ? fps.toFixed(0) : '0' });
-            } catch (e) { console.error("Stats error", e); }
-        }, 1000);
-        return () => clearInterval(interval);
-    }, [showStats, peer]);
-
-    const initials = userName ? userName.split(" ").map(n => n[0]).join("").toUpperCase().substring(0, 2) : "?";
-    const isMuted = peerState ? !peerState.audio : false;
-
-    return (
-        <VideoWrapper isFullScreen={isFullScreen} isMainStage={isMainStage}>
-            <StyledVideo playsInline autoPlay ref={setVideoRef} isHidden={!videoEnabled} />
-            {!videoEnabled && <InitialsAvatar>{initials}</InitialsAvatar>}
-            <MenuTrigger onClick={() => setShowStats(!showStats)}><FaEllipsisV size={14} /></MenuTrigger>
-            {showStats && (
-                <StatsMenu>
-                    <StatItem><span>Ping</span><span>{stats.rtt}</span></StatItem>
-                    <StatItem><span>Loss</span><span>{stats.packetLoss}</span></StatItem>
-                    <StatItem><span>Res</span><span>{stats.resolution}</span></StatItem>
-                    <StatItem><span>FPS</span><span>{stats.fps}</span></StatItem>
-                </StatsMenu>
-            )}
-            <NameTag>
-                {userName}
-                {isMuted && <StatusIcon><FaMicrophoneSlash /></StatusIcon>}
-                {!videoEnabled && <StatusIcon><FaVideoSlash /></StatusIcon>}
-            </NameTag>
-        </VideoWrapper>
-    );
-});
-
-const Room = ({ socket, roomId, userName, leaveRoom, userStream, initialMuted, initialVideoOff }) => {
-    const [peers, setPeers] = useState([]);
-    const peersRef = useRef([]);
-    const [activeStream, setActiveStream] = useState(userStream);
-    const userVideo = useRef();
-
-    const [muted, setMuted] = useState(initialMuted);
-    const [videoOff, setVideoOff] = useState(initialVideoOff);
-    const [peerStates, setPeerStates] = useState({});
-    const [viewMode, setViewMode] = useState('grid'); // 'grid' or 'pip'
-
-    // --- YOUTUBE SYNC STATE ---
-    const [youtubeUrl, setYoutubeUrl] = useState('');
-    const [isPlaying, setIsPlaying] = useState(false);
-    const [isBuffering, setIsBuffering] = useState(false);
-    const [isPlayerReady, setIsPlayerReady] = useState(false); // New state to track if stream is loaded
-    const [inputUrl, setInputUrl] = useState('');
-    const playerRef = useRef(null);
-    const isRemoteUpdate = useRef(false);
-
-    // SharePlay UI State
-    const [showAppSelector, setShowAppSelector] = useState(false);
-    const [showUrlInput, setShowUrlInput] = useState(false);
-
-    // Chat State
-    const [showChat, setShowChat] = useState(false);
-
-    // Jellyfin P2P State
-    const [showJellyfin, setShowJellyfin] = useState(false);
-    const [isJellyfinHost, setIsJellyfinHost] = useState(false);
-    const [showJellyfinInput, setShowJellyfinInput] = useState(false);
-    const msePlayerRef = useRef(null);
-    const jellyfinPumpRef = useRef(null);
-    const [jellyfinDuration, setJellyfinDuration] = useState(0);
-    const [jellyfinCurrentTime, setJellyfinCurrentTime] = useState(0);
-    const jellyfinPlayheadOffsetRef = useRef(0);
-    const jellyfinCurrentTimeRef = useRef(0);
-    const [jellyfinPlaying, setJellyfinPlaying] = useState(true);
-    const [jellyfinBuffering, setJellyfinBuffering] = useState(false);
-    const [jellyfinBuffered, setJellyfinBuffered] = useState([]);
-    const [controlsVisible, setControlsVisible] = useState(true);
-    let controlsTimeout = useRef(null);
-
-    // Format time helper
-    const formatTime = (seconds) => {
-        if (!seconds || isNaN(seconds)) return "00:00";
-        const h = Math.floor(seconds / 3600);
-        const m = Math.floor((seconds % 3600) / 60);
-        const s = Math.floor(seconds % 60);
-        if (h > 0) return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-        return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+  useEffect(() => {
+    const disconnected = () => setConnected(false);
+    const joined = () => onJoin();
+    const userConnected = payload => onUserConnected(payload);
+    const signal = payload => onSignal(payload);
+    const stateUpdated = ({ userId, type, enabled }) => setPeerStates(previous => ({ ...previous, [userId]: { ...previous[userId], [type]: enabled } }));
+    const userDisconnected = id => {
+      const departed = peersRef.current.filter(person => person.peerID === id);
+      departed.forEach(person => person.peer.destroy());
+      peersRef.current = peersRef.current.filter(person => person.peerID !== id);
+      setPeers(previous => previous.filter(person => person.peerID !== id));
+      setPeerStates(previous => { const next = { ...previous }; delete next[id]; return next; });
     };
-
-    const broadcastJellyfinMsg = (msg) => {
-        const str = JSON.stringify(msg);
-        peersRef.current.forEach(p => {
-            if (p.peer && !p.peer.destroyed) p.peer.send(str);
-        });
+    socket.on('connect', joined); socket.on('disconnect', disconnected);
+    socket.on('user-connected', userConnected); socket.on('user-disconnected', userDisconnected); socket.on('signal', signal); socket.on('user-state-updated', stateUpdated);
+    if (socket.connected) joined();
+    return () => {
+      clearTimeout(seekTimer.current); clearTimeout(toastTimer.current);
+      socket.off('connect', joined); socket.off('disconnect', disconnected);
+      socket.off('user-connected', userConnected); socket.off('user-disconnected', userDisconnected); socket.off('signal', signal); socket.off('user-state-updated', stateUpdated);
+      peersRef.current.forEach(person => person.peer.destroy()); peersRef.current = [];
+      screenStreamRef.current?.getTracks().forEach(track => track.stop());
+      if (ownsFallback) activeStream.getTracks().forEach(track => track.stop());
     };
-
-    // Jellyfin Metadata and Chunk routing
-    const handleJellyfinData = (data) => {
-        let isString = typeof data === 'string';
-        let textData = data;
-        
-        // Browsers handle WebRTC string channels differently.
-        // If it's a small Uint8Array starting with '{' (123), it's likely our JSON metadata.
-        if (!isString && data instanceof Uint8Array && data.length < 1000 && data[0] === 123) {
-            try {
-                textData = new TextDecoder().decode(data);
-                isString = true;
-            } catch (e) { }
-        }
-
-        if (isString) {
-            try {
-                const msg = JSON.parse(textData);
-                // Show the Jellyfin player panel IMMEDIATELY when we receive any control message!
-                // This way the peer sees a buffering screen instead of nothing.
-                if (msg.type && msg.type.startsWith('JELLYFIN_')) {
-                    setShowJellyfin(true);
-                }
-                if (msg.type === 'JELLYFIN_METADATA') {
-                    setJellyfinDuration(msg.duration);
-                } else if (msg.type === 'JELLYFIN_FLUSH') {
-                    if (msePlayerRef.current) msePlayerRef.current.flush();
-                } else if (msg.type === 'JELLYFIN_OFFSET') {
-                    jellyfinPlayheadOffsetRef.current = msg.offset;
-                    jellyfinCurrentTimeRef.current = msg.offset;
-                    setJellyfinCurrentTime(msg.offset);
-                } else if (msg.type === 'JELLYFIN_STATE') {
-                    setJellyfinPlaying(msg.isPlaying);
-                    if (!msg.isPlaying && msePlayerRef.current) msePlayerRef.current.pause();
-                    else if (msg.isPlaying && msePlayerRef.current) msePlayerRef.current.play();
-                    // IF difference > 2 seconds, auto-seek to sync with host!
-                    if (msePlayerRef.current && msg.currentTime !== undefined) {
-                        const logicalTime = msePlayerRef.current.getCurrentTime() + jellyfinPlayheadOffsetRef.current;
-                        if (Math.abs(logicalTime - msg.currentTime) > 2) {
-                            msePlayerRef.current.setCurrentTime(Math.max(0, msg.currentTime - jellyfinPlayheadOffsetRef.current));
-                        }
-                    }
-                }
-            } catch (e) { console.error("Error parsing Jellyfin control data", e); }
-        } else {
-            if (msePlayerRef.current) {
-                setShowJellyfin(true);
-                msePlayerRef.current.appendChunk(data);
-            }
-        }
-    };
-
-    // Update scrubber timer and sync metrics
-    useEffect(() => {
-        if (!showJellyfin || !msePlayerRef.current) return;
-        const interval = setInterval(() => {
-            if (msePlayerRef.current) {
-                const physicalTime = msePlayerRef.current.getCurrentTime();
-                const logicalTime = physicalTime + jellyfinPlayheadOffsetRef.current;
-                jellyfinCurrentTimeRef.current = logicalTime;
-                setJellyfinCurrentTime(logicalTime);
-                
-                // Update local buffered state
-                const ranges = msePlayerRef.current.getBufferedRanges();
-                const shiftedRanges = ranges.map(r => ({
-                    start: r.start + jellyfinPlayheadOffsetRef.current,
-                    end: r.end + jellyfinPlayheadOffsetRef.current
-                }));
-                setJellyfinBuffered(shiftedRanges);
-                
-                let forwardCache = 0;
-                let backwardCache = 0;
-                for (let i = 0; i < ranges.length; i++) {
-                    const range = ranges[i];
-                    if (physicalTime >= range.start - 0.5 && physicalTime <= range.end + 0.5) {
-                        forwardCache = Math.max(0, range.end - physicalTime);
-                        backwardCache = Math.max(0, physicalTime - range.start);
-                        break;
-                    }
-                }
-                
-                // Broadcast our local playhead time, status, and buffer metrics so the Host/Peers can see our metric
-                socket.emit("update-user-state", { roomId, type: 'jellyfinTime', enabled: logicalTime });
-                socket.emit("update-user-state", { roomId, type: 'jellyfinPlaying', enabled: jellyfinPlaying });
-                socket.emit("update-user-state", { roomId, type: 'jellyfinBuffering', enabled: jellyfinBuffering });
-                socket.emit("update-user-state", { roomId, type: 'jellyfinForwardCache', enabled: forwardCache });
-                socket.emit("update-user-state", { roomId, type: 'jellyfinBackwardCache', enabled: backwardCache });
-            }
-        }, 500);
-        return () => clearInterval(interval);
-    }, [showJellyfin, jellyfinPlaying, jellyfinBuffering, socket]);
-
-    // Handle mouse move for controls
-    const handleMouseMove = () => {
-        setControlsVisible(true);
-        if (controlsTimeout.current) clearTimeout(controlsTimeout.current);
-        controlsTimeout.current = setTimeout(() => {
-            if (jellyfinPlaying) setControlsVisible(false);
-        }, 3000);
-    };
-
-    const handleJellyfinPlayPause = () => {
-        const newState = !jellyfinPlaying;
-        setJellyfinPlaying(newState);
-        if (msePlayerRef.current) {
-            if (newState) msePlayerRef.current.play();
-            else msePlayerRef.current.pause();
-            
-            // If host, broadcast state
-            if (isJellyfinHost) {
-                broadcastJellyfinMsg({ type: 'JELLYFIN_STATE', isPlaying: newState, currentTime: msePlayerRef.current.getCurrentTime() });
-            }
-        }
-    };
-
-    const handleJellyfinScrub = (e) => {
-        if (!isJellyfinHost || !jellyfinDuration) return; // Only host can seek
-        const rect = e.currentTarget.getBoundingClientRect();
-        const percent = (e.clientX - rect.left) / rect.width;
-        const newTime = percent * jellyfinDuration;
-        
-        // 1. Pause
-        setJellyfinPlaying(false);
-        if (msePlayerRef.current) msePlayerRef.current.pause();
-        
-        // 2. Broadcast flush and state to peers
-        broadcastJellyfinMsg({ type: 'JELLYFIN_FLUSH' });
-        broadcastJellyfinMsg({ type: 'JELLYFIN_OFFSET', offset: newTime });
-        broadcastJellyfinMsg({ type: 'JELLYFIN_STATE', isPlaying: false, currentTime: newTime });
-        
-        // 3. Flush our own buffer (nuclear reset - recreates MediaSource)
-        if (msePlayerRef.current) {
-            msePlayerRef.current.flush();
-            jellyfinPlayheadOffsetRef.current = newTime;
-        }
-        
-        // 4. Restart pump
-        if (jellyfinPumpRef.current) {
-            jellyfinPumpRef.current.restartPump(newTime);
-        }
-        
-        // Wait briefly for chunks, then play
-        setTimeout(() => {
-            setJellyfinPlaying(true);
-            if (msePlayerRef.current) msePlayerRef.current.play();
-            broadcastJellyfinMsg({ type: 'JELLYFIN_STATE', isPlaying: true, currentTime: newTime });
-        }, 2000);
-    };
-
-    // Fetch initial room state from Firestore
-    useEffect(() => {
-        const fetchRoomData = async () => {
-            try {
-                const docRef = doc(db, "rooms", roomId);
-                const docSnap = await getDoc(docRef);
-                if (docSnap.exists()) {
-                    const data = docSnap.data();
-                    if (data.youtubeUrl) {
-                        setYoutubeUrl(data.youtubeUrl);
-                    }
-                }
-            } catch (error) {
-                console.error("Error fetching room data:", error);
-            }
-        };
-        fetchRoomData();
-    }, [roomId]);
-
-    // --- SCREEN SHARE STATE ---
-    const [myScreenStream, setMyScreenStream] = useState(null);
-    const screenStreamRef = useRef(null);
-
-    // Draggable State
-    const [dragPos, setDragPos] = useState({ x: 20, y: 20 });
-    const [isDragging, setIsDragging] = useState(false);
-    const dragOffset = useRef({ x: 0, y: 0 });
-
-    const startDrag = (e) => {
-        setIsDragging(true);
-        dragOffset.current = {
-            x: e.clientX - dragPos.x,
-            y: e.clientY - dragPos.y
-        };
-    };
-
-    const onDrag = (e) => {
-        if (!isDragging) return;
-        setDragPos({
-            x: e.clientX - dragOffset.current.x,
-            y: e.clientY - dragOffset.current.y
-        });
-    };
-
-    const stopDrag = () => {
-        setIsDragging(false);
-    };
-
-    const createDummyStream = () => {
-        const canvas = document.createElement('canvas'); canvas.width = 640; canvas.height = 480;
-        const ctx = canvas.getContext('2d');
-        // Reduced framerate drawing to save CPU
-        const draw = () => {
-            ctx.fillStyle = '#111'; ctx.fillRect(0, 0, 640, 480);
-            // Reuse timeout instead of RAF for lower frequency background task
-        };
-        draw();
-        // 10 FPS is enough for a black screen stream
-        const stream = canvas.captureStream(10);
-        const audioCtx = new AudioContext(); const dst = audioCtx.createMediaStreamDestination();
-        stream.addTrack(dst.stream.getAudioTracks()[0]); stream.getTracks().forEach(t => t.enabled = false);
-        return stream;
-    };
-
-    // Re-attach local stream when viewMode or dragging renders a new video element
-    useEffect(() => {
-        if (userVideo.current && activeStream) {
-            userVideo.current.srcObject = activeStream;
-        }
-    }, [viewMode, activeStream]);
-
-    useEffect(() => {
-        const currentStream = userStream || createDummyStream();
-        setActiveStream(currentStream);
-        if (currentStream.getAudioTracks()[0]) currentStream.getAudioTracks()[0].enabled = !initialMuted;
-        if (currentStream.getVideoTracks()[0]) currentStream.getVideoTracks()[0].enabled = !initialVideoOff;
-        if (userVideo.current) userVideo.current.srcObject = currentStream;
-
-        socket.emit("join-room", roomId, userName);
-        socket.emit('update-user-state', { roomId, type: 'audio', enabled: !initialMuted });
-        socket.emit('update-user-state', { roomId, type: 'video', enabled: !initialVideoOff });
-
-        // Request sync for YouTube
-        socket.emit('sync-request', roomId);
-
-        const handleUserConnected = ({ userId, userName: remoteName }) => {
-            if (userId === socket.id) return;
-            if (peersRef.current.some(p => p.peerID === userId && !p.isScreenShare)) return;
-            console.log(`[Room] Connecting to new user: ${userId} (${remoteName})`);
-
-            const peer = createPeer(userId, socket.id, currentStream, remoteName);
-            peersRef.current.push({ peerID: userId, peer, userName: remoteName, isScreenShare: false });
-
-            setPeers(prev => {
-                if (prev.some(p => p.peerID === userId && !p.isScreenShare)) return prev;
-                return [...prev, { peer, userName: remoteName, peerID: userId, stream: null, isScreenShare: false }];
-            });
-
-            // If we are currently sharing screen, initiate a screen share connection to this new user too
-            if (screenStreamRef.current) {
-                const screenPeer = createPeer(userId, socket.id, screenStreamRef.current, remoteName, true);
-                peersRef.current.push({ peerID: userId, peer: screenPeer, userName: remoteName, isScreenShare: true });
-                // We don't add to state here because we are initiator, but if we did, we'd use the same check
-            }
-
-            socket.emit('update-user-state', { roomId, type: 'audio', enabled: !muted });
-            socket.emit('update-user-state', { roomId, type: 'video', enabled: !videoOff });
-        };
-
-        const handleUserDisconnected = (userId) => {
-            // Remove all peers associated with this user (camera and screen)
-            const peerObjs = peersRef.current.filter(p => p.peerID === userId);
-            peerObjs.forEach(p => {
-                if (p.peer) p.peer.destroy();
-            });
-            const newPeers = peersRef.current.filter(p => p.peerID !== userId);
-            peersRef.current = newPeers;
-            setPeers(newPeers);
-            setPeerStates(prev => { const next = { ...prev }; delete next[userId]; return next; });
-        };
-
-        const handleSignal = (payload) => {
-            if (payload.from === socket.id) return;
-
-            const isScreen = !!payload.isScreenShare;
-            console.log(`[Room] Signal received from ${payload.from} (Screen: ${isScreen ? 'Yes' : 'No'})`);
-
-            const peerObj = peersRef.current.find(p => p.peerID === payload.from && !!p.isScreenShare === isScreen);
-
-            if (peerObj) {
-                peerObj.peer.signal(payload.signal);
-            } else {
-                // Prevent WebRTC glare/crash: If we don't have a peer, we should ONLY create one if the signal is an OFFER.
-                // If it's an answer or candidate, it's a ghost signal from a destroyed session. Ignore it!
-                if (payload.signal.type !== 'offer') {
-                    console.warn(`[Room] Ignored stray ${payload.signal.type || 'candidate'} from ${payload.from}`);
-                    return;
-                }
-
-                if (peersRef.current.some(p => p.peerID === payload.from && !!p.isScreenShare === isScreen)) return;
-
-                const item = addPeer(payload.signal, payload.from, currentStream, payload.userName, isScreen);
-                peersRef.current.push({ peerID: payload.from, peer: item.peer, userName: payload.userName, isScreenShare: isScreen });
-
-                const displayUserName = isScreen ? `${payload.userName} (Screen)` : payload.userName;
-                setPeers(prev => {
-                    if (prev.some(p => p.peerID === payload.from && !!p.isScreenShare === isScreen)) return prev;
-                    return [...prev, { peer: item.peer, userName: displayUserName, peerID: payload.from, stream: null, isScreenShare: isScreen }];
-                });
-            }
-        };
-
-        const handleStateUpdate = ({ userId, type, enabled }) => {
-            setPeerStates(prev => ({ ...prev, [userId]: { ...prev[userId], [type]: enabled } }));
-        };
-
-        // --- YouTube Socket Handlers ---
-        const handleYouTubeChange = (url) => {
-            setYoutubeUrl(url);
-            setIsPlaying(true);
-        };
-
-        const handleYouTubeState = ({ isPlaying: remotePlaying, timestamp }) => {
-            isRemoteUpdate.current = true;
-
-            setIsPlaying(remotePlaying);
-
-            if (playerRef.current) {
-                const currentTime = playerRef.current.getCurrentTime();
-                // If time difference is > 2 seconds, sync it
-                if (Math.abs(currentTime - timestamp) > 2) {
-                    playerRef.current.seekTo(timestamp, 'seconds');
-                }
-            }
-
-            // Reset flag after state settling (approx)
-            setTimeout(() => isRemoteUpdate.current = false, 500);
-        };
-
-        socket.on("user-connected", handleUserConnected);
-        socket.on("user-disconnected", handleUserDisconnected);
-        socket.on("signal", handleSignal);
-        socket.on("user-state-updated", handleStateUpdate);
-
-        socket.on("youtube-change", handleYouTubeChange);
-        socket.on("youtube-state-change", handleYouTubeState);
-
-        return () => {
-            socket.off("user-connected", handleUserConnected);
-            socket.off("user-disconnected", handleUserDisconnected);
-            socket.off("signal", handleSignal);
-            socket.off("user-state-updated", handleStateUpdate);
-
-            socket.off("youtube-change", handleYouTubeChange);
-            socket.off("youtube-state-change", handleYouTubeState);
-
-            peersRef.current.forEach(p => p.peer.destroy());
-            peersRef.current = [];
-        };
-    }, []);
-
-    function createPeer(userToSignal, callerID, stream, remoteName, isScreenShare = false) {
-        const peer = new Peer({ initiator: true, trickle: true, stream, config: PEER_CONFIG });
-        peer.on("signal", signal => { socket.emit("signal", { signal, to: userToSignal, userName, isScreenShare }); });
-        peer.on("stream", remoteStream => { updatePeerStream(userToSignal, remoteStream, isScreenShare); });
-        peer.on("data", handleJellyfinData);
-        peer.on("connect", () => {
-            if (isJellyfinHost && jellyfinPumpRef.current && msePlayerRef.current) {
-                // A new peer joined! Restart pump to sync them to our current playback head
-                const logicalTime = jellyfinCurrentTimeRef.current;
-                setTimeout(() => {
-                    msePlayerRef.current.flush();
-                    jellyfinPlayheadOffsetRef.current = logicalTime;
-                    jellyfinCurrentTimeRef.current = logicalTime;
-                    setJellyfinCurrentTime(logicalTime);
-                    
-                    broadcastJellyfinMsg({ type: 'JELLYFIN_METADATA', duration: jellyfinDuration });
-                    broadcastJellyfinMsg({ type: 'JELLYFIN_FLUSH' });
-                    broadcastJellyfinMsg({ type: 'JELLYFIN_OFFSET', offset: logicalTime });
-                    broadcastJellyfinMsg({ type: 'JELLYFIN_STATE', isPlaying: jellyfinPlaying, currentTime: logicalTime });
-                    jellyfinPumpRef.current.restartPump(logicalTime);
-                }, 50);
-            }
-        });
-        peer.on("close", () => {
-            console.log(`[Room] Peer closed: ${userToSignal} (Screen: ${isScreenShare})`);
-            const newPeers = peersRef.current.filter(p => !(p.peerID === userToSignal && p.isScreenShare === isScreenShare));
-            peersRef.current = newPeers;
-            setPeers(newPeers);
-        });
-        return peer;
+  }, [socket, roomId, activeStream, ownsFallback]);
+  // Permission can resolve after joining. Upgrade tracks in place instead of
+  // recreating the room, players, or existing peer connections.
+  useEffect(() => {
+    if (!userStream || userStream === activeStream) return;
+    for (const newTrack of userStream.getTracks()) {
+      if (activeStream.getTracks().includes(newTrack)) continue;
+      const oldTrack = activeStream.getTracks().find(track => track.kind === newTrack.kind);
+      newTrack.enabled = newTrack.kind === 'audio' ? !muted : !videoOff;
+      for (const person of peersRef.current.filter(person => !person.isScreenShare && !person.peer.destroyed)) {
+        if (oldTrack) person.peer.replaceTrack(oldTrack, newTrack, activeStream);
+        else person.peer.addTrack(newTrack, activeStream);
+      }
+      if (oldTrack) { activeStream.removeTrack(oldTrack); oldTrack.stop(); }
+      activeStream.addTrack(newTrack);
     }
+  }, [userStream, activeStream, muted, videoOff]);
+  useEffect(() => { activeStream.getAudioTracks().forEach(track => { track.enabled = !muted; }); }, [activeStream, muted]);
+  useEffect(() => { activeStream.getVideoTracks().forEach(track => { track.enabled = !videoOff; }); }, [activeStream, videoOff]);
 
-    function addPeer(incomingSignal, callerID, stream, remoteName, isScreenShare = false) {
-        const peer = new Peer({ initiator: false, trickle: true, stream: isScreenShare ? null : stream, config: PEER_CONFIG }); // Don't send our cam stream to their screen share peer
-        peer.on("signal", signal => { socket.emit("signal", { signal, to: callerID, userName, isScreenShare }); });
-        peer.on("data", handleJellyfinData);
-        peer.on("connect", () => {
-            if (isJellyfinHost && jellyfinPumpRef.current && msePlayerRef.current) {
-                // A new peer joined! Restart pump to sync them to our current playback head
-                const logicalTime = jellyfinCurrentTimeRef.current;
-                setTimeout(() => {
-                    msePlayerRef.current.flush();
-                    jellyfinPlayheadOffsetRef.current = logicalTime;
-                    jellyfinCurrentTimeRef.current = logicalTime;
-                    setJellyfinCurrentTime(logicalTime);
+  useEffect(() => {
+    if (!jellyfinActive) return;
+    const timer = setInterval(() => {
+      const player = msePlayerRef.current; if (!player) return;
+      const time = player.getCurrentTime() + jellyfinOffsetRef.current;
+      setJellyfinCurrentTime(time); setJellyfinBuffered(player.getBufferAhead());
+      if (socket.connected) {
+        for (const [type, enabled] of Object.entries({ jellyfinTime: time, jellyfinPlaying, jellyfinBuffering: jellyfinStatus.state === 'buffering', jellyfinForwardCache: player.getBufferAhead() })) socket.emit('update-user-state', { roomId, type, enabled });
+      }
+    }, 500);
+    return () => clearInterval(timer);
+  }, [jellyfinActive, jellyfinPlaying, jellyfinStatus.state, socket, roomId]);
 
-                    broadcastJellyfinMsg({ type: 'JELLYFIN_METADATA', duration: jellyfinDuration });
-                    broadcastJellyfinMsg({ type: 'JELLYFIN_FLUSH' });
-                    broadcastJellyfinMsg({ type: 'JELLYFIN_OFFSET', offset: logicalTime });
-                    broadcastJellyfinMsg({ type: 'JELLYFIN_STATE', isPlaying: jellyfinPlaying, currentTime: logicalTime });
-                    jellyfinPumpRef.current.restartPump(logicalTime);
-                }, 50);
-            }
-        });
-        peer.signal(incomingSignal);
-        peer.on("stream", remoteStream => { updatePeerStream(callerID, remoteStream, isScreenShare); });
-        peer.on("close", () => {
-            console.log(`[Room] Peer closed: ${callerID} (Screen: ${isScreenShare})`);
-            const newPeers = peersRef.current.filter(p => !(p.peerID === callerID && p.isScreenShare === isScreenShare));
-            peersRef.current = newPeers;
-            setPeers(newPeers);
-        });
-        return { peer };
-    }
+  const toggleMute = () => { setMuted(value => !value); socket.emit('update-user-state', { roomId, type: 'audio', enabled: muted }); };
+  const toggleVideo = () => { setVideoOff(value => !value); socket.emit('update-user-state', { roomId, type: 'video', enabled: videoOff }); };
+  const stopScreenShare = () => {
+    screenStreamRef.current?.getTracks().forEach(track => { track.onended = null; track.stop(); }); screenStreamRef.current = null; setMyScreenStream(null);
+    const outgoing = peersRef.current.filter(person => person.outgoingScreen);
+    outgoing.forEach(person => person.peer.destroy());
+  };
+  const startScreenShare = async () => {
+    if (!navigator.mediaDevices?.getDisplayMedia) { notify('Screen sharing is unavailable in this browser. You can share a YouTube video instead.'); return; }
+    try {
+      const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+      screenStreamRef.current = stream; setMyScreenStream(stream);
+      stream.getVideoTracks()[0].onended = stopScreenShare;
+      peersRef.current.filter(person => !person.isScreenShare).forEach(person => addConnection(person.peerID, person.userName, stream, true, null, true));
+      setShowShare(false);
+    } catch (error) { if (error.name !== 'NotAllowedError') notify('Screen sharing could not start. Please try again.'); }
+  };
+  const submitUrl = event => {
+    event.preventDefault();
+    if (isSubmittingUrl) return;
+    const video = parseYouTubeUrl(inputUrl);
+    if (!video) { setUrlError('Enter a valid YouTube watch, Shorts, live, or youtu.be link.'); return; }
+    if (!connected) { setUrlError('Wait for the room to reconnect, then try again.'); return; }
+    setUrlError(''); setIsSubmittingUrl(true);
+    youtubeRoomRef.current.submit(video);
+  };
+  const invite = async () => {
+    const url = new URL('/', window.location.origin); url.searchParams.set('room', roomId);
+    try { await navigator.clipboard.writeText(url.href); notify('Invite link copied.'); }
+    catch { notify(`Invite your friends: ${url.href}`); }
+  };
+  const playPause = () => {
+    const playing = !jellyfinPlaying; setJellyfinPlaying(playing);
+    if (playing) msePlayerRef.current?.play(); else msePlayerRef.current?.pause();
+    if (isJellyfinHost) broadcastJellyfin({ type: 'JELLYFIN_STATE', isPlaying: playing, currentTime: (msePlayerRef.current?.getCurrentTime() || 0) + jellyfinOffsetRef.current });
+  };
+  const seek = time => {
+    if (!isJellyfinHost || !jellyfinDuration) return;
+    clearTimeout(seekTimer.current); setJellyfinPlaying(false); msePlayerRef.current?.pause();
+    broadcastJellyfin({ type: 'JELLYFIN_FLUSH' }); broadcastJellyfin({ type: 'JELLYFIN_OFFSET', offset: time }); broadcastJellyfin({ type: 'JELLYFIN_STATE', isPlaying: false, currentTime: time });
+    msePlayerRef.current?.flush(); jellyfinOffsetRef.current = time; setJellyfinCurrentTime(time); jellyfinPumpRef.current?.restartPump(time);
+    seekTimer.current = setTimeout(() => { setJellyfinPlaying(true); msePlayerRef.current?.play(); broadcastJellyfin({ type: 'JELLYFIN_STATE', isPlaying: true, currentTime: time }); }, 2000);
+  };
+  const stopMovie = () => { clearTimeout(seekTimer.current); jellyfinPumpRef.current?.stopPump(); broadcastJellyfin({ type: 'JELLYFIN_END' }); setJellyfinActive(false); setJellyfinPlaying(false); };
+  const retryMovie = () => {
+    if (jellyfinStatus.state === 'blocked') msePlayerRef.current?.play();
+    else if (isJellyfinHost) { msePlayerRef.current?.retry(); jellyfinPumpRef.current?.restartPump(jellyfinCurrentTime); }
+    else notify('Ask the host to restart the stream to reconnect your movie.');
+  };
+  const participants = [{ id: 'self', name: userName, stream: activeStream, muted: muted || !userStream, videoOff: videoOff || !userStream, isSelf: true }, ...peers.filter(person => !person.isScreenShare).map(person => ({ id: person.peerID, name: person.userName, stream: person.stream, muted: peerStates[person.peerID]?.audio === false, videoOff: peerStates[person.peerID]?.video === false }))];
+  const screenShares = [...(myScreenStream ? [{ id: 'screen-self', name: userName, stream: myScreenStream, isSelf: true }] : []), ...peers.filter(person => person.isScreenShare && !person.outgoingScreen).map(person => ({ id: `screen-${person.peerID}`, name: person.userName, stream: person.stream }))];
 
-    const updatePeerStream = (peerId, stream, isScreenShare = false) => {
-        setPeers(currentPeers => currentPeers.map(p => (p.peerID === peerId && !!p.isScreenShare === isScreenShare) ? { ...p, stream: stream } : p));
-    };
-
-    const stopScreenShare = () => {
-        if (screenStreamRef.current) {
-            screenStreamRef.current.getTracks().forEach(track => {
-                track.stop();
-                // Important: remove the event listener to avoid double-calling if browser triggers it later
-                track.onended = null;
-            });
-            screenStreamRef.current = null;
-            setMyScreenStream(null);
-
-            // Destroy all screen share peers
-            const screenPeers = peersRef.current.filter(p => p.isScreenShare);
-            screenPeers.forEach(p => {
-                if (p.peer) {
-                    p.peer.destroy(); // This sends close signal to remote
-                }
-            });
-
-            // STRICT cleanup of state to remove ghost tiles immediately
-            const remainingPeers = peersRef.current.filter(p => !p.isScreenShare);
-            peersRef.current = remainingPeers;
-            setPeers(remainingPeers);
-
-            // Force garbage collection hint (not real JS GC, but releasing references)
-            console.log("[Room] Screen share stopped and peers destroyed.");
+  return <>
+    <RoomView roomId={roomId} userName={userName} connected={connected} participants={participants} screenShares={screenShares} muted={muted} videoOff={videoOff} onToggleMute={toggleMute} onToggleVideo={toggleVideo} onShare={() => setShowShare(true)} onLeave={leaveRoom} onInvite={invite} onStopScreen={stopScreenShare} notification={notification} chatOpen={showChat} onChatToggle={() => setShowChat(value => !value)} unread={unread}
+      chat={<Chat roomId={roomId} userName={userName} open={showChat} onClose={() => setShowChat(false)} onUnreadChange={setUnread} />}
+      youtube={{ active: Boolean(youtubeState?.url), node: focused => youtubeState?.url ? <YouTubePlayer key={youtubeState.sessionId} state={youtubeState} socket={socket} roomId={roomId} focused={focused} onClose={() => youtubeRoomRef.current.close()} /> : null }}
+      jellyfin={{ active: jellyfinActive, node: focused => <><MSEPlayer ref={msePlayerRef} enabled={jellyfinActive} muted={!focused || movieMuted} volume={movieVolume} onStatusChange={setJellyfinStatus} /><MediaStatus status={jellyfinStatus} onRetry={retryMovie} />{jellyfinActive && <JellyfinControls currentTime={jellyfinCurrentTime} duration={jellyfinDuration} playing={jellyfinPlaying} isHost={isJellyfinHost} onPlayPause={playPause} onSeek={seek} onStop={stopMovie} onSettings={() => setShowJellyfinInput(true)} volume={movieVolume} muted={movieMuted} onVolumeChange={value => { setMovieVolume(value); setMovieMuted(value === 0); }} onMute={() => { if (movieMuted || movieVolume === 0) { if (movieVolume === 0) setMovieVolume(0.5); setMovieMuted(false); } else setMovieMuted(true); }} />}</> }}
+      diagnostics={<><p>Socket <strong>{socket.id || 'Waiting'}</strong></p>{jellyfinActive && <><p>Movie position <strong>{formatTime(jellyfinCurrentTime)}</strong></p><p>Buffer ahead <strong>{Math.round(jellyfinBuffered)}s</strong></p>{Object.entries(peerStates).map(([id,state]) => <p key={id}>{participants.find(person => person.id === id)?.name || 'Participant'}<strong>{formatTime(state.jellyfinTime || 0)}</strong></p>)}</>}</>} />
+    <Dialog open={showShare} title="Share with the room" description="Choose what to share." onClose={() => setShowShare(false)}><div className="room-share-options"><button onClick={myScreenStream ? () => { stopScreenShare(); setShowShare(false); } : startScreenShare}><FaDesktop /><span><strong>{myScreenStream ? 'Stop sharing your screen' : 'Your screen'}</strong><small>Share a tab, an app, or your desktop.</small></span></button><button onClick={() => { setShowShare(false); setShowUrlInput(true); }}><FaYoutube /><span><strong>A YouTube video</strong><small>Watch a video together.</small></span></button><button onClick={() => { setShowShare(false); setIsJellyfinHost(true); if (!jellyfinActive) { jellyfinOffsetRef.current = 0; setJellyfinCurrentTime(0); setJellyfinDuration(0); setJellyfinPlaying(true); setJellyfinStatus({ state: 'idle' }); } setJellyfinActive(true); setShowJellyfinInput(true); }}><FaPlayCircle /><span><strong>Your Jellyfin library</strong><small>Stream a video from your server.</small></span></button></div></Dialog>
+    <Dialog open={showUrlInput} title="Share a YouTube video" description="Paste a YouTube link. Playback controls are shared with the room." onClose={() => setShowUrlInput(false)}><form onSubmit={submitUrl}><label className="room-field">YouTube video link<input type="url" data-autofocus disabled={isSubmittingUrl} placeholder="https://youtube.com/watch?v=…" value={inputUrl} onChange={event => { setInputUrl(event.target.value); setUrlError(''); }} aria-describedby={urlError ? 'youtube-url-error' : undefined} required /></label>{urlError && <p id="youtube-url-error" className="room-field-error" role="alert">{urlError}</p>}<button className="sr-button sr-button--primary" type="submit" disabled={!inputUrl.trim() || !connected || isSubmittingUrl}>{isSubmittingUrl ? 'Opening video…' : 'Watch together'}</button></form></Dialog>
+    {isJellyfinHost && <JellyfinPump ref={jellyfinPumpRef} visible={showJellyfinInput} onClose={() => setShowJellyfinInput(false)} onStatusChange={status => { jellyfinStateRef.current.pumping = status.state === 'streaming' || status.state === 'loading' || status.state === 'complete'; if (status.state === 'complete') { msePlayerRef.current?.endStream(); broadcastJellyfin({ type: 'JELLYFIN_COMPLETE' }); } if (status.state === 'error') setJellyfinStatus(status); }} onMetadata={metadata => { setJellyfinDuration(metadata.duration); broadcastJellyfin({ type: 'JELLYFIN_METADATA', duration: metadata.duration }); }} onChunkReceived={async (chunk, { signal } = {}) => {
+      while (!signal?.aborted && msePlayerRef.current?.getBufferAhead() > 60) { await new Promise(resolve => setTimeout(resolve, 100)); }
+      if (signal?.aborted) return;
+      msePlayerRef.current?.appendChunk(chunk);
+      for (let offset = 0; !signal?.aborted && offset < chunk.length; offset += 65424) {
+        const slice = chunk.slice(offset, offset + 65424);
+        for (const person of peersRef.current.filter(person => !person.isScreenShare)) {
+          while (!signal?.aborted && !person.peer.destroyed && person.peer._channel?.bufferedAmount > 256 * 1024) await new Promise(resolve => setTimeout(resolve, 10));
+          if (!signal?.aborted && person.peer.connected && !person.peer.destroyed) { try { person.peer.send(slice); } catch { /* Peer closed during transfer. */ } }
         }
-    };
-
-    const startScreenShare = async () => {
-        try {
-            const stream = await navigator.mediaDevices.getDisplayMedia({ cursor: true, video: true, audio: true });
-
-            setMyScreenStream(stream);
-            screenStreamRef.current = stream;
-
-            stream.getVideoTracks()[0].onended = () => {
-                stopScreenShare();
-            };
-
-            // Initiate connections to all existing peers for this new stream
-            // Filter unique user IDs to avoid double signaling if logic was flawed, but peersRef should be unique users (for camera)
-            const uniqueUsers = peersRef.current.filter(p => !p.isScreenShare);
-
-            uniqueUsers.forEach(targetUser => {
-                // Check if we already have a screen share peer for this user (deduplication)
-                if (peersRef.current.some(p => p.peerID === targetUser.peerID && p.isScreenShare)) return;
-
-                const peer = createPeer(targetUser.peerID, socket.id, stream, userName, true);
-                peersRef.current.push({
-                    peerID: targetUser.peerID,
-                    peer: peer,
-                    userName: targetUser.userName,
-                    isScreenShare: true
-                });
-                // Remove setPeers call that was here
-            });
-
-            setShowAppSelector(false); // Close menu
-
-        } catch (err) {
-            console.error("Failed to start screen share", err);
-        }
-    };
-
-    const toggleMute = () => {
-        setMuted(!muted);
-        if (activeStream?.getAudioTracks()[0]) activeStream.getAudioTracks()[0].enabled = !(!muted);
-        socket.emit('update-user-state', { roomId, type: 'audio', enabled: !(!muted) });
-    };
-
-    const toggleVideo = () => {
-        setVideoOff(!videoOff);
-        if (activeStream?.getVideoTracks()[0]) activeStream.getVideoTracks()[0].enabled = !(!videoOff);
-        socket.emit('update-user-state', { roomId, type: 'video', enabled: !(!videoOff) });
-    };
-
-    // --- YouTube Handlers ---
-    const handleUrlSubmit = () => {
-        if (!inputUrl) return;
-
-        if (!ReactPlayer.canPlay(inputUrl)) {
-            alert("Please enter a valid YouTube URL.");
-            return;
-        }
-
-        // --- JSON Data Extraction for Console ---
-        try {
-            const urlObj = new URL(inputUrl);
-            const videoId = urlObj.searchParams.get("v") || inputUrl.split('/').pop();
-            const startTime = urlObj.searchParams.get("t") || 0;
-
-            const metaData = {
-                source: "youtube",
-                originalUrl: inputUrl,
-                videoId: videoId,
-                params: Object.fromEntries(urlObj.searchParams),
-                timestamp: Date.now()
-            };
-
-            console.log(">>> EXTRACTED VIDEO DATA:", JSON.stringify(metaData, null, 2));
-
-        } catch (e) {
-            console.error("Failed to parse URL metadata", e);
-        }
-
-        setYoutubeUrl(inputUrl);
-        setIsPlayerReady(false); // Reset ready state
-        socket.emit('youtube-change', { roomId, url: inputUrl });
-        
-        // Persist to Firestore
-        try {
-            setDoc(doc(db, "rooms", roomId), { youtubeUrl: inputUrl }, { merge: true });
-        } catch (error) {
-            console.error("Error saving url to Firestore", error);
-        }
-
-        setInputUrl('');
-        setShowUrlInput(false); // Close Modal
-    };
-
-    // --- Player Callbacks ---
-    const onPlayerReady = () => {
-        console.log(">>> STREAM FETCHED & READY. Playing:", youtubeUrl);
-        setIsPlayerReady(true);
-        setIsBuffering(false);
-    };
-
-    const onPlayerPlay = () => {
-        setIsBuffering(false);
-        if (!isRemoteUpdate.current && !isPlaying) {
-            setIsPlaying(true);
-            const time = playerRef.current ? playerRef.current.getCurrentTime() : 0;
-            socket.emit('youtube-state-change', { roomId, isPlaying: true, timestamp: time });
-        }
-    };
-
-    const onPlayerPause = () => {
-        if (!isRemoteUpdate.current && isPlaying) {
-            setIsPlaying(false);
-            const time = playerRef.current ? playerRef.current.getCurrentTime() : 0;
-            socket.emit('youtube-state-change', { roomId, isPlaying: false, timestamp: time });
-        }
-    };
-
-    const onPlayerBuffer = () => {
-        setIsBuffering(true);
-    };
-
-    const onPlayerBufferEnd = () => {
-        setIsBuffering(false);
-    };
-
-    const myInitials = userName ? userName.split(" ").map(n => n[0]).join("").toUpperCase().substring(0, 2) : "ME";
-
-    const copyInviteLink = () => {
-        const url = `${window.location.origin}/?room=${roomId}`;
-        navigator.clipboard.writeText(url);
-        // Using a simple alert for now, can be upgraded to a toast
-        alert("Invite link copied to clipboard: " + url);
-    };
-
-    // We want to show ALL peers, not filter by ID, because a user might have 2 peers (Video + Screen)
-    // But we might want to filter out 'null' peers or invalid ones if any
-    const peersToRender = peers;
-
-    // --- DETECT ACTIVE SCREEN SHARE ---
-    const remoteScreenShare = peers.find(p => p.isScreenShare);
-    const isSharingMode = !!myScreenStream || !!remoteScreenShare;
-
-    return (
-        <RoomContainer onMouseMove={onDrag} onMouseUp={stopDrag}>
-
-            {/* SharePlay Floating Button */}
-            <ShareButton onClick={() => setShowAppSelector(true)}>
-                <FaShareAlt />
-            </ShareButton>
-
-            {/* DEBUG OVERLAY */}
-            <div style={{ position: 'absolute', top: 10, left: 10, background: 'rgba(0,0,0,0.5)', padding: 10, borderRadius: 8, fontSize: 12, zIndex: 9999, pointerEvents: 'none' }}>
-                <div>Socket: {socket.connected ? 'Connected' : 'Disconnected'} ({socket.id})</div>
-                <div>Room: {roomId}</div>
-                <div>Peers: {peers.length}</div>
-                <div>My Screen: {myScreenStream ? 'Active' : 'None'}</div>
-            </div>
-
-            {/* App Selector Modal */}
-            {showAppSelector && (
-                <ModalOverlay onClick={() => setShowAppSelector(false)}>
-                    <AppSelector onClick={e => e.stopPropagation()}>
-                        <ModalHeader>
-                            <h3>SharePlay</h3>
-                            <div style={{ cursor: 'pointer' }} onClick={() => setShowAppSelector(false)}><FaTimes /></div>
-                        </ModalHeader>
-                        <AppOption onClick={() => {
-                            if (myScreenStream) {
-                                stopScreenShare();
-                                setShowAppSelector(false);
-                            } else {
-                                startScreenShare();
-                            }
-                        }}>
-                            <FaDesktop color={myScreenStream ? "#ff3b30" : "#30d158"} size={24} />
-                            <span>{myScreenStream ? "Stop Sharing" : "Share Screen"}</span>
-                        </AppOption>
-                        <AppOption onClick={() => { setShowAppSelector(false); setShowUrlInput(true); }}>
-                            <FaYoutube color="#ff0000" size={24} />
-                            <span>YouTube</span>
-                        </AppOption>
-                        <AppOption onClick={() => {
-                            setShowAppSelector(false);
-                            setIsJellyfinHost(true);
-                            setShowJellyfinInput(true);
-                            setShowJellyfin(true);
-                        }}>
-                            <FaPlayCircle color="#0a84ff" size={24} />
-                            <span>Jellyfin P2P Stream</span>
-                        </AppOption>
-                    </AppSelector>
-                </ModalOverlay>
-            )}
-
-            {/* YouTube URL Input Modal */}
-            {showUrlInput && (
-                <ModalOverlay onClick={() => setShowUrlInput(false)}>
-                    <InputModal onClick={e => e.stopPropagation()}>
-                        <ModalHeader>
-                            <h3>Paste Link</h3>
-                            <div style={{ cursor: 'pointer' }} onClick={() => setShowUrlInput(false)}><FaTimes /></div>
-                        </ModalHeader>
-                        <UrlInput
-                            placeholder="https://youtube.com/watch?v=..."
-                            value={inputUrl}
-                            autoFocus
-                            onChange={(e) => setInputUrl(e.target.value)}
-                            onKeyDown={(e) => e.key === 'Enter' && handleUrlSubmit()}
-                        />
-                        <ActionButton onClick={handleUrlSubmit} disabled={!inputUrl}>
-                            Start Watching
-                        </ActionButton>
-                    </InputModal>
-                </ModalOverlay>
-            )}
-
-            {/* Shared Player (Hidden if no URL) */}
-            <SharedPlayerWrapper visible={!!youtubeUrl || showJellyfin} onMouseMove={handleMouseMove} onMouseLeave={() => setControlsVisible(false)}>
-                <div style={{ position: 'relative', width: '100%', height: '100%', display: showJellyfin ? 'block' : 'none' }}>
-                    <CloseButton onClick={() => setShowJellyfin(false)}><FaTimes /></CloseButton>
-                    <MSEPlayer 
-                        ref={msePlayerRef} 
-                        onBuffering={setJellyfinBuffering}
-                    />
-                    {/* Buffering overlay with stats for nerds */}
-                    {jellyfinBuffering && (() => {
-                        const bufRanges = jellyfinBuffered || [];
-                        const totalBuffered = bufRanges.reduce((acc, r) => acc + (r.end - r.start), 0);
-                        const peerCount = peersRef.current.filter(p => !p.isScreenShare).length;
-                        const bufStart = bufRanges.length > 0 ? bufRanges[0].start : 0;
-                        const bufEnd = bufRanges.length > 0 ? bufRanges[bufRanges.length - 1].end : 0;
-                        return (
-                            <LoadingOverlay>
-                                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', maxWidth: '360px' }}>
-                                    <Spinner />
-                                    <span style={{ color: 'white', fontSize: '15px', fontWeight: '600', marginBottom: '4px' }}>
-                                        {totalBuffered > 0 ? 'Rebuffering...' : 'Connecting to stream...'}
-                                    </span>
-                                    <div style={{
-                                        background: 'rgba(0,0,0,0.6)',
-                                        borderRadius: '8px',
-                                        padding: '10px 14px',
-                                        fontFamily: 'monospace',
-                                        fontSize: '11px',
-                                        color: '#0f0',
-                                        width: '100%',
-                                        lineHeight: '1.7',
-                                        border: '1px solid rgba(255,255,255,0.1)'
-                                    }}>
-                                        <div style={{ color: '#888', fontSize: '10px', fontWeight: 'bold', marginBottom: '4px', letterSpacing: '1px' }}>STATS FOR NERDS</div>
-                                        <div>Role: <span style={{ color: '#fff' }}>{isJellyfinHost ? 'HOST (pump)' : 'PEER (WebRTC)'}</span></div>
-                                        <div>Peers: <span style={{ color: '#fff' }}>{peerCount}</span></div>
-                                        <div>Playhead: <span style={{ color: '#fff' }}>{formatTime(jellyfinCurrentTime)}</span> / <span style={{ color: '#fff' }}>{formatTime(jellyfinDuration)}</span></div>
-                                        <div>Offset: <span style={{ color: '#fff' }}>{jellyfinPlayheadOffsetRef.current.toFixed(1)}s</span></div>
-                                        <div>Buffer: <span style={{ color: totalBuffered > 0 ? '#4f4' : '#f44' }}>{totalBuffered.toFixed(1)}s</span> ({bufRanges.length} range{bufRanges.length !== 1 ? 's' : ''})</div>
-                                        {bufRanges.length > 0 && (
-                                            <div>Range: <span style={{ color: '#fff' }}>{formatTime(bufStart)} → {formatTime(bufEnd)}</span></div>
-                                        )}
-                                        <div>State: <span style={{ color: jellyfinPlaying ? '#4f4' : '#ff4' }}>{jellyfinPlaying ? 'PLAYING' : 'PAUSED'}</span></div>
-                                    </div>
-                                </div>
-                            </LoadingOverlay>
-                        );
-                    })()}
-                    
-                    {/* Peer Metrics Overlay */}
-                    {controlsVisible && (
-                        <MetricsOverlay>
-                            <div style={{ fontSize: '12px', fontWeight: 'bold', borderBottom: '1px solid rgba(255,255,255,0.2)', paddingBottom: '5px', marginBottom: '5px' }}>
-                                LIVE SYNC METRICS
-                            </div>
-                            
-                            {/* Local User */}
-                            <MetricRow>
-                                <MetricUser>{userName} (You)</MetricUser>
-                                <MetricStatus playing={jellyfinPlaying} buffering={jellyfinBuffering}>
-                                    {jellyfinBuffering ? '⏳' : (jellyfinPlaying ? '▶️' : '⏸️')}
-                                </MetricStatus>
-                                <MetricTime>{formatTime(jellyfinCurrentTime)}</MetricTime>
-                                <span style={{ marginLeft: '10px', fontSize: '11px', color: '#aaa', minWidth: '85px', textAlign: 'right' }}>
-                                    [-{Math.round(jellyfinBuffered && jellyfinBuffered.length > 0 && jellyfinCurrentTime >= jellyfinBuffered[0].start - 0.5 ? jellyfinCurrentTime - jellyfinBuffered[0].start : 0)}s / +{Math.round(jellyfinBuffered && jellyfinBuffered.length > 0 && jellyfinCurrentTime <= jellyfinBuffered[jellyfinBuffered.length - 1].end + 0.5 ? jellyfinBuffered[jellyfinBuffered.length - 1].end - jellyfinCurrentTime : 0)}s]
-                                </span>
-                            </MetricRow>
-                            
-                            {/* Remote Peers */}
-                            {peers.map(p => {
-                                if (p.isScreenShare) return null;
-                                const pState = peerStates[p.peerID] || {};
-                                const pTime = pState.jellyfinTime || 0;
-                                const pPlaying = pState.jellyfinPlaying || false;
-                                const pBuffering = pState.jellyfinBuffering || false;
-                                const pForward = pState.jellyfinForwardCache || 0;
-                                const pBackward = pState.jellyfinBackwardCache || 0;
-                                return (
-                                    <MetricRow key={p.peerID}>
-                                        <MetricUser>{p.userName}</MetricUser>
-                                        <MetricStatus playing={pPlaying} buffering={pBuffering}>
-                                            {pBuffering ? '⏳' : (pPlaying ? '▶️' : '⏸️')}
-                                        </MetricStatus>
-                                        <MetricTime>{formatTime(pTime)}</MetricTime>
-                                        <span style={{ marginLeft: '10px', fontSize: '11px', color: '#aaa', minWidth: '85px', textAlign: 'right' }}>
-                                            [-{Math.round(pBackward)}s / +{Math.round(pForward)}s]
-                                        </span>
-                                    </MetricRow>
-                                );
-                            })}
-                        </MetricsOverlay>
-                    )}
-                    
-                    {/* Custom Video Controls */}
-                    <VideoControlsContainer visible={controlsVisible || !jellyfinPlaying}>
-                        <ScrubBarContainer onClick={handleJellyfinScrub}>
-                            {jellyfinBuffered.map((range, i) => (
-                                <BufferedRegion 
-                                    key={i}
-                                    style={{
-                                        left: `${(range.start / jellyfinDuration) * 100}%`,
-                                        width: `${((range.end - range.start) / jellyfinDuration) * 100}%`
-                                    }}
-                                />
-                            ))}
-                            <ScrubBarFill style={{ width: jellyfinDuration ? `${(jellyfinCurrentTime / jellyfinDuration) * 100}%` : '0%' }} />
-                        </ScrubBarContainer>
-                        <ControlsRow>
-                            <PlayPauseButton onClick={handleJellyfinPlayPause}>
-                                {jellyfinPlaying ? <FaPause /> : <FaPlay />}
-                            </PlayPauseButton>
-                            <TimeDisplay>
-                                {formatTime(jellyfinCurrentTime)} / {formatTime(jellyfinDuration)}
-                            </TimeDisplay>
-                        </ControlsRow>
-                    </VideoControlsContainer>
-                </div>
-                
-                {youtubeUrl && !showJellyfin ? (
-                    <div style={{ position: 'relative', width: '100%', height: '100%' }}>
-                        <CloseButton onClick={() => setYoutubeUrl('')}><FaTimes /></CloseButton>
-                        {/* loading overlay */}
-                        {isBuffering && !isPlaying && (
-                            <LoadingOverlay>
-                                <Spinner />
-                            </LoadingOverlay>
-                        )}
-                        <ReactPlayer
-                            ref={playerRef}
-                            url={youtubeUrl}
-                            width="100%"
-                            height="100%"
-                            playing={isPlaying}
-                            controls={true}
-                            onReady={onPlayerReady}
-                            onStart={() => console.log(">>> PLAYBACK STARTED")}
-                            onPlay={onPlayerPlay}
-                            onPause={onPlayerPause}
-                            onBuffer={onPlayerBuffer}
-                            onBufferEnd={onPlayerBufferEnd}
-                            onError={(e) => {
-                                console.error(">>> PLAYER ERROR:", e);
-                                alert("Error loading video. It might be restricted from embedding.");
-                            }}
-                            style={{ opacity: isPlayerReady ? 1 : 0, transition: 'opacity 0.5s' }}
-                        />
-                        {(!isPlayerReady || isBuffering) && (
-                            <LoadingOverlay>
-                                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px' }}>
-                                    <Spinner />
-                                    <span style={{ color: 'white', fontSize: '14px', fontWeight: '500' }}>
-                                        {!isPlayerReady ? "Fetching Stream..." : "Buffering..."}
-                                    </span>
-                                </div>
-                            </LoadingOverlay>
-                        )}
-                    </div>
-                ) : null}
-            </SharedPlayerWrapper>
-
-            {isJellyfinHost && (
-                <JellyfinPump 
-                    ref={jellyfinPumpRef}
-                    visible={showJellyfinInput}
-                    onClose={() => setShowJellyfinInput(false)}
-                    onMetadata={(meta) => {
-                        setJellyfinDuration(meta.duration);
-                        broadcastJellyfinMsg({ type: 'JELLYFIN_METADATA', duration: meta.duration });
-                    }}
-                    onChunkReceived={async (chunk) => {
-                        if (msePlayerRef.current) {
-                            // BACKPRESSURE: Pause the pump if we have more than 60 seconds of video buffered!
-                            while (msePlayerRef.current.getBufferAhead() > 60) {
-                                await new Promise(r => setTimeout(r, 1000));
-                            }
-                            msePlayerRef.current.appendChunk(chunk);
-                        }
-                        // Stream chunk to all peers
-                        // WebRTC DataChannels have a strict limit.
-                        // Fetch API can return 1MB+ chunks. We MUST slice them!
-                        // VERY IMPORTANT: For MPEG-TS, slices MUST be aligned to 188-byte boundaries!
-                        // 188 * 348 = 65424 bytes
-                        const CHUNK_SIZE = 65424; 
-                        for (let offset = 0; offset < chunk.length; offset += CHUNK_SIZE) {
-                            const slice = chunk.slice(offset, offset + CHUNK_SIZE);
-                            
-                            // TRUE BACKPRESSURE: Wait for all peers' SCTP buffers to drain
-                            // This prevents dropped packets when WebRTC congestion window is small!
-                            for (let p of peersRef.current) {
-                                if (p.peer && !p.peer.destroyed && p.peer._channel) {
-                                    // Pause if buffer is over 256KB
-                                    while (p.peer._channel.bufferedAmount > 256 * 1024) {
-                                        await new Promise(r => setTimeout(r, 10));
-                                    }
-                                }
-                            }
-
-                            peersRef.current.forEach(p => {
-                                if (p.peer && !p.peer.destroyed) {
-                                    try { p.peer.send(slice); } catch (e) { console.error("WebRTC Send Error:", e); }
-                                }
-                            });
-                            // Tiny breather for event loop
-                            await new Promise(r => setTimeout(r, 1));
-                        }
-                    }}
-                />
-            )}
-
-            {/* LAYOUT SWITCHING */}
-            {isSharingMode ? (
-                <SplitLayout>
-                    <Sidebar>
-                        {/* 1. Local User Camera */}
-                        <VideoWrapper style={{ aspectRatio: '16/9', borderRadius: '12px' }}>
-                            <StyledVideo
-                                muted
-                                ref={el => { if (el && activeStream && el.srcObject !== activeStream) el.srcObject = activeStream; }}
-                                autoPlay
-                                playsInline
-                                isHidden={videoOff}
-                            />
-                            {videoOff && <InitialsAvatar>{myInitials}</InitialsAvatar>}
-                            <NameTag>{userName} (You)</NameTag>
-                        </VideoWrapper>
-
-                        {/* 2. Remote User Cameras (Filter out screen shares) */}
-                        {peersToRender.filter(p => !p.isScreenShare).map((p) => (
-                            <Video
-                                key={p.peerID + '-video'}
-                                stream={p.stream}
-                                userName={p.userName}
-                                peer={p.peer}
-                                peerState={peerStates[p.peerID] || { audio: true, video: true }}
-                            />
-                        ))}
-                    </Sidebar>
-
-                    <MainStage>
-                        {/* Render Active Screen Share */}
-                        {myScreenStream ? (
-                            // Local Screen Share
-                            <div style={{ width: '100%', height: '100%', position: 'relative' }}>
-                                <video
-                                    ref={el => { if (el && el.srcObject !== myScreenStream) el.srcObject = myScreenStream; }}
-                                    autoPlay
-                                    playsInline
-                                    muted
-                                    style={{ width: '100%', height: '100%', objectFit: 'contain' }}
-                                />
-                                <OverlayButton onClick={stopScreenShare}>Stop Sharing</OverlayButton>
-                            </div>
-                        ) : remoteScreenShare ? (
-                            // Remote Screen Share
-                            <Video
-                                key={remoteScreenShare.peerID}
-                                stream={remoteScreenShare.stream}
-                                userName={remoteScreenShare.userName}
-                                peer={remoteScreenShare.peer}
-                                peerState={peerStates[remoteScreenShare.peerID] || { audio: true, video: true }}
-                                isMainStage={true}
-                            />
-                        ) : null}
-                    </MainStage>
-                    {showChat && <Chat roomId={roomId} userName={userName} onClose={() => setShowChat(false)} />}
-                </SplitLayout>
-            ) : (
-                // STANDARD GRID LAYOUT
-                <SplitLayout>
-                    <VideoGrid mode={viewMode}>
-                        {/* LOCAL VIDEO */}
-                    {viewMode === 'grid' ? (
-                        <VideoWrapper>
-                            <StyledVideo
-                                muted
-                                ref={el => {
-                                    userVideo.current = el; // Keep ref sync
-                                    if (el && activeStream && el.srcObject !== activeStream) el.srcObject = activeStream;
-                                }}
-                                autoPlay
-                                playsInline
-                                isHidden={videoOff}
-                            />
-                            {videoOff && <InitialsAvatar>{myInitials}</InitialsAvatar>}
-                            <NameTag>
-                                {userName} (You)
-                                {muted && <StatusIcon><FaMicrophoneSlash /></StatusIcon>}
-                                {videoOff && <StatusIcon><FaVideoSlash /></StatusIcon>}
-                            </NameTag>
-                        </VideoWrapper>
-                    ) : (
-                        <DraggableWrapper x={dragPos.x} y={dragPos.y} onMouseDown={startDrag}>
-                            <StyledVideo
-                                muted
-                                ref={el => {
-                                    userVideo.current = el;
-                                    if (el && activeStream && el.srcObject !== activeStream) el.srcObject = activeStream;
-                                }}
-                                autoPlay
-                                playsInline
-                                isHidden={videoOff}
-                            />
-                            {videoOff && <InitialsAvatar>{myInitials}</InitialsAvatar>}
-                            <NameTag style={{ fontSize: '10px', padding: '4px 8px' }}>{userName} (You)</NameTag>
-                        </DraggableWrapper>
-                    )}
-
-                    {/* REMOTE PEERS */}
-                    {peersToRender.map((p, index) => (
-                        <Video
-                            key={p.peerID + (p.isScreenShare ? '-screen' : '-video')}
-                            stream={p.stream}
-                            userName={p.userName}
-                            peer={p.peer}
-                            peerState={peerStates[p.peerID] || { audio: true, video: true }}
-                            isFullScreen={viewMode === 'pip' && index === 0}
-                        />
-                    ))}
-                    </VideoGrid>
-                    {showChat && <Chat roomId={roomId} userName={userName} onClose={() => setShowChat(false)} />}
-                </SplitLayout>
-            )
-            }
-
-
-            <ControlsBar>
-                {/* LAYOUT TOGGLE */}
-                <ControlButton onClick={() => setViewMode(viewMode === 'grid' ? 'pip' : 'grid')} title="Toggle Layout">
-                    {viewMode === 'grid' ? <FaExpand /> : <FaTh />}
-                </ControlButton>
-
-                <ControlButton active={showChat} onClick={() => setShowChat(!showChat)} title="Toggle Chat">
-                    <FaCommentAlt />
-                </ControlButton>
-
-                <ControlButton onClick={copyInviteLink} title="Copy Invite Link">
-                    <FaCopy />
-                </ControlButton>
-
-                <ControlButton active={muted} onClick={toggleMute} title="Toggle Audio">
-                    {muted ? <FaMicrophoneSlash /> : <FaMicrophone />}
-                </ControlButton>
-                <ControlButton active={videoOff} onClick={toggleVideo} title="Toggle Video">
-                    {videoOff ? <FaVideoSlash /> : <FaVideo />}
-                </ControlButton>
-                <ControlButton danger onClick={leaveRoom} title="Leave Room">
-                    <FaPhoneSlash />
-                </ControlButton>
-            </ControlsBar>
-        </RoomContainer >
-    );
-};
-
-export default Room;
+      }
+    }} />}
+  </>;
+}

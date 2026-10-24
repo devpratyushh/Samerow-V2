@@ -1,196 +1,168 @@
-import React, { useState, useEffect, useRef } from 'react';
-import styled from 'styled-components';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { db } from './firebase';
 import { collection, query, orderBy, onSnapshot, addDoc, serverTimestamp } from 'firebase/firestore';
-import { FaPaperPlane, FaTimes } from 'react-icons/fa';
+import { FaArrowDown, FaComments, FaPaperPlane, FaTimes } from 'react-icons/fa';
+import Dialog from './components/Dialog';
+import './Chat.css';
 
-const ChatContainer = styled.div`
-  width: 320px;
-  background-color: rgba(28, 28, 30, 0.85);
-  backdrop-filter: blur(20px);
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  border-left: 1px solid rgba(255,255,255,0.1);
-  transition: all 0.3s ease;
-  z-index: 90;
+const EMPTY_MESSAGES = [];
+const compactQuery = '(max-width: 1099px)';
+const subscribeToWidth = (callback) => {
+  const mediaQuery = window.matchMedia(compactQuery);
+  mediaQuery.addEventListener('change', callback);
+  return () => mediaQuery.removeEventListener('change', callback);
+};
+const getCompactSnapshot = () => window.matchMedia(compactQuery).matches;
+const getServerSnapshot = () => false;
 
-  @media (max-width: 768px) {
-    position: absolute;
-    right: 0;
-    top: 0;
-    bottom: 0;
-    width: 100%;
-    max-width: 320px;
-  }
-`;
+function messageTime(value) {
+  const date = value?.toDate?.() ?? (value instanceof Date ? value : null);
+  return date ? date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '';
+}
 
-const ChatHeader = styled.div`
-  padding: 16px;
-  border-bottom: 1px solid rgba(255,255,255,0.1);
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-weight: 600;
-  font-size: 16px;
-  color: white;
-`;
-
-const CloseButton = styled.button`
-  background: none;
-  border: none;
-  color: rgba(255,255,255,0.6);
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 4px;
-  &:hover { color: white; }
-`;
-
-const MessagesArea = styled.div`
-  flex: 1;
-  padding: 16px;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-
-  &::-webkit-scrollbar { width: 6px; }
-  &::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 3px; }
-`;
-
-const MessageBubble = styled.div`
-  max-width: 85%;
-  align-self: ${props => props.isMine ? 'flex-end' : 'flex-start'};
-  background-color: ${props => props.isMine ? '#0a84ff' : 'rgba(255,255,255,0.1)'};
-  color: white;
-  padding: 10px 14px;
-  border-radius: 18px;
-  border-bottom-right-radius: ${props => props.isMine ? '4px' : '18px'};
-  border-bottom-left-radius: ${props => !props.isMine ? '4px' : '18px'};
-  word-wrap: break-word;
-`;
-
-const SenderName = styled.div`
-  font-size: 11px;
-  color: rgba(255,255,255,0.5);
-  margin-bottom: 4px;
-  text-align: ${props => props.isMine ? 'right' : 'left'};
-  padding: 0 4px;
-`;
-
-const InputContainer = styled.form`
-  display: flex;
-  padding: 16px;
-  gap: 10px;
-  border-top: 1px solid rgba(255,255,255,0.1);
-  background-color: rgba(0,0,0,0.2);
-`;
-
-const ChatInput = styled.input`
-  flex: 1;
-  background-color: rgba(255,255,255,0.1);
-  border: 1px solid rgba(255,255,255,0.1);
-  color: white;
-  padding: 10px 14px;
-  border-radius: 20px;
-  outline: none;
-  font-size: 14px;
-  
-  &:focus { border-color: #0a84ff; }
-`;
-
-const SendButton = styled.button`
-  background-color: #0a84ff;
-  color: white;
-  border: none;
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  cursor: pointer;
-  transition: background-color 0.2s;
-  
-  &:hover { background-color: #007aff; }
-  &:disabled { opacity: 0.5; cursor: not-allowed; }
-`;
-
-const Chat = ({ roomId, userName, onClose }) => {
+export default function Chat({ roomId, userName, onClose, open = true, onUnreadChange, preview = false, previewMessages = EMPTY_MESSAGES }) {
   const [messages, setMessages] = useState([]);
-  const [newMessage, setNewMessage] = useState('');
-  const messagesEndRef = useRef(null);
+  const [draft, setDraft] = useState('');
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState('');
+  const [hasNewMessages, setHasNewMessages] = useState(false);
+  const isCompact = useSyncExternalStore(subscribeToWidth, getCompactSnapshot, getServerSnapshot);
+  const messagesRef = useRef(null);
+  const composerRef = useRef(null);
+  const isAtBottom = useRef(true);
+  const scrollPosition = useRef(0);
+  const unread = useRef(0);
+  const current = useRef({ open, userName, onUnreadChange });
+  const displayedMessages = preview ? [...previewMessages, ...messages] : messages;
 
   useEffect(() => {
-    if (!roomId) return;
-    const messagesRef = collection(db, 'rooms', roomId, 'messages');
-    const q = query(messagesRef, orderBy('createdAt', 'asc'));
+    current.current = { open, userName, onUnreadChange };
+    if (open) {
+      unread.current = 0;
+      onUnreadChange?.(0);
+    }
+  }, [open, userName, onUnreadChange]);
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const msgs = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
-      setMessages(msgs);
-      setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
+  useEffect(() => {
+    if (!roomId || preview) return;
+    let knownIds = null;
+    const subscription = query(collection(db, 'rooms', roomId, 'messages'), orderBy('createdAt', 'asc'));
+    return onSnapshot(subscription, (snapshot) => {
+      const next = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+      const added = knownIds ? next.filter((message) => !knownIds.has(message.id)) : [];
+      const incoming = added.filter((message) => message.sender !== current.current.userName);
+      knownIds = new Set(next.map((message) => message.id));
+      if (!current.current.open && incoming.length) {
+        unread.current += incoming.length;
+        current.current.onUnreadChange?.(unread.current);
+      }
+      if (current.current.open && !isAtBottom.current && added.length) setHasNewMessages(true);
+      setMessages(next);
+      setError('');
+    }, () => setError('Chat could not connect. Your draft is saved; close and reopen the room to reconnect.'));
+  }, [roomId, preview]);
+
+  useEffect(() => {
+    if (!open) return;
+    const frame = requestAnimationFrame(() => {
+      const area = messagesRef.current;
+      if (!area) return;
+      area.scrollTop = isAtBottom.current ? area.scrollHeight : scrollPosition.current;
     });
+    return () => cancelAnimationFrame(frame);
+  }, [open, isCompact, messages, previewMessages]);
 
-    return () => unsubscribe();
-  }, [roomId]);
+  useEffect(() => {
+    if (!open || isCompact) return;
+    const previousFocus = document.activeElement;
+    const frame = requestAnimationFrame(() => composerRef.current?.focus({ preventScroll: true }));
+    return () => {
+      cancelAnimationFrame(frame);
+      if (previousFocus?.isConnected) previousFocus.focus({ preventScroll: true });
+    };
+  }, [open, isCompact]);
 
-  const handleSend = async (e) => {
-    e.preventDefault();
-    if (!newMessage.trim()) return;
+  const scrollToLatest = () => {
+    const area = messagesRef.current;
+    if (area) area.scrollTop = area.scrollHeight;
+    isAtBottom.current = true;
+    setHasNewMessages(false);
+  };
 
+  const handleScroll = () => {
+    const area = messagesRef.current;
+    if (!area) return;
+    scrollPosition.current = area.scrollTop;
+    isAtBottom.current = area.scrollHeight - area.scrollTop - area.clientHeight < 72;
+    if (isAtBottom.current) setHasNewMessages(false);
+  };
+
+  const handleSend = async (event) => {
+    event.preventDefault();
+    const text = draft.trim();
+    if (!text || sending || (!roomId && !preview)) return;
+    setSending(true);
+    setError('');
+    isAtBottom.current = true;
     try {
-      const messagesRef = collection(db, 'rooms', roomId, 'messages');
-      await addDoc(messagesRef, {
-        text: newMessage,
-        sender: userName,
-        createdAt: serverTimestamp()
-      });
-      setNewMessage('');
-    } catch (error) {
-      console.error("Error sending message:", error);
+      if (preview) {
+        setMessages((previous) => [...previous, { id: `preview-${Date.now()}`, text, sender: userName, createdAt: new Date() }]);
+      } else {
+        await addDoc(collection(db, 'rooms', roomId, 'messages'), { text, sender: userName, createdAt: serverTimestamp() });
+      }
+      // Keep any edits made while this message was being sent.
+      setDraft((value) => value.trim() === text ? '' : value);
+      setHasNewMessages(false);
+    } catch {
+      setError('Message was not sent. Your draft is saved; try again.');
+    } finally {
+      setSending(false);
     }
   };
 
-  return (
-    <ChatContainer>
-      <ChatHeader>
-        Room Chat
-        <CloseButton onClick={onClose}><FaTimes /></CloseButton>
-      </ChatHeader>
-      
-      <MessagesArea>
-        {messages.map((msg) => {
-          const isMine = msg.sender === userName;
-          return (
-            <div key={msg.id} style={{ display: 'flex', flexDirection: 'column' }}>
-              {!isMine && <SenderName isMine={isMine}>{msg.sender}</SenderName>}
-              <MessageBubble isMine={isMine}>
-                {msg.text}
-              </MessageBubble>
+  const content = (
+    <div className="sr-chat-panel">
+      <div className="sr-chat-conversation">
+        <div className="sr-chat-messages" ref={messagesRef} onScroll={handleScroll} role="log" aria-label="Room messages" aria-live={open ? 'polite' : 'off'} aria-relevant="additions" tabIndex={0}>
+          {displayedMessages.length === 0 ? (
+            <div className="sr-chat-empty">
+              <span className="sr-chat-empty-icon"><FaComments aria-hidden="true" /></span>
+              <strong>No messages yet</strong>
+              <p>Send a message to everyone in the room.</p>
             </div>
-          );
-        })}
-        <div ref={messagesEndRef} />
-      </MessagesArea>
-
-      <InputContainer onSubmit={handleSend}>
-        <ChatInput 
-          placeholder="Type a message..." 
-          value={newMessage}
-          onChange={(e) => setNewMessage(e.target.value)}
-        />
-        <SendButton type="submit" disabled={!newMessage.trim()}>
-          <FaPaperPlane size={14} />
-        </SendButton>
-      </InputContainer>
-    </ChatContainer>
+          ) : displayedMessages.map((message) => {
+            const mine = message.sender === userName;
+            const time = messageTime(message.createdAt);
+            return (
+              <div key={message.id} className={`sr-chat-message${mine ? ' is-mine' : ''}`}>
+                <div className="sr-chat-message-meta"><span>{mine ? 'You' : message.sender || 'Guest'}</span>{time && <time>{time}</time>}</div>
+                <div className="sr-chat-bubble">{message.text}</div>
+              </div>
+            );
+          })}
+        </div>
+        {hasNewMessages && <button className="sr-chat-new" type="button" onClick={scrollToLatest}><FaArrowDown aria-hidden="true" /> New messages</button>}
+      </div>
+      {error && <p className="sr-chat-error" role="alert">{error}</p>}
+      <form className="sr-chat-composer" onSubmit={handleSend}>
+        <label className="sr-visually-hidden" htmlFor="room-chat-message">Message everyone</label>
+        <input id="room-chat-message" ref={composerRef} className="sr-chat-input" placeholder="Message everyone…" value={draft} onChange={(event) => setDraft(event.target.value)} maxLength={4000} autoComplete="off" data-autofocus />
+        <button className="sr-chat-send" type="submit" aria-label={sending ? 'Sending message' : 'Send message'} disabled={!draft.trim() || sending || (!roomId && !preview)}><FaPaperPlane aria-hidden="true" /></button>
+      </form>
+      <p className="sr-chat-hint">Visible to everyone in this room</p>
+    </div>
   );
-};
 
-export default Chat;
+  return (
+    <aside className={`sr-chat-container${open ? ' open' : ''}`} hidden={!open} aria-label="Room chat">
+      {isCompact ? (
+        <Dialog open={open} title="Room chat" onClose={onClose} className="sr-chat-dialog">{content}</Dialog>
+      ) : (
+        <>
+          <header className="sr-chat-header"><div><h2>Room chat</h2></div><button className="sr-chat-close" type="button" onClick={onClose} aria-label="Close chat"><FaTimes aria-hidden="true" /></button></header>
+          {content}
+        </>
+      )}
+    </aside>
+  );
+}

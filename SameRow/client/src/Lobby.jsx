@@ -1,372 +1,136 @@
-import React, { useState, useEffect, useRef } from 'react';
-import styled, { keyframes } from 'styled-components';
-import { FaMicrophone, FaMicrophoneSlash, FaVideo, FaVideoSlash, FaGoogle, FaHistory, FaSignOutAlt, FaTrash } from "react-icons/fa";
-import { signInWithPopup, signOut } from "firebase/auth";
-import { auth, googleProvider } from "./firebase";
+import { useState, useEffect, useRef } from 'react';
+import { FaArrowRight, FaGoogle, FaHistory, FaMicrophone, FaMicrophoneSlash, FaSignOutAlt, FaVideo, FaVideoSlash } from 'react-icons/fa';
+import { signInWithPopup, signOut } from 'firebase/auth';
+import { auth, googleProvider } from './firebase';
+import './Lobby.css';
 
-const gradientAnimation = keyframes`
-  0% { background-position: 0% 50%; }
-  50% { background-position: 100% 50%; }
-  100% { background-position: 0% 50%; }
-`;
+const validRoomCode = (value) => /^[a-zA-Z0-9_-]{1,64}$/.test(value);
 
-const LobbyContainer = styled.div`
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  align-items: center;
-  min-height: 100vh;
-  width: 100%;
-  background: linear-gradient(-45deg, #0f0f13, #1c1c20, #0a0a0c, #1f1f2e);
-  background-size: 400% 400%;
-  animation: ${gradientAnimation} 15s ease infinite;
-  color: white;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  padding: 40px 20px;
-  box-sizing: border-box;
-`;
-
-const ContentWrapper = styled.div`
-  display: flex;
-  gap: 40px;
-  align-items: stretch; /* Make items same height */
-  justify-content: center;
-  flex-wrap: wrap;
-  width: 100%;
-  max-width: 1000px;
-  
-  @media (max-width: 800px) {
-    flex-direction: column;
-    align-items: center; /* Revert to center for mobile stack */
+function readHistory(uid) {
+  if (!uid) return [];
+  try {
+    const stored = JSON.parse(localStorage.getItem(`recent_rooms_${uid}`) || '[]');
+    return Array.isArray(stored) ? stored.filter((entry) => validRoomCode(entry?.code) && Number.isFinite(entry?.timestamp)).slice(0, 5) : [];
+  } catch {
+    return [];
   }
-`;
+}
 
-const PreviewCard = styled.div`
-  position: relative;
-  width: 100%;
-  max-width: 480px;
-  min-height: 360px;
-  background-color: rgba(44, 44, 46, 0.4);
-  backdrop-filter: blur(24px);
-  border: 1px solid rgba(255,255,255,0.1);
-  border-radius: 24px;
-  overflow: hidden;
-  box-shadow: 0 30px 60px rgba(0,0,0,0.6);
-  display: flex;
-  justify-content: center;
-  align-items: center;
-`;
-
-const StyledVideo = styled.video`
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  transform: scaleX(-1); // Mirror for local preview
-  display: ${props => props.isHidden ? 'none' : 'block'};
-`;
-
-const InitialsAvatar = styled.div`
-  width: 120px;
-  height: 120px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, #a8c0ff, #3f2b96);
-  color: white;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  font-size: 48px;
-  font-weight: bold;
-  font-weight: bold;
-`;
-
-const UserProfile = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  background: rgba(255,255,255,0.1);
-  padding: 8px 16px;
-  border-radius: 30px;
-  margin-bottom: 20px;
-  
-  img { width: 32px; height: 32px; border-radius: 50%; }
-  span { font-size: 14px; color: white; font-weight: 500; }
-  button { 
-    background: none; border: none; color: #ff453a; 
-    cursor: pointer; display: flex; align-items: center;
-    &:hover { opacity: 0.8; }
-  }
-`;
-
-const HistoryContainer = styled.div`
-  max-height: 150px;
-  overflow-y: auto;
-  width: 100%;
-  background: rgba(0,0,0,0.2);
-  border-radius: 12px;
-  padding: 10px;
-  margin-top: 10px;
-  display: flex; flex-direction: column; gap: 8px;
-
-  &::-webkit-scrollbar { width: 4px; }
-  &::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 4px; }
-`;
-
-const HistoryItem = styled.div`
-  display: flex; justify-content: space-between; align-items: center;
-  padding: 8px;
-  background: rgba(255,255,255,0.05);
-  border-radius: 8px;
-  cursor: pointer;
-  transition: background 0.2s;
-  
-  &:hover { background: rgba(255,255,255,0.1); }
-  
-  div { display: flex; flex-direction: column; gap: 2px; }
-  span.code { font-family: monospace; font-size: 14px; font-weight: bold; }
-  span.time { font-size: 10px; color: #aaa; }
-`;
-
-const JoinCard = styled.div`
-  background-color: rgba(30, 30, 34, 0.65);
-  backdrop-filter: blur(24px);
-  padding: 40px;
-  border-radius: 24px;
-  text-align: center;
-  width: 100%;
-  max-width: 380px;
-  border: 1px solid rgba(255,255,255,0.1);
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-  box-shadow: 0 30px 60px rgba(0,0,0,0.4);
-`;
-
-const Title = styled.h1`
-  margin: 0 0 10px 0;
-  color: #fff;
-  font-size: 24px;
-`;
-
-const Input = styled.input`
-  width: 100%;
-  padding: 15px;
-  border-radius: 12px;
-  border: 1px solid rgba(255,255,255,0.1);
-  background-color: rgba(0,0,0,0.3);
-  color: white;
-  font-size: 16px;
-  outline: none;
-  &:focus { border-color: #0a84ff; }
-`;
-
-const Button = styled.button`
-  width: 100%;
-  padding: 16px;
-  background: linear-gradient(135deg, #0a84ff, #005bb5);
-  color: white;
-  border: none;
-  border-radius: 14px;
-  font-size: 16px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.3s ease;
-  box-shadow: 0 8px 20px rgba(10, 132, 255, 0.3);
-  &:hover { transform: translateY(-2px); box-shadow: 0 12px 24px rgba(10, 132, 255, 0.5); }
-`;
-
-const Controls = styled.div`
-  position: absolute;
-  bottom: 20px;
-  display: flex;
-  gap: 20px;
-`;
-
-const ControlButton = styled.button`
-  background-color: ${props => props.active ? "rgba(255,255,255,0.9)" : "rgba(255,69,58,0.9)"};
-  color: ${props => props.active ? "#000" : "#fff"};
-  border: none;
-  border-radius: 50%;
-  width: 54px;
-  height: 54px;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  cursor: pointer;
-  transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
-  box-shadow: 0 8px 16px rgba(0,0,0,0.3);
-  &:hover { transform: scale(1.15); box-shadow: 0 12px 24px rgba(0,0,0,0.4); }
-`;
+function timeAgo(timestamp, now) {
+  const minutes = Math.max(0, Math.floor((now - timestamp) / 60000));
+  if (minutes < 1) return 'Just now';
+  if (minutes < 60) return `${minutes}m ago`;
+  if (minutes < 1440) return `${Math.floor(minutes / 60)}h ago`;
+  return `${Math.floor(minutes / 1440)}d ago`;
+}
 
 const Lobby = ({ joinRoom, initialRoom, userStream, toggleMute, toggleVideo, isMuted, isVideoOff, streamError, authUser, serverConnected }) => {
-  const [roomId, setRoomId] = useState(initialRoom || '');
+  const identity = authUser?.uid || null;
+  const [roomDraft, setRoomDraft] = useState(null);
+  const [nameDraft, setNameDraft] = useState({ identity: null, value: '' });
+  const [recentRooms, setRecentRooms] = useState(null);
+  const [authBusy, setAuthBusy] = useState(false);
+  const [feedback, setFeedback] = useState('');
+  const [attempted, setAttempted] = useState(false);
+  const [now] = useState(() => Date.now());
+  const videoRef = useRef(null);
+  const nameRef = useRef(null);
+
+  const roomId = roomDraft ?? initialRoom ?? '';
+  const userName = nameDraft.identity === identity ? nameDraft.value : (authUser?.displayName || '');
+  const history = recentRooms?.identity === identity ? recentRooms.entries : readHistory(identity);
+  const trimmedRoom = roomId.trim();
+  const trimmedName = userName.trim();
+  const roomError = trimmedRoom && !validRoomCode(trimmedRoom) ? 'Use 1–64 letters, numbers, hyphens or underscores.' : attempted && !trimmedRoom ? 'Enter a room code to continue.' : '';
+  const nameError = attempted && !trimmedName ? 'Enter the name others will see.' : '';
+  const hasAudio = Boolean(userStream?.getAudioTracks().some((track) => track.readyState === 'live'));
+  const hasVideo = Boolean(userStream?.getVideoTracks().some((track) => track.readyState === 'live'));
+  const showVideo = hasVideo && !isVideoOff;
+  const initials = trimmedName ? trimmedName.split(/\s+/).slice(0, 2).map((word) => word[0]).join('').toUpperCase() : 'YOU';
+  const canJoin = serverConnected && validRoomCode(trimmedRoom) && Boolean(trimmedName);
 
   useEffect(() => {
-    if (initialRoom) setRoomId(initialRoom);
-  }, [initialRoom]);
-  const [userName, setUserName] = useState('');
-  const videoRef = useRef();
-  const [history, setHistory] = useState([]);
-
-  useEffect(() => {
-    if (videoRef.current && userStream) {
-      videoRef.current.srcObject = userStream;
-    }
+    const video = videoRef.current;
+    if (video) video.srcObject = userStream || null;
+    return () => { if (video) video.srcObject = null; };
   }, [userStream]);
 
-  // Auto-fill name and load history on auth change
-  useEffect(() => {
-    if (authUser) {
-      setUserName(authUser.displayName || '');
-      // Load History
-      const stored = localStorage.getItem(`recent_rooms_${authUser.uid}`);
-      if (stored) {
-        try {
-          setHistory(JSON.parse(stored));
-        } catch (e) {
-          console.error("Failed to parse history", e);
-        }
-      }
-    } else {
-      setHistory([]);
-    }
-  }, [authUser]);
-
-  const handleLogin = async () => {
+  const handleAuth = async () => {
+    setAuthBusy(true);
+    setFeedback('');
     try {
-      await signInWithPopup(auth, googleProvider);
+      if (authUser) await signOut(auth);
+      else await signInWithPopup(auth, googleProvider);
     } catch (error) {
-      console.error("Login failed:", error);
-      alert("Login failed: " + error.message);
-    }
+      if (error.code === 'auth/popup-closed-by-user') setFeedback('Sign-in closed. You can try again or join as a guest.');
+      else if (error.code === 'auth/popup-blocked') setFeedback('Allow the sign-in popup, then try again. You can also join as a guest.');
+      else setFeedback(authUser ? 'Could not sign out. Please try again.' : 'Could not sign in. Please try again or join as a guest.');
+    } finally { setAuthBusy(false); }
   };
 
-  const addToHistory = (code) => {
-    if (!authUser) return;
-    const newEntry = { code, timestamp: Date.now() };
-    const newHistory = [newEntry, ...history.filter(h => h.code !== code)].slice(0, 5); // Keep top 5 unique
-    setHistory(newHistory);
-    localStorage.setItem(`recent_rooms_${authUser.uid}`, JSON.stringify(newHistory));
+  const rememberAndJoin = (code) => {
+    if (!serverConnected || !validRoomCode(code) || !trimmedName) return;
+    if (authUser) {
+      const entries = [{ code, timestamp: Date.now() }, ...history.filter((entry) => entry.code !== code)].slice(0, 5);
+      setRecentRooms({ identity, entries });
+      try { localStorage.setItem(`recent_rooms_${identity}`, JSON.stringify(entries)); } catch { /* Joining works if browser storage is unavailable. */ }
+    }
+    joinRoom(code, trimmedName);
   };
 
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    if (roomId.trim() && userName.trim()) {
-      addToHistory(roomId.trim());
-      joinRoom(roomId, userName);
-    }
+  const handleSubmit = (event) => {
+    event.preventDefault();
+    setAttempted(true);
+    if (!trimmedName) nameRef.current?.focus();
+    rememberAndJoin(trimmedRoom);
   };
 
   const joinRecentRoom = (code) => {
-    setRoomId(code);
-    if (userName.trim()) {
-      addToHistory(code);
-      joinRoom(code, userName);
-    }
+    setRoomDraft(code);
+    setAttempted(true);
+    if (!trimmedName) nameRef.current?.focus();
+    rememberAndJoin(code);
   };
-
-  // Format relative time helper
-  const timeAgo = (ms) => {
-    const sec = Math.floor((Date.now() - ms) / 1000);
-    if (sec < 60) return 'Just now';
-    const min = Math.floor(sec / 60);
-    if (min < 60) return `${min}m ago`;
-    const hr = Math.floor(min / 60);
-    if (hr < 24) return `${hr}h ago`;
-    return 'Long ago';
-  };
-
-  const myInitials = userName ? userName.split(" ").map(n => n[0]).join("").toUpperCase().substring(0, 2) : "ME";
 
   return (
-    <LobbyContainer>
-      <ContentWrapper>
-        <PreviewCard>
-          {!userStream || isVideoOff ? (
-            <InitialsAvatar>{myInitials}</InitialsAvatar>
-          ) : (
-            <StyledVideo ref={videoRef} autoPlay playsInline muted />
-          )}
-
-          <Controls>
-            <ControlButton active={!isMuted} onClick={(e) => { e.preventDefault(); toggleMute(); }}>
-              {isMuted ? <FaMicrophoneSlash /> : <FaMicrophone />}
-            </ControlButton>
-            <ControlButton active={!isVideoOff} onClick={(e) => { e.preventDefault(); toggleVideo(); }}>
-              {isVideoOff ? <FaVideoSlash /> : <FaVideo />}
-            </ControlButton>
-          </Controls>
-
-          {streamError && (
-            <div style={{ position: 'absolute', top: 10, color: '#ff453a', background: 'rgba(0,0,0,0.6)', padding: '5px 10px', borderRadius: 8 }}>
-              {streamError}
-            </div>
-          )}
-        </PreviewCard>
-
-        <JoinCard>
-          <Title>Ready to join?</Title>
-
-          {authUser ? (
-            <UserProfile>
-              <img src={authUser.photoURL} alt="Avatar" />
-              <span>{authUser.displayName}</span>
-              <button onClick={() => signOut(auth)} title="Sign Out">
-                <FaSignOutAlt />
-              </button>
-            </UserProfile>
-          ) : (
-            <Button
-              type="button"
-              onClick={handleLogin}
-              style={{ background: 'white', color: 'black', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', marginBottom: '20px' }}
-            >
-              <FaGoogle color="#DB4437" /> Sign in with Google
-            </Button>
-          )}
-
-          <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
-            <Input
-              placeholder="Your Name"
-              value={userName}
-              onChange={(e) => setUserName(e.target.value)}
-              required
-            />
-            <Input
-              placeholder="Room Code"
-              value={roomId}
-              onChange={(e) => setRoomId(e.target.value)}
-              required
-            />
-            <Button type="submit" disabled={!serverConnected} style={{ opacity: serverConnected ? 1 : 0.6 }}>
-              {serverConnected ? "Join Now" : "Waking up server..."}
-            </Button>
-            {!serverConnected && (
-              <div style={{ fontSize: '10px', color: '#aaa', marginTop: '-10px' }}>
-                This may take up to 50s on the free plan.
+    <main className="lobby">
+      <header className="lobby-header">
+        <a className="lobby-brand" href="/" aria-label="SameRow home">SameRow</a>
+        <span className={`lobby-connection ${serverConnected ? 'is-connected' : ''}`} role="status"><span aria-hidden="true" />{serverConnected ? 'Ready to connect' : 'Connecting to server'}</span>
+      </header>
+      <div className="lobby-content">
+        <section className="lobby-intro" aria-labelledby="lobby-heading"><h1 id="lobby-heading">Join a room</h1><p className="lobby-description">Check your camera, then enter a room code to join or create a room.</p></section>
+        <div className="lobby-setup">
+          <section className="lobby-preview-section" aria-labelledby="preview-heading">
+            <div className="lobby-section-label"><h2 id="preview-heading">Your preview</h2><span>Only you can see this</span></div>
+            <div className={`lobby-preview ${showVideo ? 'has-video' : ''}`}>
+              <video ref={videoRef} className="lobby-preview-video" autoPlay playsInline muted aria-label="Your camera preview" hidden={!showVideo} />
+              {!showVideo && <div className="lobby-preview-placeholder"><div className="lobby-avatar" aria-hidden="true">{initials}</div><span>{hasVideo ? 'Camera is off' : streamError ? 'Join with your camera off' : 'Getting your camera ready…'}</span></div>}
+              <div className="lobby-preview-topline"><span className="lobby-preview-tag">{trimmedName || 'You'}</span><span className="lobby-preview-tag">Preview</span></div>
+              <div className="lobby-device-controls" aria-label="Preview controls">
+                <button className={`lobby-device-button ${isMuted || !hasAudio ? 'is-off' : ''}`} type="button" onClick={toggleMute} disabled={!hasAudio} aria-pressed={isMuted || !hasAudio} aria-label={!hasAudio ? 'Microphone unavailable' : isMuted ? 'Turn microphone on' : 'Turn microphone off'} title={!hasAudio ? 'Microphone unavailable' : isMuted ? 'Turn microphone on' : 'Turn microphone off'}>{isMuted || !hasAudio ? <FaMicrophoneSlash aria-hidden="true" /> : <FaMicrophone aria-hidden="true" />}<span>{isMuted || !hasAudio ? 'Mic off' : 'Mic on'}</span></button>
+                <button className={`lobby-device-button ${isVideoOff || !hasVideo ? 'is-off' : ''}`} type="button" onClick={toggleVideo} disabled={!hasVideo} aria-pressed={isVideoOff || !hasVideo} aria-label={!hasVideo ? 'Camera unavailable' : isVideoOff ? 'Turn camera on' : 'Turn camera off'} title={!hasVideo ? 'Camera unavailable' : isVideoOff ? 'Turn camera on' : 'Turn camera off'}>{isVideoOff || !hasVideo ? <FaVideoSlash aria-hidden="true" /> : <FaVideo aria-hidden="true" />}<span>{isVideoOff || !hasVideo ? 'Camera off' : 'Camera on'}</span></button>
               </div>
-            )}
-          </form>
-
-          {authUser && history.length > 0 && (
-            <div style={{ width: '100%', marginTop: '10px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#888', fontSize: '12px', marginBottom: '5px' }}>
-                <FaHistory /> Recent Rooms
-              </div>
-              <HistoryContainer>
-                {history.map((h, i) => (
-                  <HistoryItem key={i} onClick={() => joinRecentRoom(h.code)}>
-                    <div>
-                      <span className="code">{h.code}</span>
-                      <span className="time">{timeAgo(h.timestamp)}</span>
-                    </div>
-                  </HistoryItem>
-                ))}
-              </HistoryContainer>
             </div>
-          )}
-        </JoinCard>
-      </ContentWrapper>
-    </LobbyContainer>
+            <p className={`lobby-preview-help ${streamError ? 'has-error' : ''}`} role={streamError ? 'status' : undefined}>{streamError || 'You can change these settings after joining.'}</p>
+          </section>
+          <section className="lobby-join-card" aria-labelledby="join-heading">
+            <div className="lobby-join-heading"><h2 id="join-heading">Room details</h2></div>
+            <form className="lobby-form" onSubmit={handleSubmit} noValidate>
+              <div className="lobby-field"><label htmlFor="lobby-name">Your name</label><input ref={nameRef} id="lobby-name" autoComplete="nickname" placeholder="Your name" maxLength={64} value={userName} onChange={(event) => setNameDraft({ identity, value: event.target.value })} aria-invalid={Boolean(nameError)} aria-describedby={nameError ? 'lobby-name-error' : undefined} required />{nameError && <span className="lobby-field-error" id="lobby-name-error">{nameError}</span>}</div>
+              <div className="lobby-field"><label htmlFor="lobby-room">Room code</label><input id="lobby-room" autoComplete="off" autoCapitalize="none" spellCheck={false} placeholder="e.g. friday-movie" value={roomId} onChange={(event) => setRoomDraft(event.target.value)} aria-invalid={Boolean(roomError)} aria-describedby={roomError ? 'lobby-room-error' : 'lobby-room-hint'} required />{roomError ? <span className="lobby-field-error" id="lobby-room-error">{roomError}</span> : <span className="lobby-field-hint" id="lobby-room-hint">Use the same code as your friends.</span>}</div>
+              <button className="lobby-join-button" type="submit" disabled={!canJoin}>{serverConnected ? 'Enter room' : 'Connecting…'}<FaArrowRight aria-hidden="true" /></button>
+              {!serverConnected && <p className="lobby-server-help" role="status">The server is waking up. You can fill in your details while you wait.</p>}
+            </form>
+            <div className="lobby-auth">
+              {authUser ? <div className="lobby-profile">{authUser.photoURL ? <img src={authUser.photoURL} alt="" referrerPolicy="no-referrer" /> : <span className="lobby-profile-avatar" aria-hidden="true">{initials}</span>}<div><strong>{authUser.displayName || 'Signed in'}</strong><span>Recent rooms saved to this browser</span></div><button className="lobby-signout" type="button" onClick={handleAuth} disabled={authBusy} aria-label="Sign out" title="Sign out"><FaSignOutAlt aria-hidden="true" /></button></div> : <><div className="lobby-divider"><span>or save your recent rooms</span></div><button className="lobby-google-button" type="button" onClick={handleAuth} disabled={authBusy}><FaGoogle aria-hidden="true" />{authBusy ? 'Opening sign-in…' : 'Continue with Google'}</button><p className="lobby-guest-note">No account needed to join.</p></>}
+              {feedback && <p className="lobby-auth-feedback" role="status">{feedback}</p>}
+            </div>
+            {authUser && history.length > 0 && <section className="lobby-history" aria-labelledby="lobby-history-heading"><h3 id="lobby-history-heading"><FaHistory aria-hidden="true" />Recent rooms</h3><ul>{history.map((entry) => <li key={entry.code}><button type="button" onClick={() => joinRecentRoom(entry.code)} disabled={!serverConnected} title={`Join ${entry.code}`}><span className="lobby-history-code">{entry.code}</span><span className="lobby-history-time">{timeAgo(entry.timestamp, now)}</span><FaArrowRight aria-hidden="true" /></button></li>)}</ul></section>}
+          </section>
+        </div>
+      </div>
+          </main>
   );
 };
 

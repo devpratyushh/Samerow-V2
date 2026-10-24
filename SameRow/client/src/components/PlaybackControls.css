@@ -1,0 +1,70 @@
+.player-controls {
+  position: absolute;
+  inset: auto 0 0;
+  z-index: 5;
+  padding: 28px 18px 12px;
+  color: #fff;
+  background: linear-gradient(transparent, rgb(10 11 12 / 92%));
+  transition: opacity .18s ease;
+}
+.player-seek { display: flex; align-items: center; width: 100%; height: 28px; }
+.player-seek input {
+  appearance: none;
+  width: 100%;
+  height: 4px;
+  margin: 0;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  background: linear-gradient(to right, var(--accent) var(--played), #ffffff40 var(--played));
+}
+.player-seek input::-webkit-slider-thumb { appearance: none; height: 11px; width: 11px; border: none; border-radius: 50%; background: var(--accent); }
+.player-seek input::-moz-range-thumb { height: 11px; width: 11px; border: none; border-radius: 50%; background: var(--accent); }
+.player-seek input:disabled { cursor: default; opacity: .45; }
+.player-controls-row { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.player-control {
+  position: relative;
+  flex: 0 0 44px;
+  width: 44px;
+  height: 44px;
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: #f3f3f3;
+  font-size: 15px;
+  padding: 0;
+}
+.player-control:hover:not(:disabled) { color: var(--accent); background: #ffffff12; }
+.player-play { color: var(--accent); font-size: 16px; }
+.player-skip { font-size: 22px; }
+.player-skip small { position: absolute; inset: 17px 0 auto; font: 8px/1 sans-serif; }
+.player-clock { flex-shrink: 0; font-size: 11px; font-variant-numeric: tabular-nums; margin-left: 8px; }
+.player-clock > span { color: #b5b6b8; }
+.player-controls-spacer { flex: 1; min-width: 0; }
+.player-volume { display: flex; align-items: center; gap: 1px; }
+.player-volume input { width: 64px; height: 24px; accent-color: var(--accent); margin: 0 8px 0 0; }
+.player-control-note { color: #b5b6b8; font-size: 10px; margin-right: 10px; }
+.player-controls .icon-button { width: 44px; height: 44px; background: transparent; border: 0; color: #eee; }
+.player-controls button:focus-visible, .player-controls input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (max-width: 900px) { .player-control-note { display: none; }.player-volume input { width: 48px; } }
+@media (max-width: 600px) {
+  .player-controls { padding: 22px 10px 8px; }
+  .player-skip, .player-volume input { display: none; }
+  .player-controls-row { gap: 0; }
+  .player-clock { font-size: 10px; margin-left: 3px; }
+  .player-control { flex-basis: 44px; }
+}
+/* Adapt to the player's available width, including when desktop chat is docked. */
+.source-pane { container-type: inline-size; }
+.player-controls-row { flex-wrap: wrap; }
+@container (max-width: 600px) {
+  .player-controls { padding: 22px 10px 8px; }
+  .player-skip, .player-volume input, .player-control-note { display: none; }
+  .player-controls-row { gap: 0; }
+  .player-clock { font-size: 10px; margin-left: 3px; }
+}
+@container (max-width: 360px) { .player-clock > span { display: none; } }
+@media (max-width: 360px) { .player-clock > span { display: none; } }

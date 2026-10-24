@@ -7,7 +7,9 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "test": "node --test tests/*.test.js",
+    "preview": "vite preview",
+    "test:ui": "node tests/room-ui.browser.mjs && node tests/chat-ui.browser.mjs && node tests/media-ui.browser.mjs && node tests/room-integration.browser.mjs && node tests/playback-ui.browser.mjs"
   },
   "dependencies": {
     "firebase": "^12.6.0",

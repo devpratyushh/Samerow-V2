@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useSyncExternalStore } from 'react';
 import io from 'socket.io-client';
 import Lobby from './Lobby';
 import Room from './Room';
@@ -9,7 +9,7 @@ import { auth } from './firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 
 // Use Render backend universally so localhost and online clients can communicate
-const SOCKET_URL = 'https://samerow-v2.onrender.com';
+const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'https://samerow-v2.onrender.com';
 
 const socket = io(SOCKET_URL, {
   transports: ['websocket', 'polling'],
@@ -21,36 +21,18 @@ socket.on('connect_error', (err) => {
   console.error("Socket Connection Error:", err.message);
 });
 
+function subscribeToConnection(callback) {
+  socket.on('connect', callback);
+  socket.on('disconnect', callback);
+  return () => { socket.off('connect', callback); socket.off('disconnect', callback); };
+}
+
 function App() {
   const [roomId, setRoomId] = useState(null);
   const [userName, setUserName] = useState('');
   const [user, setUser] = useState(null);
-  const [serverConnected, setServerConnected] = useState(socket.connected);
-  const [initialRoomFromUrl, setInitialRoomFromUrl] = useState('');
-
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const roomParam = params.get('room');
-    if (roomParam) {
-      setInitialRoomFromUrl(roomParam);
-    }
-  }, []);
-
-  useEffect(() => {
-    const onConnect = () => setServerConnected(true);
-    const onDisconnect = () => setServerConnected(false);
-
-    socket.on('connect', onConnect);
-    socket.on('disconnect', onDisconnect);
-
-    // Initial check
-    if (socket.connected) setServerConnected(true);
-
-    return () => {
-      socket.off('connect', onConnect);
-      socket.off('disconnect', onDisconnect);
-    };
-  }, []);
+  const serverConnected = useSyncExternalStore(subscribeToConnection, () => socket.connected);
+  const [initialRoomFromUrl] = useState(() => new URLSearchParams(window.location.search).get('room') || '');
 
   // Media State
   const [userStream, setUserStream] = useState(null);
@@ -71,6 +53,8 @@ function App() {
 
   useEffect(() => {
     // Acquire stream immediately on load
+    let cancelled = false;
+    let acquiredStream;
     const getMedia = async () => {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
@@ -81,7 +65,9 @@ function App() {
           },
           audio: true
         });
-        setUserStream(stream);
+        acquiredStream = stream;
+        if (cancelled) stream.getTracks().forEach(track => track.stop());
+        else setUserStream(stream);
       } catch (err) {
         console.error("Media Error:", err);
         setStreamError("Camera/Mic not found or denied. You can still join.");
@@ -90,6 +76,7 @@ function App() {
       }
     };
     getMedia();
+    return () => { cancelled = true; acquiredStream?.getTracks().forEach(track => track.stop()); };
   }, []);
 
   const toggleMute = () => {

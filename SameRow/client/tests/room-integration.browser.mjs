@@ -1,0 +1,70 @@
+import assert from 'node:assert/strict';
+import { createRequire } from 'node:module';
+import { existsSync } from 'node:fs';
+const require = createRequire(import.meta.url);
+let chromium;
+for(const pkg of [process.env.BROWSER_PACKAGE_DIR && `${process.env.BROWSER_PACKAGE_DIR}/playwright`,'playwright','/Users/pratyush/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright'].filter(Boolean)){try{({chromium}=require(pkg));break;}catch{/* Runtime fallback. */}}
+const executablePath=process.env.BROWSER_EXECUTABLE||['/Applications/Brave Browser.app/Contents/MacOS/Brave Browser','/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'].find(existsSync);
+const browser=await chromium.launch({headless:true,...(executablePath?{executablePath}:{})});
+const {server,io}=require('../../server/index.js');
+await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+const address=`http://127.0.0.1:${server.address().port}`;
+const base=process.env.UI_BASE_URL||'http://127.0.0.1:5175';
+const errors=[];
+const context=await browser.newContext({viewport:{width:390,height:844}});
+const page=await context.newPage();page.on('pageerror',error=>errors.push(error.message));
+try {
+  await page.goto(`${base}/tests/room-integration.html`);
+  await page.locator('.room-shell').waitFor();
+  await page.evaluate(()=>{window.initialVideo=document.querySelector('[data-participant="self"] video');window.initialStream=window.initialVideo.srcObject;window.initialTrack=window.initialStream.getVideoTracks()[0];window.completeMediaPermission();});
+  await page.waitForFunction(()=>window.initialStream.getVideoTracks()[0]!==window.initialTrack);
+  assert.ok(await page.evaluate(()=>window.initialVideo===document.querySelector('[data-participant="self"] video') && window.initialStream===window.initialVideo.srcObject));
+  assert.equal(await page.evaluate(()=>window.socketEmissions.filter(event=>event.name==='join-room').length),1);
+  assert.equal(await page.evaluate(()=>window.initialTrack.readyState),'ended');
+  console.log('PASS late camera permission replaces fallback track without remount/rejoin');
+  await page.getByRole('button',{name:'Share something',exact:true}).click();
+  await page.getByRole('button',{name:'Your screen Share a tab, an app, or your desktop.'}).click();
+  await page.locator('[data-participant="screen-self"]').waitFor();
+  await page.evaluate(()=>{window.screenVideo=document.querySelector('[data-participant="screen-self"] video');window.screenTrack=window.screenVideo.srcObject.getVideoTracks()[0];});
+  assert.equal(await page.locator('[data-participant="screen-self"] video').evaluate(node=>getComputedStyle(node).objectFit),'contain');
+  await page.getByRole('button',{name:'Everyone',exact:true}).click();
+  await page.getByRole('button',{name:'Your screen',exact:true}).click();
+  assert.ok(await page.evaluate(()=>window.screenVideo===document.querySelector('[data-participant="screen-self"] video')));
+  await page.getByRole('button',{name:'Stop sharing',exact:true}).click();
+  await page.locator('[data-participant="screen-self"]').waitFor({state:'detached'});
+  assert.equal(await page.evaluate(()=>window.screenTrack.readyState),'ended');
+  console.log('PASS real screen stream is contained, survives focus changes, and stops cleanly');
+  for(const width of [320,390,768]) {
+    await page.setViewportSize({width,height:844});
+    await page.getByRole('button',{name:'Share something',exact:true}).click();
+    await page.getByRole('button',{name:'Your Jellyfin library Stream a video from your server.'}).click();
+    await page.getByRole('dialog').waitFor();
+    await page.keyboard.press('Escape');
+    for(const label of ['Pause for everyone','Jellyfin settings','Stop movie for everyone']) {
+      const button=page.getByRole('button',{name:label,exact:true});await button.waitFor();
+      const r=await button.boundingBox();assert.ok(r.x>=0&&r.x+r.width<=width+1,`${width}: ${label} clipped`);
+    }
+    await page.getByRole('button',{name:'Stop movie for everyone',exact:true}).click();
+    await page.getByRole('button',{name:'Jellyfin',exact:true}).waitFor({state:'detached'});
+  }
+  console.log('PASS actual Jellyfin host controls fit narrow stages and sessions stop/restart');
+  await page.close();
+  const first=await context.newPage();const second=await context.newPage();
+  for(const target of [first,second])target.on('pageerror',error=>errors.push(error.message));
+  await first.goto(`${base}/tests/room-integration.html?server=${encodeURIComponent(address)}&name=Alex`);
+  await first.waitForFunction(()=>window.socketEmissions.some(event=>event.name==='join-room'));
+  await second.goto(`${base}/tests/room-integration.html?server=${encodeURIComponent(address)}&name=Jamie`);
+  await first.locator('.participant-grid .media-tile').nth(1).waitFor({timeout:20000});
+  await second.locator('.participant-grid .media-tile').nth(1).waitFor({timeout:20000});
+  await first.evaluate(()=>window.completeMediaPermission());await second.evaluate(()=>window.completeMediaPermission());
+  await first.waitForFunction(()=>document.querySelectorAll('.participant-grid video')[1]?.srcObject?.getVideoTracks().length>0,{timeout:20000});
+  await second.waitForFunction(()=>document.querySelectorAll('.participant-grid video')[1]?.srcObject?.getVideoTracks().length>0,{timeout:20000});
+  await first.evaluate(()=>{window.remoteVideo=document.querySelectorAll('.participant-grid video')[1];window.remoteStream=window.remoteVideo.srcObject;});
+  await first.getByRole('button',{name:'Open chat',exact:true}).click();await first.keyboard.press('Escape');
+  await first.setViewportSize({width:1440,height:900});
+  assert.ok(await first.evaluate(()=>window.remoteVideo===document.querySelectorAll('.participant-grid video')[1] && window.remoteStream===window.remoteVideo.srcObject));
+  assert.equal(await first.evaluate(()=>window.socketEmissions.filter(event=>event.name==='join-room').length),1);
+  console.log('PASS two real WebRTC peers keep streams/connections across chat and viewport changes');
+  assert.deepEqual(errors,[]);
+  console.log('PASS Room integration; no browser page errors');
+} finally {await context.close();await browser.close();await new Promise(resolve=>io.close(resolve));}

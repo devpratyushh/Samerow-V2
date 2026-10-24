@@ -1,271 +1,289 @@
-import React, { useState, useRef, useImperativeHandle, forwardRef } from 'react';
-
-import ReactDOM from 'react-dom';
+import { useState, useRef, useEffect, useImperativeHandle, forwardRef } from 'react';
 import styled from 'styled-components';
-import { FaTimes } from 'react-icons/fa';
+import Dialog from './components/Dialog.jsx';
 
-const ModalOverlay = styled.div`
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100vw;
-  height: 100vh;
-  background-color: rgba(0,0,0,0.7);
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  z-index: 9999;
-  backdrop-filter: blur(8px);
+const Form = styled.form`
+  display: grid;
+  gap: 18px;
+  min-width: 0;
 `;
 
-const Container = styled.div`
-  padding: 24px;
-  background-color: rgba(30, 30, 34, 0.95);
-  border-radius: 16px;
-  color: white;
-  width: 100%;
-  max-width: 500px;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  border: 1px solid rgba(255,255,255,0.1);
-  box-shadow: 0 20px 40px rgba(0,0,0,0.5);
-  position: relative;
-`;
-
-const CloseButton = styled.button`
-  position: absolute;
-  top: 16px;
-  right: 16px;
-  background: none;
-  border: none;
-  color: rgba(255,255,255,0.6);
-  cursor: pointer;
-  &:hover { color: white; }
+const Field = styled.label`
+  display: grid;
+  gap: 8px;
+  color: var(--text, #f4f6fc);
+  font-size: 14px;
+  font-weight: 600;
+  small { color: var(--muted, #a8b1c3); font-size: 12px; font-weight: 400; line-height: 1.5; }
 `;
 
 const Input = styled.input`
-  padding: 12px;
-  background-color: rgba(0,0,0,0.2);
-  border: 1px solid rgba(255,255,255,0.2);
-  border-radius: 8px;
-  color: white;
+  min-width: 0;
   width: 100%;
+  min-height: 46px;
   box-sizing: border-box;
+  padding: 11px 13px;
+  background: var(--bg, #10131b);
+  border: 1px solid var(--border, #343843);
+  border-radius: 10px;
+  color: var(--text, #f4f6fc);
+  font: inherit;
+  font-weight: 400;
+  &:focus-visible { outline: 2px solid var(--accent, #779bff); outline-offset: 2px; }
+  &:disabled { opacity: 0.65; }
+  &::placeholder { color: var(--muted, #a8b1c3); }
 `;
 
 const Button = styled.button`
-  padding: 12px 24px;
-  background-color: #0a84ff;
-  color: white;
-  border: none;
-  border-radius: 8px;
+  min-height: 46px;
+  padding: 12px 18px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: ${props => props.$stop ? 'var(--danger, #ef6c73)' : 'var(--accent, #779bff)'};
+  color: #0a1020;
+  font: inherit;
+  font-weight: 700;
   cursor: pointer;
-  font-weight: bold;
+  &:hover { filter: brightness(1.08); }
+  &:focus-visible { outline: 2px solid var(--text, #f4f6fc); outline-offset: 3px; }
   &:disabled { opacity: 0.5; cursor: not-allowed; }
 `;
 
-const LogArea = styled.div`
-  background-color: #000;
-  padding: 12px;
-  border-radius: 8px;
-  font-family: monospace;
-  font-size: 12px;
-  height: 200px;
-  overflow-y: auto;
-  color: #0f0;
-  white-space: pre-wrap;
+const Status = styled.div`
+  display: grid;
+  gap: 7px;
+  padding: 14px;
+  border: 1px solid var(--border, #343843);
+  border-radius: 10px;
+  background: var(--surface-raised, #222735);
+  color: ${props => props.$error ? 'var(--danger, #ef6c73)' : 'var(--text, #f4f6fc)'};
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  small { color: var(--muted, #a8b1c3); }
 `;
 
-const JellyfinPump = forwardRef(({ onChunkReceived, onMetadata, onClose, visible = true }, ref) => {
-  const [jellyfinUrl, setJellyfinUrl] = useState('http://192.168.29.5:8096');
-  const [apiToken, setApiToken] = useState('a621f0edc33d4d91b7c95229d8e48fc0');
-  const [itemId, setItemId] = useState('c37c133b11f6dd17b9f5fc9a57b14b42');
-  const [isPumping, setIsPumping] = useState(false);
-  const [logs, setLogs] = useState([]);
+const Details = styled.details`
+  color: var(--muted, #a8b1c3);
+  font-size: 12px;
+  summary { padding: 8px 0; cursor: pointer; }
+  summary:focus-visible { outline: 2px solid var(--accent, #779bff); outline-offset: 2px; }
+  pre { max-height: 150px; overflow: auto; padding: 12px; margin: 4px 0 0; border-radius: 8px; background: var(--bg, #10131b); white-space: pre-wrap; overflow-wrap: anywhere; }
+`;
 
+function formatDuration(seconds) {
+  const minutes = Math.floor(seconds / 60);
+  return `${minutes}:${String(Math.floor(seconds % 60)).padStart(2, '0')}`;
+}
+
+async function waitForChunkHandler(pending, signal) {
+  let abort;
+  const cancelled = new Promise((_, reject) => {
+    abort = () => reject(new DOMException('Sharing stopped.', 'AbortError'));
+    signal.addEventListener('abort', abort, { once: true });
+    if (signal.aborted) abort();
+  });
+  try {
+    return await Promise.race([pending, cancelled]);
+  } finally {
+    signal.removeEventListener('abort', abort);
+  }
+}
+
+const JellyfinPump = forwardRef(function JellyfinPump({ onChunkReceived, onMetadata, onStatusChange, onClose, visible = true }, ref) {
+  const [jellyfinUrl, setJellyfinUrl] = useState('');
+  const [apiToken, setApiToken] = useState('');
+  const [itemId, setItemId] = useState('');
+  const [isPumping, setIsPumping] = useState(false);
+  const [status, setStatus] = useState({ state: 'idle', message: 'Connect a video to watch together.' });
+  const [metadata, setMetadata] = useState(null);
+  const [progress, setProgress] = useState({ chunks: 0, bytes: 0 });
+  const [logs, setLogs] = useState([]);
   const readerRef = useRef(null);
   const controllerRef = useRef(null);
-  const chunkCountRef = useRef(0);
-  const totalBytesRef = useRef(0);
+  const generationRef = useRef(0);
+  const mountedRef = useRef(true);
+  const callbacksRef = useRef({ onChunkReceived, onMetadata, onStatusChange });
 
-  const addLog = (msg) => {
-    setLogs(prev => [...prev, `${new Date().toLocaleTimeString()} - ${msg}`].slice(-50));
-  };
+  useEffect(() => {
+    callbacksRef.current = { onChunkReceived, onMetadata, onStatusChange };
+  }, [onChunkReceived, onMetadata, onStatusChange]);
 
-  const startPump = async (startOffsetSeconds = 0) => {
-    if (!jellyfinUrl || !apiToken || !itemId) {
-      addLog("Error: Missing required fields.");
-      return;
-    }
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      generationRef.current += 1;
+      controllerRef.current?.abort();
+      readerRef.current?.cancel().catch(() => {});
+      controllerRef.current = null;
+      readerRef.current = null;
+    };
+  }, []);
 
-    try {
-      if (controllerRef.current) {
-        controllerRef.current.abort();
-      }
-      setIsPumping(true);
-      setLogs([]);
-      addLog(`Starting pump at offset ${startOffsetSeconds}s...`);
-
-      // Fetch metadata first
-      try {
-        const metaUrl = `${jellyfinUrl.replace(/\/$/, '')}/Items?Ids=${itemId}`;
-        const metaRes = await fetch(metaUrl, { headers: { 'X-Emby-Token': apiToken } });
-        if (metaRes.ok) {
-          const metaData = await metaRes.json();
-          const item = metaData.Items && metaData.Items[0];
-          if (item && item.RunTimeTicks) {
-            const durationSec = item.RunTimeTicks / 10000000;
-            addLog(`Got duration: ${durationSec}s`);
-            if (onMetadata) onMetadata({ duration: durationSec });
-          }
-        }
-      } catch (err) {
-        addLog(`Warning: Failed to fetch metadata: ${err.message}`);
-      }
-
-      // 10000000 ticks = 1 second
-      const startTimeTicks = Math.floor(startOffsetSeconds * 10000000);
-      // Force Jellyfin to transcode with a unique session ID so StartTimeTicks is honored.
-      // Without explicit codec params, Jellyfin may silently fall back to Static=true (ignoring seek).
-      const sessionId = `SameRow_${Date.now()}`;
-      const url = `${jellyfinUrl.replace(/\/$/, '')}/Videos/${itemId}/stream.ts?Static=false&VideoCodec=h264&AudioCodec=aac&StartTimeTicks=${startTimeTicks}&TranscodingMaxAudioChannels=2&SegmentContainer=ts&MinSegments=1&BreakOnNonKeyFrames=true&PlaySessionId=${sessionId}&api_key=${apiToken}`;
-
-      controllerRef.current = new AbortController();
-
-      addLog(`Fetching offset: ${startOffsetSeconds}s, ticks: ${startTimeTicks}`);
-      addLog(`Fetching from: ${url}`);
-      const response = await fetch(url, {
-        headers: {
-          'X-Emby-Token': apiToken
-        },
-        signal: controllerRef.current.signal
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP Error: ${response.status} ${response.statusText}`);
-      }
-
-      const contentType = response.headers.get('content-type');
-      addLog(`Connected! Content-Type: ${contentType}`);
-
-      // Get the readable stream
-      readerRef.current = response.body.getReader();
-      chunkCountRef.current = 0;
-      totalBytesRef.current = 0;
-
-      // Start the recursive read loop
-      pump();
-
-    } catch (error) {
-      if (error.name === 'AbortError') {
-        addLog("Pump manually aborted.");
-      } else {
-        addLog(`Error: ${error.message}`);
-      }
-      setIsPumping(false);
-    }
-  };
-
-  const pump = async () => {
-    try {
-      if (!readerRef.current) return;
-
-      const { done, value } = await readerRef.current.read();
-
-      if (done) {
-        addLog("Stream complete (done: true).");
-        setIsPumping(false);
-        return;
-      }
-
-      // 'value' is a Uint8Array containing raw video bytes
-      chunkCountRef.current += 1;
-      totalBytesRef.current += value.byteLength;
-
-      if (chunkCountRef.current % 50 === 0) {
-        addLog(`Pumped ${chunkCountRef.current} chunks (${(totalBytesRef.current / 1024 / 1024).toFixed(2)} MB)...`);
-      }
-
-      if (onChunkReceived) {
-        await onChunkReceived(value);
-      } else if (chunkCountRef.current <= 5) {
-        addLog(`Received chunk of size: ${value.byteLength} bytes`);
-      }
-
-      // Recursively read the next chunk immediately
-      pump();
-
-    } catch (error) {
-      if (error.name === 'AbortError') {
-        addLog("Read loop aborted.");
-      } else {
-        addLog(`Pump error: ${error.message}`);
-      }
-      setIsPumping(false);
-    }
+  const updateStatus = (state, message) => {
+    if (!mountedRef.current) return;
+    setStatus({ state, message });
+    callbacksRef.current.onStatusChange?.({ state, message });
+    setLogs(previous => [...previous, message].slice(-30));
   };
 
   const stopPump = () => {
-    if (controllerRef.current) {
-      controllerRef.current.abort();
-      controllerRef.current = null;
-    }
+    generationRef.current += 1;
+    controllerRef.current?.abort();
+    readerRef.current?.cancel().catch(() => {});
+    controllerRef.current = null;
+    readerRef.current = null;
     setIsPumping(false);
-    addLog("Pump stopped.");
+    updateStatus('idle', 'Sharing stopped. Your connection details are ready to reuse.');
   };
 
-  useImperativeHandle(ref, () => ({
-    restartPump: (offsetSeconds) => startPump(offsetSeconds),
-    stopPump: stopPump
-  }));
+  const startPump = async (startOffsetSeconds = 0) => {
+    let server;
+    try {
+      server = new URL(jellyfinUrl.trim());
+      if (!['http:', 'https:'].includes(server.protocol)) throw new Error('protocol');
+    } catch {
+      updateStatus('error', 'Enter a valid Jellyfin server address beginning with https:// or http://.');
+      return;
+    }
+    if (!apiToken.trim() || !itemId.trim()) {
+      updateStatus('error', 'Enter your API token and the video item ID to continue.');
+      return;
+    }
 
-  if (!visible) return null;
+    generationRef.current += 1;
+    const generation = generationRef.current;
+    controllerRef.current?.abort();
+    readerRef.current?.cancel().catch(() => {});
+    const controller = new AbortController();
+    controllerRef.current = controller;
+    readerRef.current = null;
+    const isCurrent = () => mountedRef.current && generation === generationRef.current && !controller.signal.aborted;
+    const baseUrl = server.href.replace(/\/$/, '');
+    const offset = Math.max(0, Number(startOffsetSeconds) || 0);
+    const headers = { 'X-Emby-Token': apiToken.trim() };
+    let reader;
 
-  return ReactDOM.createPortal(
-    <ModalOverlay onClick={onClose}>
-      <Container onClick={e => e.stopPropagation()}>
-        <CloseButton onClick={onClose}><FaTimes /></CloseButton>
-        <h3 style={{ margin: 0 }}>Jellyfin Server</h3>
-        <p style={{ fontSize: '14px', color: '#aaa', margin: 0 }}>
-          Enter your Jellyfin server details to pump raw video chunks to the room.
-        </p>
+    setIsPumping(true);
+    setProgress({ chunks: 0, bytes: 0 });
+    setLogs([]);
+    updateStatus('loading', offset > 0 ? `Connecting from ${formatDuration(offset)}…` : 'Connecting to Jellyfin…');
 
-        <Input
-          type="text"
-          placeholder="Jellyfin URL (e.g. http://192.168.1.100:8096)"
-          value={jellyfinUrl}
-          onChange={e => setJellyfinUrl(e.target.value)}
-          disabled={isPumping}
-        />
-        <Input
-          type="text"
-          placeholder="API Token"
-          value={apiToken}
-          onChange={e => setApiToken(e.target.value)}
-          disabled={isPumping}
-        />
-        <Input
-          type="text"
-          placeholder="Item ID (e.g. e2a7...)"
-          value={itemId}
-          onChange={e => setItemId(e.target.value)}
-          disabled={isPumping}
-        />
+    try {
+      // Metadata uses the same controller so stopping also cancels connection setup.
+      try {
+        const metadataUrl = new URL(`${baseUrl}/Items`);
+        metadataUrl.searchParams.set('Ids', itemId.trim());
+        const response = await fetch(metadataUrl, { headers, signal: controller.signal });
+        if (response.ok) {
+          const data = await response.json();
+          if (!isCurrent()) return;
+          const item = data.Items?.[0];
+          if (item) {
+            const nextMetadata = { title: item.Name || 'Jellyfin video', duration: (item.RunTimeTicks || 0) / 10000000 };
+            setMetadata(nextMetadata);
+            callbacksRef.current.onMetadata?.(nextMetadata);
+          }
+        }
+      } catch (error) {
+        if (error.name === 'AbortError' || !isCurrent()) return;
+        updateStatus('loading', 'Video details are unavailable. Connecting to the stream…');
+      }
+      if (!isCurrent()) return;
 
-        {!isPumping ? (
-          <Button onClick={() => startPump(0)}>Start Pumping to Room</Button>
-        ) : (
-          <Button onClick={stopPump} style={{ backgroundColor: '#ff3b30' }}>Stop Pumping</Button>
-        )}
+      const streamUrl = new URL(`${baseUrl}/Videos/${encodeURIComponent(itemId.trim())}/stream.ts`);
+      streamUrl.search = new URLSearchParams({
+        Static: 'false', VideoCodec: 'h264', AudioCodec: 'aac',
+        StartTimeTicks: String(Math.floor(offset * 10000000)),
+        TranscodingMaxAudioChannels: '2', SegmentContainer: 'ts', MinSegments: '1',
+        BreakOnNonKeyFrames: 'true', PlaySessionId: `SameRow_${Date.now()}`,
+      }).toString();
+      const response = await fetch(streamUrl, { headers, signal: controller.signal });
+      if (!isCurrent()) return;
+      if (!response.ok) {
+        if ([401, 403].includes(response.status)) throw new Error('Jellyfin rejected the API token. Check its permissions and try again.');
+        if (response.status === 404) throw new Error('This video was not found. Check the item ID.');
+        throw new Error(`Jellyfin could not start the stream (HTTP ${response.status}). Try again.`);
+      }
+      if (!response.body) throw new Error('This browser could not open the video stream. Try another browser.');
 
-        <LogArea>
-          {logs.map((log, i) => <div key={i}>{log}</div>)}
-        </LogArea>
+      reader = response.body.getReader();
+      readerRef.current = reader;
+      updateStatus('streaming', 'Sharing video with the room.');
+      let chunks = 0;
+      let bytes = 0;
+      let lastProgressAt = 0;
 
-      </Container>
-    </ModalOverlay>,
-    document.body
+      while (isCurrent()) {
+        const { done, value } = await reader.read();
+        if (!isCurrent()) break;
+        if (done) {
+          setProgress({ chunks, bytes });
+          // Finishing the transfer does not mean that buffered playback has ended.
+          updateStatus('complete', 'The video is fully buffered. Playback continues in the room.');
+          break;
+        }
+        chunks += 1;
+        bytes += value.byteLength;
+        if (Date.now() - lastProgressAt > 500) {
+          lastProgressAt = Date.now();
+          setProgress({ chunks, bytes });
+        }
+        // Await the room's backpressure handler before reading another chunk.
+        // The optional signal lets a parent stop its own buffer/channel wait loops.
+        // Racing cancellation also releases the reader if a callback is still pending.
+        await waitForChunkHandler(callbacksRef.current.onChunkReceived?.(value, { signal: controller.signal }), controller.signal);
+      }
+    } catch (error) {
+      if (isCurrent() && error.name !== 'AbortError') {
+        // Fetch errors can contain addresses; keep user credentials out of logs.
+        const message = error instanceof TypeError ? 'Could not reach Jellyfin. Check the address, network connection, and server browser-access settings.' : error.message;
+        updateStatus('error', message);
+      }
+    } finally {
+      if (reader) {
+        try { await reader.cancel(); } catch { /* The controller may have already closed the stream. */ }
+        try { reader.releaseLock(); } catch { /* A cancelled read may still hold a lock. */ }
+      }
+      if (generation === generationRef.current && mountedRef.current) {
+        setIsPumping(false);
+        controllerRef.current = null;
+        readerRef.current = null;
+      }
+    }
+  };
+
+  useImperativeHandle(ref, () => ({ restartPump: offsetSeconds => startPump(offsetSeconds), stopPump }));
+
+  return (
+    <Dialog open={visible} title="Share from Jellyfin" onClose={onClose} description="Connect your server and choose a video. Closing this window keeps the stream running.">
+      <Form onSubmit={event => { event.preventDefault(); if (!isPumping) startPump(0); }}>
+        <Field>
+          Server address
+          <Input type="url" inputMode="url" autoComplete="url" placeholder="https://jellyfin.example.com" value={jellyfinUrl} onChange={event => setJellyfinUrl(event.target.value)} disabled={isPumping} required />
+        </Field>
+        <Field>
+          API token
+          <Input type="password" autoComplete="off" placeholder="Your Jellyfin API token" value={apiToken} onChange={event => setApiToken(event.target.value)} disabled={isPumping} required spellCheck={false} />
+          <small>Used for this session to connect to your Jellyfin server.</small>
+        </Field>
+        <Field>
+          Video item ID
+          <Input type="text" autoComplete="off" placeholder="Paste the video’s item ID" value={itemId} onChange={event => setItemId(event.target.value)} disabled={isPumping} required spellCheck={false} />
+          <small>Find this in the video’s address when you open it in Jellyfin.</small>
+        </Field>
+        <Status role={status.state === 'error' ? 'alert' : 'status'} $error={status.state === 'error'}>
+          <span>{status.message}</span>
+          {metadata && <small>{metadata.title}{metadata.duration > 0 ? ` · ${formatDuration(metadata.duration)}` : ''}</small>}
+          {progress.chunks > 0 && <small>{(progress.bytes / 1024 / 1024).toFixed(1)} MB sent</small>}
+        </Status>
+        {isPumping
+          ? <Button type="button" $stop onClick={event => { event.preventDefault(); stopPump(); }}>Stop sharing video</Button>
+          : <Button type="submit" disabled={!jellyfinUrl.trim() || !apiToken.trim() || !itemId.trim()}>Share video with room</Button>}
+        {logs.length > 0 && <Details><summary>Connection details</summary><pre>{logs.join('\n')}</pre></Details>}
+      </Form>
+    </Dialog>
   );
 });
 

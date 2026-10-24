@@ -1,287 +1,272 @@
-import React, { useRef, useEffect, useState, useImperativeHandle, forwardRef, useCallback } from 'react';
-import styled, { keyframes } from 'styled-components';
+import { useRef, useEffect, useState, useImperativeHandle, forwardRef, useCallback } from 'react';
+import styled from 'styled-components';
 
 const VideoElement = styled.video`
+  display: block;
   width: 100%;
   height: 100%;
+  min-height: 0;
   background: #000;
   object-fit: contain;
 `;
 
-const Overlay = styled.div`
+const Diagnostics = styled.div`
   position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  padding: 10px;
-  background: linear-gradient(to bottom, rgba(0,0,0,0.7), transparent);
-  color: #0f0;
-  font-family: monospace;
-  font-size: 11px;
+  inset: auto 12px 12px;
+  width: fit-content;
+  max-width: calc(100% - 24px);
+  padding: 8px 12px;
+  border: 1px solid var(--border, #343843);
+  border-radius: 8px;
+  background: rgba(10, 13, 20, 0.85);
+  color: var(--muted, #a8b1c3);
+  font: 11px/1.5 monospace;
+  overflow-wrap: anywhere;
   pointer-events: none;
-  z-index: 10;
-  text-align: center;
 `;
 
-const spinAnimation = keyframes`
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
-`;
+const emptyStats = { chunksAppended: 0, bufferAhead: 0, bufferStart: 0, error: null };
 
-const SpinnerContainer = styled.div`
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  z-index: 20;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 10px;
-`;
-
-const SpinnerRing = styled.div`
-  width: 48px;
-  height: 48px;
-  border: 4px solid rgba(255,255,255,0.2);
-  border-top: 4px solid #0a84ff;
-  border-radius: 50%;
-  animation: ${spinAnimation} 0.8s linear infinite;
-`;
-
-const Spinner = () => (
-  <SpinnerContainer>
-    <SpinnerRing />
-    <span style={{ color: 'white', fontSize: '13px', fontWeight: 500 }}>Buffering...</span>
-  </SpinnerContainer>
-);
-
-const MSEPlayer = forwardRef(({ mimeCodec = 'video/mp2t; codecs="avc1.42E01E, mp4a.40.2"', onBuffering, onBufferFull }, ref) => {
+/** Keep this engine mounted while changing room layouts so its buffer survives. */
+const MSEPlayer = forwardRef(function MSEPlayer({
+  mimeCodec = 'video/mp2t; codecs="avc1.42E01E, mp4a.40.2"',
+  onBuffering,
+  onBufferFull,
+  onStatusChange,
+  enabled = true,
+  diagnostics = false,
+  muted = false,
+  volume = 1,
+}, ref) {
   const videoRef = useRef(null);
   const mediaSourceRef = useRef(null);
   const sourceBufferRef = useRef(null);
   const queueRef = useRef([]);
-  const [isReady, setIsReady] = useState(false);
-  const [isBuffering, setIsBuffering] = useState(false);
-  const [stats, setStats] = useState({ chunksAppended: 0, bufferAhead: 0, bufferStart: 0, error: null });
-  // Increment this to force a full MediaSource recreation
+  const pendingEndRef = useRef(false);
+  const callbacksRef = useRef({ onBuffering, onBufferFull, onStatusChange, diagnostics });
+  const desiredPlayingRef = useRef(true);
+  const lastStatusRef = useRef('');
+  const chunksAppendedRef = useRef(0);
+  const lastStatsUpdateRef = useRef(0);
+  const [stats, setStats] = useState(emptyStats);
   const [msVersion, setMsVersion] = useState(0);
 
-  // Ref for throttling stats updates to prevent React render thrashing (flickering)
-  const lastStatsUpdateRef = useRef(0);
+  useEffect(() => { if (videoRef.current) videoRef.current.volume = Math.max(0, Math.min(1, volume)); }, [volume]);
 
-  const chunksAppendedRef = useRef(0);
+  // Layout renders often produce new callbacks. They must not recreate MediaSource.
+  useEffect(() => {
+    callbacksRef.current = { onBuffering, onBufferFull, onStatusChange, diagnostics };
+  }, [onBuffering, onBufferFull, onStatusChange, diagnostics]);
 
-  const processQueue = useCallback(() => {
-    const sb = sourceBufferRef.current;
-    if (!sb || sb.updating) return;
-    if (!mediaSourceRef.current || mediaSourceRef.current.readyState !== 'open') return;
+  const reportStatus = useCallback((state, message = '') => {
+    const key = `${state}:${message}`;
+    if (lastStatusRef.current === key) return;
+    lastStatusRef.current = key;
+    callbacksRef.current.onStatusChange?.({ state, message });
+    callbacksRef.current.onBuffering?.(state === 'loading' || state === 'buffering');
+  }, []);
 
-    // GARBAGE COLLECTION: Delete buffers older than 120s trailing
-    if (videoRef.current && videoRef.current.buffered.length > 0) {
-      const currentTime = videoRef.current.currentTime;
-      const start = videoRef.current.buffered.start(0);
-      if (currentTime - start > 140) {
-        try {
-          sb.remove(0, currentTime - 120);
-          return;
-        } catch (e) {
-          console.error("Garbage collection error:", e);
-        }
+  const reportError = useCallback((message) => {
+    reportStatus('error', message);
+    if (callbacksRef.current.diagnostics) setStats(previous => ({ ...previous, error: message }));
+  }, [reportStatus]);
+
+  const tryPlay = useCallback(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    desiredPlayingRef.current = true;
+    return video.play()?.catch(error => {
+      if (error.name === 'AbortError') return;
+      if (error.name === 'NotAllowedError') {
+        reportStatus('blocked', 'Press Play to allow video and audio in this browser.');
+      } else {
+        reportError('Playback could not start. Try reconnecting the stream.');
+      }
+    });
+  }, [reportStatus, reportError]);
+
+  const processQueue = useCallback(function appendNextChunk() {
+    const sourceBuffer = sourceBufferRef.current;
+    const video = videoRef.current;
+    const mediaSource = mediaSourceRef.current;
+    if (!sourceBuffer || sourceBuffer.updating || mediaSource?.readyState !== 'open') return;
+
+    if (!queueRef.current.length && pendingEndRef.current) {
+      try {
+        // EOF belongs after the final asynchronous append, not the final fetch.
+        mediaSource.endOfStream();
+        pendingEndRef.current = false;
+      } catch {
+        reportError('The browser could not finish this stream. Try reconnecting.');
+      }
+      return;
+    }
+
+    // Keep two minutes behind the playhead while allowing ongoing streams to run.
+    if (video?.buffered.length && video.currentTime - video.buffered.start(0) > 140) {
+      try {
+        sourceBuffer.remove(0, video.currentTime - 120);
+        return;
+      } catch {
+        // A queued append may still succeed if a range cannot be removed yet.
       }
     }
 
-    if (queueRef.current.length === 0) return;
-
-    // Backpressure signal
-    if (videoRef.current && videoRef.current.buffered.length > 0) {
-      const bufferedEnd = videoRef.current.buffered.end(videoRef.current.buffered.length - 1);
-      const currentTime = videoRef.current.currentTime;
-      if (bufferedEnd - currentTime > 120) {
-        if (onBufferFull) onBufferFull(true);
-      } else {
-        if (onBufferFull) onBufferFull(false);
-      }
+    if (!queueRef.current.length) return;
+    if (video?.buffered.length) {
+      const ahead = video.buffered.end(video.buffered.length - 1) - video.currentTime;
+      callbacksRef.current.onBufferFull?.(ahead > 120);
     }
 
     try {
       const chunk = queueRef.current.shift();
-      if (chunk && chunk.type === 'offset') {
-        processQueue();
+      // TS carries absolute timestamps; retain compatibility with offset messages.
+      if (chunk?.type === 'offset') {
+        appendNextChunk();
         return;
       }
-      sb.appendBuffer(chunk);
+      sourceBuffer.appendBuffer(chunk);
       chunksAppendedRef.current += 1;
 
-      // We still update the physical DOM playhead if stuck, but we throttle the React state update
       let ahead = 0;
       let start = 0;
-      if (videoRef.current && videoRef.current.buffered.length > 0) {
-        start = videoRef.current.buffered.start(0);
-        ahead = videoRef.current.buffered.end(videoRef.current.buffered.length - 1) - videoRef.current.currentTime;
-
-        // Auto-seek to buffer start if playhead is stuck before it
-        // IMPORTANT: Must check !videoRef.current.seeking to prevent infinite seek-abort loops!
-        if (!videoRef.current.seeking && (videoRef.current.currentTime < start - 0.2 || (videoRef.current.currentTime === 0 && start > 0.1))) {
-          console.log(`Auto-seeking to ${start} (was at ${videoRef.current.currentTime})`);
-          videoRef.current.currentTime = start;
+      if (video?.buffered.length) {
+        start = video.buffered.start(0);
+        ahead = video.buffered.end(video.buffered.length - 1) - video.currentTime;
+        if (!video.seeking && (video.currentTime < start - 0.2 || (video.currentTime === 0 && start > 0.1))) {
+          video.currentTime = start;
         }
       }
-
-      const now = Date.now();
-      // Only trigger a React re-render every 500ms to prevent video flickering/frame drops
-      if (now - lastStatsUpdateRef.current > 500) {
-        lastStatsUpdateRef.current = now;
-        setStats({
-          chunksAppended: chunksAppendedRef.current,
-          bufferAhead: ahead.toFixed(1),
-          bufferStart: start.toFixed(2),
-          error: null
-        });
+      if (callbacksRef.current.diagnostics && Date.now() - lastStatsUpdateRef.current > 500) {
+        lastStatsUpdateRef.current = Date.now();
+        setStats({ chunksAppended: chunksAppendedRef.current, bufferAhead: ahead.toFixed(1), bufferStart: start.toFixed(2), error: null });
       }
-    } catch (e) {
-      console.error("Failed to append buffer:", e);
-      setStats({ chunksAppended: chunksAppendedRef.current, bufferAhead: 0, bufferStart: 0, error: `Append Error: ${e.message}` });
+    } catch {
+      reportError('The browser could not read this stream. Reconnect or choose a different source.');
     }
-  }, [onBufferFull]);
+  }, [reportError]);
 
   useEffect(() => {
-    const videoElement = videoRef.current;
-    if (!videoElement) return;
-
-    // Revoke previous object URL to avoid memory leaks
-    if (videoElement.src) {
-      URL.revokeObjectURL(videoElement.src);
+    if (!enabled) {
+      // A stopped movie is a new session on next activation. Focus changes keep
+      // enabled=true and therefore retain both the buffer and playback intent.
+      queueRef.current = [];
+      pendingEndRef.current = false;
+      desiredPlayingRef.current = true;
+      chunksAppendedRef.current = 0;
+      lastStatsUpdateRef.current = 0;
+      reportStatus('idle');
+      return;
+    }
+    const video = videoRef.current;
+    const MediaSourceClass = globalThis.MediaSource;
+    if (!video) return;
+    if (!MediaSourceClass || !MediaSourceClass.isTypeSupported(mimeCodec)) {
+      reportError('This browser does not support this Jellyfin stream format. Try a browser with MPEG-TS Media Source support, or share your screen instead.');
+      return;
     }
 
-    const mediaSource = new MediaSource();
+    reportStatus('loading', 'Preparing the stream…');
+    const mediaSource = new MediaSourceClass();
+    const objectUrl = URL.createObjectURL(mediaSource);
     mediaSourceRef.current = mediaSource;
-    videoElement.src = URL.createObjectURL(mediaSource);
-    videoElement.load(); // Force the browser to drop the old buffer
-    console.log("MediaSource opened!");
+    video.src = objectUrl;
+    video.load();
+    let sourceBuffer;
 
+    const onBufferError = () => reportError('The stream contains an unsupported or damaged video segment. Try reconnecting.');
     const onSourceOpen = () => {
       try {
-        // Guard against double-open
         if (sourceBufferRef.current) return;
-        const sourceBuffer = mediaSource.addSourceBuffer(mimeCodec);
+        sourceBuffer = mediaSource.addSourceBuffer(mimeCodec);
         sourceBufferRef.current = sourceBuffer;
-
-        sourceBuffer.addEventListener('updateend', () => {
-          processQueue();
-        });
-
-        sourceBuffer.addEventListener('error', (e) => {
-          console.error("SourceBuffer Error:", e);
-          setStats(s => ({ ...s, error: "SourceBuffer Error: Format mismatch or corrupted chunk." }));
-        });
-
-        setIsReady(true);
-        // Flush any chunks that arrived before MediaSource was ready
+        sourceBuffer.addEventListener('updateend', processQueue);
+        sourceBuffer.addEventListener('error', onBufferError);
         processQueue();
-      } catch (e) {
-        console.error("Failed to add source buffer:", e);
-        setStats(s => ({ ...s, error: `MSE Init Error: ${e.message}` }));
+      } catch {
+        reportError('The browser could not prepare this stream format. Try another source or screen sharing.');
       }
     };
+    const onWaiting = () => reportStatus('buffering', 'Waiting for more video…');
+    const onPlaying = () => reportStatus('playing');
+    const onPause = () => {
+      if (sourceBufferRef.current && !video.ended) reportStatus('paused');
+    };
+    const onCanPlay = () => {
+      if (desiredPlayingRef.current && video.paused) tryPlay();
+    };
+    const onEnded = () => reportStatus('ended', 'The stream has ended.');
+    const onVideoError = () => reportError('The stream could not be played. Try reconnecting or choose another source.');
 
     mediaSource.addEventListener('sourceopen', onSourceOpen);
-
-    const handleWaiting = () => {
-      setIsBuffering(true);
-      if (onBuffering) onBuffering(true);
-    };
-
-    const handlePlaying = () => {
-      setIsBuffering(false);
-      if (onBuffering) onBuffering(false);
-    };
-
-    videoElement.addEventListener('waiting', handleWaiting);
-    videoElement.addEventListener('playing', handlePlaying);
-    videoElement.addEventListener('canplay', handlePlaying);
+    video.addEventListener('waiting', onWaiting);
+    video.addEventListener('playing', onPlaying);
+    video.addEventListener('pause', onPause);
+    video.addEventListener('canplay', onCanPlay);
+    video.addEventListener('ended', onEnded);
+    video.addEventListener('error', onVideoError);
 
     return () => {
       mediaSource.removeEventListener('sourceopen', onSourceOpen);
-      videoElement.removeEventListener('waiting', handleWaiting);
-      videoElement.removeEventListener('playing', handlePlaying);
-      videoElement.removeEventListener('canplay', handlePlaying);
+      sourceBuffer?.removeEventListener('updateend', processQueue);
+      sourceBuffer?.removeEventListener('error', onBufferError);
+      video.removeEventListener('waiting', onWaiting);
+      video.removeEventListener('playing', onPlaying);
+      video.removeEventListener('pause', onPause);
+      video.removeEventListener('canplay', onCanPlay);
+      video.removeEventListener('ended', onEnded);
+      video.removeEventListener('error', onVideoError);
       sourceBufferRef.current = null;
-      setIsReady(false);
-      try {
-        if (mediaSource.readyState === 'open') {
-          mediaSource.endOfStream();
-        }
-      } catch (e) { /* ignore */ }
+      mediaSourceRef.current = null;
+      video.pause();
+      video.removeAttribute('src');
+      video.load();
+      URL.revokeObjectURL(objectUrl);
     };
-  }, [mimeCodec, msVersion, processQueue, onBuffering]);
+  }, [enabled, mimeCodec, msVersion, processQueue, reportStatus, reportError, tryPlay]);
+
+  const resetEngine = useCallback(() => {
+    queueRef.current = [];
+    pendingEndRef.current = false;
+    sourceBufferRef.current = null;
+    chunksAppendedRef.current = 0;
+    lastStatsUpdateRef.current = 0;
+    lastStatusRef.current = '';
+    setStats(emptyStats);
+    setMsVersion(version => version + 1);
+  }, []);
 
   useImperativeHandle(ref, () => ({
-    setTimestampOffset: (offset) => {
-      // No-op: TS parser uses absolute PTS
-    },
-    appendChunk: (chunk) => {
-      queueRef.current.push(chunk);
-      processQueue();
-    },
-    flush: () => {
-      // Clear the pending queue
-      queueRef.current = [];
-      // Nuclear reset: destroy and recreate the entire MediaSource.
-      // This is the ONLY reliable way to clear the HTMLMediaElement.error attribute,
-      // which gets permanently set when the buffer is emptied while playing.
-      sourceBufferRef.current = null;
-      setIsReady(false);
-      setStats({ chunksAppended: 0, bufferAhead: 0, bufferStart: 0, error: null });
-      // Trigger useEffect re-run which creates a fresh MediaSource
-      setMsVersion(v => v + 1);
-    },
+    setTimestampOffset: () => { /* TS parser uses absolute PTS. */ },
+    appendChunk: chunk => { queueRef.current.push(chunk); processQueue(); },
+    endStream: () => { pendingEndRef.current = true; processQueue(); },
+    flush: resetEngine,
+    retry: resetEngine,
     getBufferAhead: () => {
-      if (!videoRef.current || videoRef.current.buffered.length === 0) return 0;
-      return videoRef.current.buffered.end(videoRef.current.buffered.length - 1) - videoRef.current.currentTime;
+      const video = videoRef.current;
+      return video?.buffered.length ? video.buffered.end(video.buffered.length - 1) - video.currentTime : 0;
     },
     getBufferedRanges: () => {
-      if (!videoRef.current) return [];
-      const ranges = [];
-      for (let i = 0; i < videoRef.current.buffered.length; i++) {
-        ranges.push({
-          start: videoRef.current.buffered.start(i),
-          end: videoRef.current.buffered.end(i)
-        });
-      }
-      return ranges;
+      const video = videoRef.current;
+      return video ? Array.from({ length: video.buffered.length }, (_, index) => ({ start: video.buffered.start(index), end: video.buffered.end(index) })) : [];
     },
-    getCurrentTime: () => videoRef.current ? videoRef.current.currentTime : 0,
-    setCurrentTime: (time) => { if (videoRef.current) videoRef.current.currentTime = time; },
-    play: () => {
-      if (videoRef.current) {
-        const playPromise = videoRef.current.play();
-        if (playPromise !== undefined) {
-          playPromise.catch(e => {
-            if (e.name !== 'AbortError') console.error("MSEPlayer play error:", e);
-          });
-        }
-      }
-    },
-    pause: () => videoRef.current && videoRef.current.pause(),
-    getVideoElement: () => videoRef.current
-  }));
+    getCurrentTime: () => videoRef.current?.currentTime || 0,
+    setCurrentTime: time => { if (videoRef.current) videoRef.current.currentTime = time; },
+    play: tryPlay,
+    pause: () => { desiredPlayingRef.current = false; videoRef.current?.pause(); },
+    getVideoElement: () => videoRef.current,
+  }), [processQueue, resetEngine, tryPlay]);
 
   return (
-    <div style={{ width: '100%', height: '100%', position: 'relative' }}>
-      <VideoElement
-        ref={videoRef}
-        autoPlay
-        playsInline
-      />
-      {isBuffering && <Spinner />}
-      <Overlay>
-        <div>MSE Engine: {isReady ? "Ready" : "Initializing"}</div>
-        <div>MIME: {mimeCodec}</div>
-        <div>Chunks Appended: {stats.chunksAppended}</div>
-        <div>Buffer Ahead: {stats.bufferAhead}s (Starts at: {stats.bufferStart}s)</div>
-        {stats.error && <div style={{ color: '#ff453a' }}>{stats.error}</div>}
-      </Overlay>
+    <div style={{ width: '100%', height: '100%', minHeight: 0, position: 'relative' }}>
+      <VideoElement ref={videoRef} autoPlay playsInline muted={muted} aria-label="Shared Jellyfin video" />
+      {diagnostics && (
+        <Diagnostics>
+          <div>{stats.chunksAppended} segments · {stats.bufferAhead}s ahead · starts at {stats.bufferStart}s</div>
+          <div>{mimeCodec}</div>
+          {stats.error && <div>{stats.error}</div>}
+        </Diagnostics>
+      )}
     </div>
   );
 });

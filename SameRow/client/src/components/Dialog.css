@@ -1,0 +1,102 @@
+.sr-dialog-overlay {
+  position: fixed;
+  z-index: 1000;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+  background: rgb(0 0 0 / 65%);
+  overscroll-behavior: contain;
+}
+.sr-dialog-panel {
+  width: min(100%, 520px);
+  max-height: calc(var(--sr-dialog-height, 100dvh) - 32px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  color: var(--text, #f3f3f3);
+  background: var(--surface-raised, #27282b);
+  border: 1px solid var(--border, #36373a);
+  border-radius: 8px;
+  outline: none;
+}
+.sr-dialog-header {
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+  align-items: flex-start;
+  flex-shrink: 0;
+  padding: 24px 24px 20px;
+  border-bottom: 1px solid var(--border, #36373a);
+}
+.sr-dialog-header > div {
+  min-width: 0;
+}
+.sr-dialog-header h2 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 650;
+  line-height: 1.35;
+  letter-spacing: -0.03em;
+}
+.sr-dialog-header p {
+  margin: 7px 0 0;
+  color: var(--muted, #a2a3a6);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.sr-dialog-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 44px;
+  width: 44px;
+  height: 44px;
+  margin: -7px -8px 0 0;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: var(--muted, #a2a3a6);
+  background: transparent;
+  cursor: pointer;
+}
+.sr-dialog-close:hover {
+  color: var(--text, #f3f3f3);
+  background: rgb(255 255 255 / 6%);
+}
+.sr-dialog-close:focus-visible {
+  outline: 2px solid var(--accent, #dedede);
+  outline-offset: 3px;
+}
+.sr-dialog-body {
+  min-height: 0;
+  padding: 24px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+@media (max-width: 520px) {
+  .sr-dialog-overlay {
+    padding: 12px;
+  }
+  .sr-dialog-panel {
+    border-radius: 8px;
+    max-height: calc(var(--sr-dialog-height, 100dvh) - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+  }
+  .sr-dialog-header {
+    padding: 20px 20px 16px;
+  }
+  .sr-dialog-body {
+    padding: 20px;
+  }
+}
+@media (max-height: 450px) {
+  .sr-dialog-header {
+    padding-top: 16px;
+    padding-bottom: 12px;
+  }
+  .sr-dialog-body {
+    padding-top: 16px;
+    padding-bottom: 16px;
+  }
+}

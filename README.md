@@ -1,6 +1,6 @@
 # SameRow-V2: Architecture & Data Pipeline
 
-**SameRow** is a real-time collaborative platform that combines **peer-to-peer video calling** with **synchronized media playback**. It allows users to watch YouTube videos together in perfect sync while seeing and talking to each other in a virtual room.
+**SameRow** is a real-time collaborative platform that combines **peer-to-peer video calling** with **synchronized media playback**. It allows users to watch YouTube videos together with shared playback controls while seeing and talking to each other in a virtual room.
 
 This project is designed to demonstrate advanced concepts in **distributed systems**, **networking**, and **real-time state management**.
 
@@ -14,7 +14,7 @@ SameRow uses a hybrid architecture to ensure low latency for video calls and pre
 * **Synchronized Media:**
     * Embeds YouTube links directly in the room.
     * Play, pause, and seek actions are broadcast in real-time to all users in the room.
-    * Automatic drift correction ensures all clients are within milliseconds of the server's authoritative timestamp.
+    * Periodic drift correction keeps players close to the room's current position. Each participant loads the video directly from YouTube; media is not captured or relayed through WebRTC.
 * **Peer-to-Peer (P2P) Video:** Video and audio streams go directly between users, reducing server load and latency.
 * **Smart State Management:** The server maintains a deterministic state, allowing new users to join and instantly sync to the current point in the video.
 
@@ -128,28 +128,30 @@ Video data needs to be packaged so the player knows what it's looking at. MP4 is
 Follow these steps to run the project locally.
 
 ### Prerequisites
-* Node.js (v16+)
+* Node.js 20.19+ or 22.12+
 * npm or yarn
 
 ### 1. Clone the Repository
 ```bash
-git clone https://github.com/your-username/Samerow-V2.git
+git clone https://github.com/devpratyushh/Samerow-V2.git
 cd Samerow-V2
 ```
 
-### 2. Setup the Server
+### 2. Setup the Server (optional)
+The frontend uses the existing hosted backend by default. Start a local backend
+only when developing the server:
 ```bash
-cd server
-npm install
-node index.js
+cd SameRow/server
+npm ci
+npm start
 ```
 The server should now be running at `http://localhost:3000`.
 
 ### 3. Setup the Client
 Open a new terminal window from the project root.
 ```bash
-cd client
-npm install
+cd SameRow/client
+npm ci
 ```
 
 Start the client development server.
@@ -157,6 +159,9 @@ Start the client development server.
 npm run dev
 ```
 The client should now be running at `http://localhost:5173`.
+The client keeps its existing hosted backend and Firebase endpoints. To opt into
+the local signaling server instead, copy `.env.example` to `.env.local` before
+starting the client.
 
 ### 4. Testing
 * Open `http://localhost:5173` in two separate browser tabs.
@@ -174,3 +179,13 @@ The client should now be running at `http://localhost:5173`.
 ## 📄 License
 Copyright (c) 2026 devpratyushh. All Rights Reserved.
 This project is proprietary and closed-source. No permission is granted to reproduce, distribute, or modify this code.
+
+## YouTube watch together
+
+Use **SharePlay → YouTube · Watch Together**, then paste a YouTube video link. Watch, youtu.be, Shorts, live, and embed links are supported, including shared start times. Each browser loads the official YouTube player. The room server synchronizes play, pause, seek, video changes, and closing the video. Late joiners receive the current position; the player applies it after its metadata loads.
+
+Some browsers require each participant to press Play once. Videos that disallow embedding, require sign-in, or have age or regional restrictions may be unavailable in the room; the player offers an **Open on YouTube** link and retry instead. Opening YouTube separately does not synchronize that tab. Screen sharing remains available for other content.
+
+The running Socket.IO server is authoritative for YouTube playback. Its state is in memory and resets when the server restarts; old Firestore video links are no longer restored over the active room state. The client supports both `youtube-sync` snapshots from the updated server and the original hosted server’s `youtube-change` / `youtube-state-change` events. Submission stays visible until the server confirms the video, with an error if confirmation fails. Video session IDs and strict stale-event rejection apply when connected to the updated server.
+
+Run `npm test` and `npm run build` from `SameRow/client` to verify the URL parser, timing, restricted-video messages, and Socket.IO room synchronization.
