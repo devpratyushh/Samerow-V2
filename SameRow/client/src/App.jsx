@@ -10,12 +10,13 @@ import { onIdTokenChanged, signInAnonymously } from 'firebase/auth';
 import { configureSession } from './session';
 
 const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || (import.meta.env.DEV ? window.location.origin : 'https://samerow-v2.onrender.com');
-configureSession(() => auth.currentUser?.getIdToken() || '');
+let developmentToken = '';
+configureSession(() => developmentToken || auth.currentUser?.getIdToken() || '');
 
 const socket = io(SOCKET_URL, {
   transports: ['websocket'],
   autoConnect: false,
-  auth: async callback => callback({ token: await auth.currentUser?.getIdToken() }),
+  auth: async callback => callback({ token: developmentToken || await auth.currentUser?.getIdToken() }),
   reconnectionAttempts: Infinity,
   reconnectionDelayMax: 10000,
   timeout: 15000
@@ -47,11 +48,26 @@ function App() {
 
   useEffect(() => {
     let disposed = false, signingIn = false, lastAuthRefresh = 0;
+    const connectDevelopmentGuest = async () => {
+      // Local development must work without enabling a Firebase guest provider.
+      // Production bundles and Firebase-mode servers never accept this fallback.
+      if (!import.meta.env.DEV) return false;
+      try {
+        const response = await fetch(`${SOCKET_URL}/api/config`, { signal: AbortSignal.timeout(5000) });
+        if (!response.ok || (await response.json()).auth !== 'development' || disposed || auth.currentUser) return false;
+        let uid = sessionStorage.getItem('samerow.development.uid');
+        if (!uid) { uid = crypto.randomUUID(); sessionStorage.setItem('samerow.development.uid', uid); }
+        developmentToken = `dev:${uid}`;
+        socket.auth = { token: developmentToken }; socket.sessionUid = uid;
+        setUser({ uid, isAnonymous: true }); setConnectionError(''); socket.connect();
+        return true;
+      } catch { return false; }
+    };
     const refresh = async () => {
       if (Date.now() - lastAuthRefresh < 30000) return;
       lastAuthRefresh = Date.now();
       try {
-        const token = await auth.currentUser?.getIdToken(true);
+        const token = developmentToken || await auth.currentUser?.getIdToken(true);
         if (!disposed && token) { socket.auth = { token }; socket.connect(); }
       } catch { setConnectionError('Sign in again to reconnect.'); }
     };
@@ -67,13 +83,14 @@ function App() {
         socket.disconnect(); setUser(null);
         if (!signingIn) {
           signingIn = true;
-          try { await signInAnonymously(auth); }
-          catch { setConnectionError('Guest sign-in is unavailable. Sign in with Google to join.'); }
+          try { if (!await connectDevelopmentGuest()) await signInAnonymously(auth); }
+          catch { if (!await connectDevelopmentGuest() && !disposed) setConnectionError('Guest sign-in is unavailable. Sign in with Google to join.'); }
           finally { signingIn = false; }
         }
         return;
       }
       setUser(currentUser);
+      developmentToken = '';
       if (currentUser.displayName) setUserName(currentUser.displayName);
       try {
         const token = await currentUser.getIdToken();
