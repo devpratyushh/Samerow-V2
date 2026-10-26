@@ -43,13 +43,13 @@ try {
   await page.evaluate(()=>{window.originalPlayer=window.fixturePlayer;window.originalParticipantVideos=[...document.querySelectorAll('.participant-grid video')];});
   await page.getByRole('button',{name:'Video fullscreen',exact:true}).click();await page.waitForFunction(()=>document.fullscreenElement?.classList.contains('is-watching'));
   await waitFrames();
-  const circles=await page.locator('.participant-grid > .media-tile').evaluateAll(nodes=>nodes.map(node=>{const r=node.getBoundingClientRect();return{width:r.width,height:r.height,radius:getComputedStyle(node).borderRadius,x:r.x,y:r.y,self:node.hasAttribute('data-self')};}));
-  for(const circle of circles){assert.ok(Math.abs(circle.width-circle.height)<1);assert.equal(circle.radius,'50%');assert.ok(circle.x<120);}
-  assert.ok(circles.find(circle=>circle.self).y>600);
+  const floating=await page.locator('.floating-participants').boundingBox();
+  assert.ok(floating.width > 0 && floating.height > 0 && floating.x >= 0 && floating.y >= 0);
+  assert.ok(floating.x + floating.width <= 1441 && floating.y + floating.height <= 901);
   assert.equal(await page.locator('.room-header').isVisible(),false);
   assert.ok(await page.evaluate(()=>window.originalPlayer===window.fixturePlayer&&window.originalParticipantVideos.every((node,index)=>node===document.querySelectorAll('.participant-grid video')[index])));
   await page.screenshot({path:`${dir}/fullscreen-controls-desktop.png`});
-  console.log('PASS native fullscreen fills stage with left circular previews and preserves all media nodes');
+  console.log('PASS native fullscreen fills stage with visible participant previews and preserves all media nodes');
   await page.getByRole('button',{name:'Play video',exact:true}).click();
   await page.mouse.move(900,450);
   await page.waitForFunction(()=>document.querySelector('.room-shell').classList.contains('chrome-hidden'));
@@ -78,7 +78,7 @@ try {
   await page.getByLabel('Seek video',{exact:true}).hover();
   const seekBounds=await page.getByLabel('Seek video',{exact:true}).boundingBox();
   await page.mouse.move(seekBounds.x+seekBounds.width/2,seekBounds.y+seekBounds.height/2);
-  await page.mouse.down();await page.mouse.move(1400,450);await page.waitForTimeout(2600);
+  await page.mouse.down();await page.mouse.move(seekBounds.x+seekBounds.width/2,60);await page.waitForTimeout(2600);
   assert.equal(await page.locator('.player-controls').evaluate(node=>getComputedStyle(node).opacity),'1','Dragging must hold video controls open');
   await page.mouse.up();await controlsHidden();
   await page.keyboard.press('Tab');await controlsShown();

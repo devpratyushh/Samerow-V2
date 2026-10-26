@@ -1,6 +1,4 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
-import { db } from './firebase';
-import { collection, query, orderBy, onSnapshot, addDoc, serverTimestamp } from 'firebase/firestore';
 import { FaArrowDown, FaComments, FaPaperPlane, FaTimes } from 'react-icons/fa';
 import Dialog from './components/Dialog';
 import './Chat.css';
@@ -16,16 +14,20 @@ const getCompactSnapshot = () => window.matchMedia(compactQuery).matches;
 const getServerSnapshot = () => false;
 
 function messageTime(value) {
-  const date = value?.toDate?.() ?? (value instanceof Date ? value : null);
+  const date = value?.toDate?.() ?? (value instanceof Date ? value : Number.isFinite(value) ? new Date(value) : null);
   return date ? date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '';
 }
 
-export default function Chat({ roomId, userName, onClose, open = true, onUnreadChange, preview = false, previewMessages = EMPTY_MESSAGES }) {
+export default function Chat({ socket, roomId, userName, onClose, open = true, onUnreadChange, preview = false, previewMessages = EMPTY_MESSAGES }) {
   const [messages, setMessages] = useState([]);
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
   const [hasNewMessages, setHasNewMessages] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+  const pendingMessage = useRef(null);
+  const requestHistory = useRef(null);
   const isCompact = useSyncExternalStore(subscribeToWidth, getCompactSnapshot, getServerSnapshot);
   const messagesRef = useRef(null);
   const composerRef = useRef(null);
@@ -44,23 +46,41 @@ export default function Chat({ roomId, userName, onClose, open = true, onUnreadC
   }, [open, userName, onUnreadChange]);
 
   useEffect(() => {
-    if (!roomId || preview) return;
-    let knownIds = null;
-    const subscription = query(collection(db, 'rooms', roomId, 'messages'), orderBy('createdAt', 'asc'));
-    return onSnapshot(subscription, (snapshot) => {
-      const next = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-      const added = knownIds ? next.filter((message) => !knownIds.has(message.id)) : [];
-      const incoming = added.filter((message) => message.sender !== current.current.userName);
-      knownIds = new Set(next.map((message) => message.id));
-      if (!current.current.open && incoming.length) {
-        unread.current += incoming.length;
-        current.current.onUnreadChange?.(unread.current);
-      }
-      if (current.current.open && !isAtBottom.current && added.length) setHasNewMessages(true);
-      setMessages(next);
-      setError('');
-    }, () => setError('Chat could not connect. Your draft is saved; close and reopen the room to reconnect.'));
-  }, [roomId, preview]);
+    if (!roomId || preview || !socket) return;
+    let disposed = false;
+    const knownIds = new Set();
+    const merge = (previous, incoming) => [...new Map([...previous, ...incoming].map(message => [message.id, message])).values()].sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id)).slice(-1000);
+    const history = before => {
+      if (!socket.connected || disposed) return;
+      setLoadingHistory(true);
+      socket.timeout(10000).emit('chat-history', { roomId, before }, (error, reply) => {
+        if (disposed) return;
+        setLoadingHistory(false);
+        if (error || reply?.error) { setError(reply?.error || 'Chat could not connect. Reconnect and try again.'); return; }
+        for (const message of reply.messages || []) knownIds.add(message.id);
+        setMessages(previous => merge(previous, reply.messages || []));
+        setHasMore(!!reply.hasMore); setError('');
+      });
+    };
+    requestHistory.current = history;
+    const received = message => {
+      if (disposed || !message?.id) return;
+      if (knownIds.has(message.id)) return;
+      knownIds.add(message.id);
+      if (knownIds.size > 2000) knownIds.delete(knownIds.values().next().value);
+      const mine = message.senderId ? message.senderId === socket.sessionUid : message.sender === current.current.userName;
+      setMessages(previous => merge(previous, [message]));
+      if (!current.current.open && !mine) { unread.current += 1; current.current.onUnreadChange?.(unread.current); }
+      if (current.current.open && !isAtBottom.current) setHasNewMessages(true);
+    };
+    const ready = () => history();
+    socket.on('chat-message', received); socket.on('room-ready', ready);
+    const initial = setTimeout(ready, 0);
+    return () => {
+      disposed = true; clearTimeout(initial); requestHistory.current = null;
+      socket.off('chat-message', received); socket.off('room-ready', ready);
+    };
+  }, [roomId, preview, socket]);
 
   useEffect(() => {
     if (!open) return;
@@ -108,13 +128,17 @@ export default function Chat({ roomId, userName, onClose, open = true, onUnreadC
       if (preview) {
         setMessages((previous) => [...previous, { id: `preview-${Date.now()}`, text, sender: userName, createdAt: new Date() }]);
       } else {
-        await addDoc(collection(db, 'rooms', roomId, 'messages'), { text, sender: userName, createdAt: serverTimestamp() });
+        if (!socket?.connected) throw new Error('Wait for the room to reconnect.');
+        if (pendingMessage.current?.text !== text) pendingMessage.current = { id: crypto.randomUUID(), text };
+        const reply = await new Promise((resolve, reject) => socket.timeout(10000).emit('chat-send', { roomId, ...pendingMessage.current }, (error, result) => error ? reject(error) : resolve(result)));
+        if (reply?.error) throw new Error(reply.error);
+        pendingMessage.current = null;
       }
       // Keep any edits made while this message was being sent.
       setDraft((value) => value.trim() === text ? '' : value);
       setHasNewMessages(false);
-    } catch {
-      setError('Message was not sent. Your draft is saved; try again.');
+    } catch (error) {
+      setError(error.message || 'Message was not sent. Your draft is saved; try again.');
     } finally {
       setSending(false);
     }
@@ -123,6 +147,7 @@ export default function Chat({ roomId, userName, onClose, open = true, onUnreadC
   const content = (
     <div className="sr-chat-panel">
       <div className="sr-chat-conversation">
+        {!preview && hasMore && <button className="sr-chat-new" type="button" disabled={loadingHistory} onClick={() => { isAtBottom.current = false; requestHistory.current?.(messages[0]?.id); }}>{loadingHistory ? 'Loading…' : 'Load earlier messages'}</button>}
         <div className="sr-chat-messages" ref={messagesRef} onScroll={handleScroll} role="log" aria-label="Room messages" aria-live={open ? 'polite' : 'off'} aria-relevant="additions" tabIndex={0}>
           {displayedMessages.length === 0 ? (
             <div className="sr-chat-empty">
@@ -131,7 +156,7 @@ export default function Chat({ roomId, userName, onClose, open = true, onUnreadC
               <p>Send a message to everyone in the room.</p>
             </div>
           ) : displayedMessages.map((message) => {
-            const mine = message.sender === userName;
+            const mine = message.senderId ? message.senderId === socket?.sessionUid : message.sender === userName;
             const time = messageTime(message.createdAt);
             return (
               <div key={message.id} className={`sr-chat-message${mine ? ' is-mine' : ''}`}>

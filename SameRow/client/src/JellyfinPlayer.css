@@ -1,0 +1,25 @@
+.jellyfin-player { position: relative; isolation: isolate; display: grid; grid-template-rows: minmax(0, 1fr) auto; width: 100%; height: 100%; min-width: 0; min-height: 0; background: #000; }
+.jellyfin-player > video { display: block; width: 100%; height: 100%; min-height: 0; object-fit: contain; grid-area: 1 / 1; }
+/* In the room, controls have their own space. Fullscreen overlays them on the video. */
+.jellyfin-player > .player-controls { position: relative; inset: auto; grid-area: 2 / 1; padding: 0 12px 8px; background: #151718; opacity: 1; transform: none; pointer-events: auto; }
+.jellyfin-player > .playback-hit-area { grid-area: 1 / 1; position: relative; inset: auto; }
+.jellyfin-player-status { position: absolute; z-index: 4; inset: 0 0 110px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 24px; text-align: center; background: #0009; pointer-events: none; }
+.jellyfin-player-status button { pointer-events: auto; }
+.jellyfin-player-status.is-buffering { background: transparent; }
+.player-track-menu > summary { list-style: none; cursor: pointer; }
+.player-track-menu > summary::-webkit-details-marker { display: none; }
+.player-track-menu[open] > summary { color: var(--accent); background: #ffffff12; }
+.player-track-panel { position: absolute; bottom: calc(100% - 6px); right: 8px; width: min(300px, calc(100% - 16px)); max-height: min(360px, 65dvh); overflow: auto; padding: 16px; border: 1px solid var(--border); border-radius: 12px; background: #202224; box-shadow: 0 8px 24px #0005; font-size: 13px; }
+.player-track-panel p, .jellyfin-form-note { color: var(--muted); font-size: 12px; line-height: 1.5; }
+.player-track-panel label { display: grid; gap: 7px; margin: 14px 0; }
+.player-track-panel select { width: 100%; min-height: 42px; color: #fff; background: #303236; border: 1px solid var(--border); border-radius: 6px; padding: 6px; }
+.player-controls:has(details[open]) { opacity: 1; transform: none; pointer-events: auto; }
+.room-shell.is-fullscreen.is-watching .jellyfin-player { display: block; }
+.room-shell.is-fullscreen.is-watching .jellyfin-player > video { width: 100%; height: 100%; }
+.room-shell.is-fullscreen.is-watching .jellyfin-player > .playback-hit-area { position: absolute; inset: 0; }
+.room-shell.is-fullscreen.is-watching .jellyfin-player > .player-controls { position: absolute; bottom: 88px; left: 140px; right: 20px; padding-top: 28px; background: linear-gradient(transparent, #0a0b0ced); }
+.room-shell.is-fullscreen.is-watching .jellyfin-player > .player-controls.is-hidden:not(:has(:focus-visible, details[open])) { opacity: 0; transform: translateY(8px); pointer-events: none; }
+
+@media (max-width: 600px) { .room-shell.is-fullscreen.is-watching .jellyfin-player > .player-controls { bottom: 82px; left: 10px; right: 10px; } }
+@media (max-height: 540px) and (orientation: landscape) { .room-shell.is-fullscreen.is-watching .jellyfin-player > .player-controls { bottom: 72px; left: 100px; right: 12px; } }
+@media (min-width: 1100px) { .room-shell.is-fullscreen.is-watching.has-open-chat .jellyfin-player > .player-controls { right: 360px; } }

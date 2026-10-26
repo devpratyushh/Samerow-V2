@@ -10,11 +10,11 @@ class Socket extends EventEmitter {
     emit(event, value, ...args) { this.sent.push([event, value, ...args]); }
     receive(event, value) { super.emit(event, value); }
 }
-function setup() {
+function setup(options = {}) {
     const socket = new Socket();
     const states = [], errors = [];
     let submitted = 0;
-    const room = connectYouTubeRoom({socket, roomId:'test', userName:'Test', onState:state=>states.push(state), onSubmitted:()=>submitted++, onError:error=>errors.push(error)});
+    const room = connectYouTubeRoom({socket, roomId:'test', userName:'Test', onState:state=>states.push(state), onSubmitted:()=>submitted++, onError:error=>errors.push(error),...options});
     return {socket, room, states, errors, get submitted() {return submitted;}};
 }
 
@@ -84,4 +84,41 @@ test('disconnect and disposal cancel submissions and remove event listeners', ()
     for (const event of ['youtube-sync','youtube-change','youtube-state-change','connect','disconnect']) assert.equal(context.socket.listenerCount(event),0);
     context.socket.receive('youtube-change',url);
     assert.equal(context.submitted,0);
+});
+
+test('acknowledged snapshots compensate downstream latency without using client wall time', () => {
+    let time=1000;
+    const context=setup({now:()=>time,wallNow:()=>9999999999999});
+    try {
+        const acknowledge=context.socket.sent.find(([event])=>event==='sync-request')[2];
+        time=1400;
+        acknowledge({state:{url,sessionId:'modern',revision:1,timestamp:10,isPlaying:true,lastUpdate:900001200},serverReceivedAt:900001200,serverSentAt:900001200});
+        const state=context.states.at(-1);
+        assert.equal(state.timestamp,10.2);
+        assert.equal(state.serverTimeOffset,900000000);
+        assert.equal(state.receivedAt,1400);
+    } finally {context.room.dispose();}
+});
+test('late acknowledgments cannot undo a newer pause, replace a session, or survive disposal', () => {
+    let time=1000;
+    const context=setup({now:()=>time});
+    const acknowledge=context.socket.sent.find(([event])=>event==='sync-request')[2];
+    context.socket.receive('youtube-sync',{url,sessionId:'new',revision:4,timestamp:90,isPlaying:false,lastUpdate:900002000});
+    time=1400;
+    const reply={state:{url,sessionId:'old',revision:3,timestamp:10,isPlaying:true,lastUpdate:900001200},serverReceivedAt:900001200,serverSentAt:900001200};
+    acknowledge(reply);
+    assert.equal(context.states.at(-1).timestamp,90);assert.equal(context.states.at(-1).sessionId,'new');
+    context.room.dispose();const count=context.states.length;acknowledge(reply);assert.equal(context.states.length,count);
+});
+test('reconnect accepts the restarted server revision and discards old connection acknowledgments', () => {
+    let time=1000;
+    const context=setup({now:()=>time});
+    try {
+        const acknowledge=context.socket.sent.find(([event])=>event==='sync-request')[2];
+        context.socket.receive('youtube-sync',{url,sessionId:'old',revision:40,timestamp:90,isPlaying:false});
+        context.socket.receive('disconnect'); context.socket.receive('connect'); time=1400;
+        acknowledge({state:{url,sessionId:'old',revision:41,timestamp:100,isPlaying:true},serverReceivedAt:900001200,serverSentAt:900001200});
+        context.socket.receive('youtube-sync',{url,sessionId:'restarted',revision:0,timestamp:5,isPlaying:false});
+        assert.equal(context.states.at(-1).sessionId,'restarted');
+    } finally {context.room.dispose();}
 });

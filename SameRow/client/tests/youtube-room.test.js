@@ -36,12 +36,20 @@ test('room synchronizes start, seek, pause, late join, replace and close; reject
         assert.equal(state.isPlaying, true);
         assert.ok(state.timestamp >= 60);
         const firstSession = state.sessionId;
+        const firstRevision = state.revision;
+        const calibration = await new Promise((resolve,reject)=>host.timeout(1000).emit('sync-request','movie',(error,reply)=>error?reject(error):resolve(reply)));
+        assert.equal(calibration.state.sessionId,firstSession);
+        assert.ok(calibration.serverSentAt>=calibration.serverReceivedAt);
+        assert.equal(calibration.state.lastUpdate,calibration.serverReceivedAt);
+        await new Promise(resolve=>outsider.timeout(100).emit('sync-request','movie',error=>{assert.ok(error);resolve();}));
+
 
         update = next(guest, 'youtube-sync');
         host.emit('youtube-state-change', { roomId: 'movie', sessionId: firstSession, isPlaying: false, timestamp: 90 });
         state = await update;
         assert.equal(state.timestamp, 90);
         assert.equal(state.isPlaying, false);
+        assert.ok(state.revision>firstRevision);
 
         const late = await join('movie');
         update = next(late, 'youtube-sync');

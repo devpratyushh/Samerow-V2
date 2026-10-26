@@ -40,20 +40,15 @@ try {
   await page.locator('[data-participant="screen-self"]').waitFor({state:'detached'});
   assert.equal(await page.evaluate(()=>window.screenTrack.readyState),'ended');
   console.log('PASS real screen stream is contained, survives focus changes, and stops cleanly');
-  for(const width of [320,390,768]) {
-    await page.setViewportSize({width,height:844});
-    await page.getByRole('button',{name:'Share something',exact:true}).click();
-    await page.getByRole('button',{name:'Your Jellyfin library Stream a video from your server.'}).click();
-    await page.getByRole('dialog').waitFor();
-    await page.keyboard.press('Escape');
-    for(const label of ['Pause for everyone','Jellyfin settings','Stop movie for everyone']) {
-      const button=page.getByRole('button',{name:label,exact:true});await button.waitFor();
-      const r=await button.boundingBox();assert.ok(r.x>=0&&r.x+r.width<=width+1,`${width}: ${label} clipped`);
-    }
-    await page.getByRole('button',{name:'Stop movie for everyone',exact:true}).click();
-    await page.getByRole('button',{name:'Jellyfin',exact:true}).waitFor({state:'detached'});
-  }
-  console.log('PASS actual Jellyfin host controls fit narrow stages and sessions stop/restart');
+  await page.getByRole('button',{name:'Share something',exact:true}).click();
+  await page.getByRole('button',{name:'Your Jellyfin library Stream a video from your server.'}).click();
+  await page.getByRole('dialog',{name:'Your Jellyfin library',exact:true}).waitFor();
+  assert.equal(await page.getByRole('button',{name:'Jellyfin',exact:true}).count(),0);
+  assert.equal(await page.getByText('Preparing the stream…',{exact:true}).count(),0);
+  await page.keyboard.press('Escape');
+  assert.equal(await page.getByRole('button',{name:'Jellyfin',exact:true}).count(),0);
+  console.log('PASS opening/canceling Jellyfin details preserves the call');
+
   await page.close();
   const first=await context.newPage();const second=await context.newPage();
   for(const target of [first,second])target.on('pageerror',error=>errors.push(error.message));

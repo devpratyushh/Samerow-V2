@@ -24,6 +24,10 @@ export default function RoomView({ roomId, userName, connected = true, participa
   const [selectedSource, setSelectedSource] = useState(null);
   const [pin, setPin] = useState(null);
   const [railHidden, setRailHidden] = useState(false);
+  const [participantLayout, setParticipantLayout] = useState('auto');
+  const [participantPosition, setParticipantPosition] = useState(null);
+  const participantRef = useRef(null);
+  const participantDrag = useRef(null);
   const [moreOpen, setMoreOpen] = useState(false);
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const [fullScreen, setFullScreen] = useState(false);
@@ -46,6 +50,38 @@ export default function RoomView({ roomId, userName, connected = true, participa
   const currentSource = sources.find(source => source.id === sourceId);
   const fullscreen = fullScreen || theater;
   const immersive = fullscreen && contentFocused;
+  const floatingLayout = participantLayout === 'auto' ? (participants.length > 1 ? 'strip' : 'circles') : participantLayout;
+  const moveParticipants = useCallback((x, y) => {
+    const panel = participantRef.current;
+    const bounds = panel?.offsetParent;
+    if (!panel || !bounds) return;
+    const next = {
+      x: Math.max(18, Math.min(x, bounds.clientWidth - panel.offsetWidth - 18)),
+      y: Math.max(18, Math.min(y, bounds.clientHeight - panel.offsetHeight - 18)),
+    };
+    setParticipantPosition(previous => previous?.x === next.x && previous?.y === next.y ? previous : next);
+  }, [setParticipantPosition]);
+  useEffect(() => {
+    if (!immersive || railHidden) return;
+    const panel = participantRef.current;
+    const constrain = () => moveParticipants(panel.offsetLeft, panel.offsetTop);
+    const observer = new ResizeObserver(constrain);
+    observer.observe(panel);
+    observer.observe(panel.offsetParent);
+    return () => observer.disconnect();
+  }, [immersive, railHidden, floatingLayout, moveParticipants]);
+  const startParticipantDrag = event => {
+    if (event.button !== 0) return;
+    const panel = participantRef.current;
+    participantDrag.current = { id: event.pointerId, x: event.clientX, y: event.clientY, left: panel.offsetLeft, top: panel.offsetTop };
+    event.currentTarget.setPointerCapture(event.pointerId);
+    event.preventDefault();
+  };
+  const dragParticipants = event => {
+    const drag = participantDrag.current;
+    if (drag?.id === event.pointerId) moveParticipants(drag.left + event.clientX - drag.x, drag.top + event.clientY - drag.y);
+  };
+  const endParticipantDrag = () => { participantDrag.current = null; };
   const chromeVisible = barsVisible.top || barsVisible.bottom;
   const scheduleHide = useCallback((bar, delay = 650) => {
     clearTimeout(barTimers.current[bar]);
@@ -148,7 +184,19 @@ export default function RoomView({ roomId, userName, connected = true, participa
             <div className="source-pane" hidden={sourceId !== 'youtube'}>{typeof youtube?.node === 'function' ? youtube.node(sourceId === 'youtube') : youtube?.node}</div>
             <div className="source-pane" hidden={sourceId !== 'jellyfin'}>{typeof jellyfin?.node === 'function' ? jellyfin.node(sourceId === 'jellyfin') : jellyfin?.node}</div>
           </section>
-          <div className="participant-section" hidden={contentFocused && railHidden}>
+          <div ref={participantRef} className={`participant-section ${immersive ? `floating-participants floating-participants--${floatingLayout}` : ''}`} style={immersive && participantPosition ? { left: participantPosition.x, top: participantPosition.y } : undefined} hidden={contentFocused && railHidden}>
+            {immersive && <div className="participant-float-controls">
+              <button className="participant-drag-handle" aria-label="Move participant panel" title="Drag to move · Arrow keys to reposition" onPointerDown={startParticipantDrag} onPointerMove={dragParticipants} onPointerUp={endParticipantDrag} onPointerCancel={endParticipantDrag} onLostPointerCapture={endParticipantDrag} onKeyDown={event => {
+                const step = event.shiftKey ? 40 : 10;
+                const delta = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[event.key];
+                if (!delta) return;
+                event.preventDefault();
+                moveParticipants(participantRef.current.offsetLeft + delta[0], participantRef.current.offsetTop + delta[1]);
+              }}>⠿ <span>Move</span></button>
+              <select aria-label="Fullscreen participant layout" value={participantLayout} onChange={event => setParticipantLayout(event.target.value)}>
+                <option value="auto">Auto layout</option><option value="strip">Horizontal strip</option><option value="vertical">Vertical strip</option><option value="circles">Circles</option>
+              </select>
+            </div>}
             <div className="participant-rail-label"><span>IN THE ROOM <b>{participants.length}</b></span><button className="icon-button" aria-label="Hide participants" onClick={() => setRailHidden(true)}><FaChevronDown /></button></div>
             <div ref={gridRef} className={`participant-grid ${pinnedId && !contentFocused ? 'has-pin' : ''}`} style={{ '--columns': columns, '--participant-count': Math.max(1, participants.length - 1) }}>
               {participants.map(person => <MediaTile key={person.id} participant={person} focused={!contentFocused && pinnedId === person.id} onPin={participants.length > 1 ? () => pinParticipant(person.id) : undefined} />)}

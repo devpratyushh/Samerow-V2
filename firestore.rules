@@ -1,0 +1,10 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // The authenticated SameRow backend checks live room membership and uses
+    // Admin SDK credentials. Browsers must not bypass that check with room IDs.
+    match /rooms/{roomId}/{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

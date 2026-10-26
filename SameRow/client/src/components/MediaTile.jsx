@@ -2,17 +2,19 @@ import { useEffect, useRef, useState } from 'react';
 import { FaMicrophoneSlash, FaThumbtack, FaPlay } from 'react-icons/fa';
 import { initials } from './roomLayout';
 export default function MediaTile({ participant, screen = false, focused = false, onPin, hidden = false }) {
-  const { id, name, stream, isSelf, videoOff, muted } = participant;
+  const { id, name, stream, isSelf, videoOff, muted, sfuTracks } = participant;
   const videoRef = useRef(null);
   const [blocked, setBlocked] = useState(false);
   useEffect(() => {
     const video = videoRef.current;
     if (!video || !stream) return;
-    if (video.srcObject !== stream) video.srcObject = stream;
+    if (sfuTracks) sfuTracks.forEach(track => track.attach(video));
+    else if (video.srcObject !== stream) video.srcObject = stream;
     video.play().catch(error => {
       if (error.name === 'NotAllowedError') setBlocked(true);
     });
-  }, [stream]);
+    return () => { sfuTracks?.forEach(track => track.detach(video)); };
+  }, [stream, sfuTracks]);
   return (
     <article className={`media-tile ${screen ? 'media-tile--screen' : ''} ${focused ? 'is-pinned' : ''}`} data-participant={id} data-self={isSelf || undefined} hidden={hidden}>
       <video ref={videoRef} autoPlay playsInline muted={isSelf || (screen && hidden)} className={videoOff ? 'camera-off' : ''} aria-label={`${name}${screen ? ' screen share' : ' camera'}`} />

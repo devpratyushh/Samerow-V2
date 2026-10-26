@@ -1,0 +1,41 @@
+name: Checks
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7.4
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: |
+            SameRow/server/package-lock.json
+            SameRow/client/package-lock.json
+      - run: npm ci
+        working-directory: SameRow/server
+      - run: npm ci
+        working-directory: SameRow/client
+      - run: npm test
+        working-directory: SameRow/server
+        env:
+          TEST_REDIS_URL: redis://127.0.0.1:6379
+      - run: npm test && npm run lint && npm run build
+        working-directory: SameRow/client
+      - run: npm audit --audit-level=high
+        working-directory: SameRow/server
+      - run: npm audit --audit-level=high
+        working-directory: SameRow/client

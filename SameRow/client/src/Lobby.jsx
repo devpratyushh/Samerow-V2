@@ -68,14 +68,14 @@ const Lobby = ({ joinRoom, initialRoom, userStream, toggleMute, toggleVideo, isM
     } finally { setAuthBusy(false); }
   };
 
-  const rememberAndJoin = (code) => {
+  const rememberAndJoin = async (code) => {
     if (!serverConnected || !validRoomCode(code) || !trimmedName) return;
     if (authUser) {
       const entries = [{ code, timestamp: Date.now() }, ...history.filter((entry) => entry.code !== code)].slice(0, 5);
       setRecentRooms({ identity, entries });
       try { localStorage.setItem(`recent_rooms_${identity}`, JSON.stringify(entries)); } catch { /* Joining works if browser storage is unavailable. */ }
     }
-    joinRoom(code, trimmedName);
+    try { await joinRoom(code, trimmedName); } catch (error) { setFeedback(error.message || 'Could not join this room. Try again.'); }
   };
 
   const handleSubmit = (event) => {

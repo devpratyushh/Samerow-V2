@@ -56,7 +56,10 @@ export default function Dialog({ open, title, onClose, children, description, cl
     const isTopDialog = () => [...document.querySelectorAll('.sr-dialog-overlay')].at(-1) === overlayRef.current;
     const getFocusable = () => [...panel.querySelectorAll(focusableSelector)].filter((element) => element.getClientRects().length > 0 && !element.closest('[hidden], [inert]'));
     const focusStart = () => (panel.querySelector('[data-autofocus]') ?? getFocusable()[0] ?? panel).focus({ preventScroll: true });
-    const frame = requestAnimationFrame(focusStart);
+    const frame = requestAnimationFrame(() => {
+      // A user (or password manager) may focus a field before this frame runs.
+      if (!panel.contains(document.activeElement)) focusStart();
+    });
     const onKeyDown = (event) => {
       if (!isTopDialog()) return;
       if (event.key === 'Escape') {

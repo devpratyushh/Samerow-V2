@@ -19,7 +19,7 @@ export default function PlaybackControls({ playing, currentTime = 0, duration = 
     if (!playing || disabled) return;
     const hideWhenIdle = () => {
       const controls = controlsRef.current;
-      if (dragging.current || controls?.matches(':hover') || controls?.querySelector(':focus-visible')) {
+      if (dragging.current || controls?.matches(':hover') || controls?.querySelector(':focus-visible, details[open]')) {
         hideTimer.current = setTimeout(hideWhenIdle, 500);
         return;
       }

@@ -1,0 +1,10 @@
+.jellyfin-native-player { width: 100%; height: 100%; min-height: 0; display: grid; grid-template-rows: minmax(0, 1fr) auto; background: #000; }
+.jellyfin-native-stage { position: relative; min-height: 0; }
+.jellyfin-native-frame { display: block; width: 100%; height: 100%; border: 0; background: #000; }
+.jellyfin-native-status { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 12px; padding: 24px; background: #0b0b0ce8; font-size: 14px; }
+.jellyfin-native-info { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 12px; background: #17181c; border-top: 1px solid #ffffff10; }
+.jellyfin-native-info > span { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.jellyfin-native-info small { display: block; color: var(--muted); font-size: 10px; margin-top: 4px; }
+.jellyfin-native-info > div { display: flex; gap: 6px; }
+.room-shell.is-fullscreen .jellyfin-native-player { grid-template-rows: minmax(0, 1fr); }
+.room-shell.is-fullscreen .jellyfin-native-info { display: none; }

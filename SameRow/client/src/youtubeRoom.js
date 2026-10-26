@@ -1,14 +1,21 @@
 import { parseYouTubeUrl } from './youtube.js';
+import { createServerClock } from './playbackSync.js';
 
 // Hosted rooms may still use the original change/state events during rollout.
-export function connectYouTubeRoom({ socket, roomId, userName, onState, onSubmitted, onError, joinRoom = true }) {
+export function connectYouTubeRoom({ socket, roomId, userName, onState, onSubmitted, onError, joinRoom = true, now = () => performance.now(), wallNow = () => Date.now() }) {
     let modern = false;
     let current = null;
     let pending = null;
     let submitTimeout;
+    let active = true;
+    let generation = 0;
+    let revision = -1;
+    let lastRequest = -Infinity;
+    const clock = createServerClock();
+    const startupTimers = [];
 
     const publish = (state) => {
-        current = { ...state, receivedAt: performance.now() };
+        current = { ...state, receivedAt: now() };
         onState(current);
     };
     const confirmSubmission = (url) => {
@@ -26,8 +33,15 @@ export function connectYouTubeRoom({ socket, roomId, userName, onState, onSubmit
     };
     const receiveSnapshot = (state) => {
         if (!state || typeof state.sessionId !== 'string') return;
+        if (!Number.isFinite(state.timestamp) || state.timestamp < 0 || typeof state.isPlaying !== 'boolean') return;
+        if (Number.isFinite(state.revision)) {
+            if (state.revision < revision) return;
+            revision = state.revision;
+        } else if (revision >= 0) return;
         modern = true;
-        publish(state);
+        const offset = clock.offset(now());
+        const age = offset !== null && Number.isFinite(state.lastUpdate) ? Math.max(0, now() + offset - state.lastUpdate) / 1000 : 0;
+        publish({ ...state, timestamp: state.timestamp + (state.isPlaying ? age : 0), serverTimeOffset: offset });
         confirmSubmission(state.url);
     };
     const receiveUrl = (url) => {
@@ -45,15 +59,33 @@ export function connectYouTubeRoom({ socket, roomId, userName, onState, onSubmit
         if (Object.hasOwn(state, 'url')) receiveUrl(state.url);
         if (!current?.url) return;
         const elapsed = state.isPlaying && Number.isFinite(state.lastUpdate)
-            ? Math.max(0, Date.now() - state.lastUpdate) / 1000 : 0;
+            ? Math.max(0, wallNow() - state.lastUpdate) / 1000 : 0;
         publish({ ...current, isPlaying: state.isPlaying, timestamp: state.timestamp + elapsed });
     };
+    const requestSync = () => {
+        if (!active || !socket.connected) return;
+        const sentAt = now();
+        const requestGeneration = generation;
+        lastRequest = sentAt;
+        const receiveReply = reply => {
+            if (!active || requestGeneration !== generation || !socket.connected || !reply?.state) return;
+            if (clock.sample(sentAt, now(), reply.serverReceivedAt, reply.serverSentAt)) receiveSnapshot(reply.state);
+        };
+        if (typeof socket.timeout === 'function') {
+            socket.timeout(3000).emit('sync-request', roomId, (error, reply) => { if (!error) receiveReply(reply); });
+        } else socket.emit('sync-request', roomId, receiveReply);
+    };
     const requestState = () => {
-        modern = false;
+        generation++; modern = false; revision = -1; clock.reset();
+        startupTimers.splice(0).forEach(clearTimeout);
         if (joinRoom) socket.emit('join-room', roomId, userName);
-        socket.emit('sync-request', roomId);
+        requestSync();
+        // Several early samples avoid keeping a cold connection's slow first RTT.
+        for (const delay of [250, 1000]) startupTimers.push(setTimeout(requestSync, delay));
     };
     const disconnected = () => {
+        generation++; clock.reset();
+        startupTimers.splice(0).forEach(clearTimeout);
         if (!pending) return;
         clearTimeout(submitTimeout);
         pending = null;
@@ -67,8 +99,10 @@ export function connectYouTubeRoom({ socket, roomId, userName, onState, onSubmit
     socket.on('disconnect', disconnected);
     if (socket.connected) requestState();
     const interval = setInterval(() => {
-        if (socket.connected) socket.emit('sync-request', roomId);
-    }, 10000);
+        if (current?.url || now() - lastRequest >= 10000) requestSync();
+    }, 2000);
+    const onVisible = () => { if (document.visibilityState === 'visible') requestSync(); };
+    if (typeof document !== 'undefined') document.addEventListener('visibilitychange', onVisible);
 
     return {
         submit(video) {
@@ -88,6 +122,9 @@ export function connectYouTubeRoom({ socket, roomId, userName, onState, onSubmit
             socket.emit('youtube-change', { roomId, url: null });
         },
         dispose() {
+            active = false; generation++;
+            startupTimers.splice(0).forEach(clearTimeout);
+            if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', onVisible);
             clearInterval(interval);
             clearTimeout(submitTimeout);
             socket.off('youtube-sync', receiveSnapshot);

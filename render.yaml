@@ -1,0 +1,71 @@
+# Attach this Blueprint to the existing repository. Review service names and
+# region against your current Render service before applying it.
+services:
+  - type: web
+    name: samerow-v2
+    runtime: node
+    plan: starter
+    rootDir: SameRow/server
+    buildCommand: npm ci --omit=dev
+    startCommand: npm start
+    healthCheckPath: /health/ready
+    numInstances: 2
+    envVars:
+      - fromGroup: samerow-production
+      - key: SERVICE_ROLE
+        value: control
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: samerow-state
+          property: connectionString
+  - type: web
+    name: samerow-media
+    runtime: node
+    plan: starter
+    rootDir: SameRow/server
+    buildCommand: npm ci --omit=dev
+    startCommand: npm start
+    healthCheckPath: /health/ready
+    envVars:
+      - fromGroup: samerow-production
+      - key: SERVICE_ROLE
+        value: media
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: samerow-state
+          property: connectionString
+  - type: keyvalue
+    name: samerow-state
+    plan: starter
+    maxmemoryPolicy: noeviction
+    persistenceMode: journal-snapshot
+    ipAllowList: []
+
+envVarGroups:
+  - name: samerow-production
+    envVars:
+      - key: NODE_VERSION
+        value: '24'
+      - key: NODE_ENV
+        value: production
+      - key: AUTH_MODE
+        value: firebase
+      - key: MEDIA_MODE
+        value: livekit
+      - key: CONTROL_POLICY
+        value: everyone
+      - key: MAX_ROOM_SIZE
+        value: '25'
+      - key: ROOM_TTL_SECONDS
+        value: '86400'
+      - key: REDIS_PREFIX
+        value: samerow:production:v1
+      - key: METRICS_TOKEN
+        generateValue: true
+      # Add the following secrets manually to this shared environment group:
+      # DATA_ENCRYPTION_KEY, CLIENT_ORIGINS, FIREBASE_PROJECT_ID,
+      # FIREBASE_SERVICE_ACCOUNT_JSON, LIVEKIT_URL, LIVEKIT_API_KEY,
+      # LIVEKIT_API_SECRET and MEDIA_PUBLIC_URL.
+      # Render does not support sync:false variables inside environment groups.

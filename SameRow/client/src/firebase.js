@@ -1,7 +1,6 @@
 import { initializeApp } from "firebase/app";
 import { getAuth, GoogleAuthProvider } from "firebase/auth";
-import { getAnalytics } from "firebase/analytics";
-import { getFirestore } from "firebase/firestore";
+import { getAnalytics, isSupported } from "firebase/analytics";
 
 const firebaseConfig = {
     apiKey: "AIzaSyDqnNUg8dMWEKjiJmDVwokpC1uVeEhARD8",
@@ -13,10 +12,16 @@ const firebaseConfig = {
     measurementId: "G-CGT8HM6GLS"
 };
 
+Object.assign(firebaseConfig, Object.fromEntries([
+  ['apiKey', import.meta.env.VITE_FIREBASE_API_KEY],
+  ['authDomain', import.meta.env.VITE_FIREBASE_AUTH_DOMAIN],
+  ['projectId', import.meta.env.VITE_FIREBASE_PROJECT_ID],
+  ['appId', import.meta.env.VITE_FIREBASE_APP_ID],
+].filter(([, value]) => value)));
+
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
-getAnalytics(app);
+if (import.meta.env.VITE_ANALYTICS_ENABLED === 'true') isSupported().then(supported => { if (supported) getAnalytics(app); }).catch(() => {});
 
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
-export const db = getFirestore(app);

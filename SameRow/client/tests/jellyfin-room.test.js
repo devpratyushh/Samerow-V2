@@ -1,0 +1,78 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { io as connect } from 'socket.io-client';
+import backend from '../../server/index.js';
+import { jellyfinFixture } from './helpers/jellyfin-fixture.mjs';
+import { mediaBudget, tunePeer } from '../src/peerQuality.js';
+const next = (socket,event) => new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(new Error(`No ${event}`)),3000);socket.once(event,value=>{clearTimeout(timer);resolve(value);});});
+const ack = (socket,event,...args)=>new Promise((resolve,reject)=>socket.timeout(3000).emit(event,...args,(error,value)=>error?reject(error):resolve(value)));
+
+test('Jellyfin shared controls, late join, private tracks, scoped media access and lifecycle',async()=>{
+  const fixture=await jellyfinFixture();
+  const {server,io}=backend;
+  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+  const base=`http://127.0.0.1:${server.address().port}`;
+  const users=[];
+  const join=async(room='movie')=>{const socket=connect(base,{transports:['websocket']});users.push(socket);await next(socket,'connect');socket.emit('join-room',room,'Viewer');await ack(socket,'jellyfin-sync-request',room);return socket;};
+  try{
+    const host=await join(),guest=await join(),outsider=await join('other');
+    fixture.controls.delay=200;
+    const announced=next(guest,'jellyfin-sync');
+    const opening=ack(host,'jellyfin-open',{roomId:'movie',serverUrl:fixture.url,apiToken:'fixture-token',itemId:'fixture-video'});
+    assert.equal((await ack(guest,'jellyfin-sync-request','movie')).state,null,'Details must resolve before activating');
+    assert.equal((await opening).ok,true);
+    let state=await announced;
+    const hostState=(await ack(host,'jellyfin-sync-request','movie')).state;
+    assert.notEqual(hostState.accessToken,state.accessToken);
+    assert.equal(state.audioTracks.length,2);assert.equal(state.subtitleTracks.length,3);
+    assert.equal(JSON.stringify(state).includes('fixture-token'),false);
+    let changed=next(host,'jellyfin-sync');guest.emit('jellyfin-command',{roomId:'movie',sessionId:state.sessionId,action:'pause'});
+    state=await changed;assert.equal(state.playing,false);
+    changed=next(host,'jellyfin-sync');guest.emit('jellyfin-command',{roomId:'movie',sessionId:state.sessionId,action:'seek',time:25});
+    state=await changed;assert.equal(state.timestamp,25);
+    const late=await join();const lateState=(await ack(late,'jellyfin-sync-request','movie')).state;
+    assert.equal(lateState.timestamp,25);assert.equal(lateState.playing,false);assert.equal(lateState.revision,state.revision);
+    outsider.emit('jellyfin-command',{roomId:'movie',sessionId:state.sessionId,action:'seek',time:2});
+    assert.equal((await ack(host,'jellyfin-sync-request','movie')).state.timestamp,25);
+    const url=`${base}/api/jellyfin/${lateState.accessToken}`;
+    let response=await fetch(`${url}/stream.m3u8?audio=2`);assert.equal(response.status,200);
+    const master=await response.text();assert.ok(!master.includes('must-not-leak')&&!master.includes(fixture.url));
+    const mediaPath=master.split('\n').find(line=>line.startsWith('/api'));
+    const playlist=await(await fetch(base+mediaPath)).text();const segmentPath=playlist.split('\n').find(line=>line.startsWith('/api'));
+    assert.equal((await fetch(base+segmentPath)).status,200);
+    assert.ok(fixture.requests.some(request=>request.query.AudioStreamIndex==='2'));
+    assert.equal((await ack(guest,'jellyfin-sync-request','movie')).state.revision,state.revision,'Track changes are local');
+    assert.equal((await fetch(`${url}/stream.m3u8?audio=2&subtitle=5`)).status,200);
+    const burned=fixture.requests.findLast(request=>request.path.endsWith('master.m3u8'));
+    assert.equal(burned.query.SubtitleStreamIndex,'5');
+    assert.equal(burned.query.SubtitleMethod,'Encode');
+    assert.equal(burned.query.AllowVideoStreamCopy,'false');
+    assert.equal((await fetch(`${url}/subtitle/4`)).status,200);
+    assert.equal((await fetch(`${url}/subtitle/99`)).status,404);
+    assert.equal((await fetch(`${url}/stream.m3u8?audio=99`)).status,400);
+    assert.equal((await fetch(`${base}/api/jellyfin/invalid/stream.m3u8`)).status,403);
+    fixture.controls.external=true;
+    assert.equal((await fetch(`${url}/stream.m3u8?audio=1`)).status,502,'Do not proxy external manifest URLs');fixture.controls.external=false;
+    fixture.controls.redirect=true;
+    assert.equal((await fetch(`${url}/stream.m3u8?audio=1`)).status,502,'Do not forward credentials through redirects');fixture.controls.redirect=false;
+    const error=await ack(host,'jellyfin-open',{roomId:'movie',serverUrl:fixture.url,apiToken:'invalid',itemId:'fixture-video'});assert.ok(error.error);
+    assert.equal((await ack(host,'jellyfin-sync-request','movie')).state.sessionId,state.sessionId,'Failed replacement preserves current movie');
+    const beforeRequests=fixture.requests.length;late.disconnect();await new Promise(resolve=>setTimeout(resolve,50));
+    assert.equal((await fetch(`${url}/stream.m3u8`)).status,403);assert.ok(fixture.requests.slice(beforeRequests).some(request=>request.method==='DELETE'));
+    changed=next(host,'jellyfin-sync');guest.emit('jellyfin-command',{roomId:'movie',sessionId:state.sessionId,action:'stop'});assert.equal(await changed,null);
+    assert.equal((await fetch(`${base}/api/jellyfin/${hostState.accessToken}/stream.m3u8`)).status,403);
+    assert.ok(fixture.requests.filter(request=>request.path!=='/Items').every(request=>request.authorized));
+  }finally{users.forEach(socket=>socket.disconnect());await new Promise(resolve=>io.close(resolve));await fixture.close();}
+});
+
+test('mesh budgets reduce per-peer camera upload and resolution as rooms grow',async()=>{
+  assert.ok(mediaBudget(6).bitrate*5<=1200000);
+  assert.ok(mediaBudget(6).width<mediaBudget(2).width);
+  assert.ok(mediaBudget(6,true).bitrate*5<=2400000);
+  const applied=[];
+  const peer={_pc:{getStats:async()=>new Map([['out',{type:'outbound-rtp',kind:'video',qualityLimitationReason:'bandwidth'}]]),getSenders:()=>[{track:{kind:'video',getSettings:()=>({width:1280})},getParameters:()=>({encodings:[{}]}),setParameters:async value=>applied.push(value)}]}};
+  tunePeer(peer,6);await new Promise(resolve=>setTimeout(resolve,0));
+  assert.equal(applied[0].encodings[0].maxBitrate,168000);
+  assert.equal(applied[0].encodings[0].scaleResolutionDownBy,4);
+  assert.equal(applied[0].encodings[0].maxFramerate,12);
+});

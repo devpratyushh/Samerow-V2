@@ -6,15 +6,19 @@ import JellyfinPump from './JellyfinPump';
 import './App.css';
 
 import { auth } from './firebase';
-import { onAuthStateChanged } from 'firebase/auth';
+import { onIdTokenChanged, signInAnonymously } from 'firebase/auth';
+import { configureSession } from './session';
 
-// Use Render backend universally so localhost and online clients can communicate
-const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'https://samerow-v2.onrender.com';
+const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || (import.meta.env.DEV ? window.location.origin : 'https://samerow-v2.onrender.com');
+configureSession(() => auth.currentUser?.getIdToken() || '');
 
 const socket = io(SOCKET_URL, {
-  transports: ['websocket', 'polling'],
-  reconnectionAttempts: 10, // Increase attempts for waking up
-  timeout: 60000 // Higher timeout for cold start
+  transports: ['websocket'],
+  autoConnect: false,
+  auth: async callback => callback({ token: await auth.currentUser?.getIdToken() }),
+  reconnectionAttempts: Infinity,
+  reconnectionDelayMax: 10000,
+  timeout: 15000
 });
 
 socket.on('connect_error', (err) => {
@@ -31,6 +35,7 @@ function App() {
   const [roomId, setRoomId] = useState(null);
   const [userName, setUserName] = useState('');
   const [user, setUser] = useState(null);
+  const [connectionError, setConnectionError] = useState('');
   const serverConnected = useSyncExternalStore(subscribeToConnection, () => socket.connected);
   const [initialRoomFromUrl] = useState(() => new URLSearchParams(window.location.search).get('room') || '');
 
@@ -41,14 +46,49 @@ function App() {
   const [streamError, setStreamError] = useState(null);
 
   useEffect(() => {
-    // Auth Listener
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      setUser(currentUser);
-      if (currentUser) {
-        setUserName(currentUser.displayName || '');
+    let disposed = false, signingIn = false, lastAuthRefresh = 0;
+    const refresh = async () => {
+      if (Date.now() - lastAuthRefresh < 30000) return;
+      lastAuthRefresh = Date.now();
+      try {
+        const token = await auth.currentUser?.getIdToken(true);
+        if (!disposed && token) { socket.auth = { token }; socket.connect(); }
+      } catch { setConnectionError('Sign in again to reconnect.'); }
+    };
+    const connected = () => setConnectionError('');
+    const failed = error => {
+      setConnectionError(error.data?.code === 'UNAUTHENTICATED' ? 'Sign in again to connect.' : 'The room server is reconnecting.');
+      if (error.data?.code === 'UNAUTHENTICATED') refresh();
+    };
+    socket.on('connect', connected); socket.on('connect_error', failed); socket.on('session-expired', refresh);
+    const unsubscribe = onIdTokenChanged(auth, async currentUser => {
+      if (disposed) return;
+      if (!currentUser) {
+        socket.disconnect(); setUser(null);
+        if (!signingIn) {
+          signingIn = true;
+          try { await signInAnonymously(auth); }
+          catch { setConnectionError('Guest sign-in is unavailable. Sign in with Google to join.'); }
+          finally { signingIn = false; }
+        }
+        return;
       }
+      setUser(currentUser);
+      if (currentUser.displayName) setUserName(currentUser.displayName);
+      try {
+        const token = await currentUser.getIdToken();
+        if (disposed || auth.currentUser?.uid !== currentUser.uid) return;
+        const previousUid = socket.sessionUid;
+        socket.auth = { token }; socket.sessionUid = currentUser.uid;
+        if (previousUid && previousUid !== currentUser.uid) socket.disconnect();
+        if (socket.connected) socket.emit('auth-refresh', token);
+        else socket.connect();
+      } catch { setConnectionError('Could not verify your sign-in. Try again.'); }
     });
-    return () => unsubscribe();
+    return () => {
+      disposed = true; unsubscribe(); socket.disconnect();
+      socket.off('connect', connected); socket.off('connect_error', failed); socket.off('session-expired', refresh);
+    };
   }, []);
 
   useEffect(() => {
@@ -59,11 +99,11 @@ function App() {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
           video: {
-            width: { ideal: 1280 }, // Lowered from 1920
-            height: { ideal: 720 }, // Lowered from 1080
-            frameRate: { ideal: 24 } // Lowered from 30
+            width: { ideal: 640 },
+            height: { ideal: 360 },
+            frameRate: { ideal: 20, max: 24 }
           },
-          audio: true
+          audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
         });
         acquiredStream = stream;
         if (cancelled) stream.getTracks().forEach(track => track.stop());
@@ -95,19 +135,21 @@ function App() {
     });
   };
 
-  const joinRoom = (id, name) => {
-    setRoomId(id);
-    setUserName(name);
+  const joinRoom = async (id, name) => {
+    const reply = await new Promise((resolve, reject) => socket.timeout(10000).emit('join-room', id, name, (error, result) => error ? reject(new Error('The room did not respond. Try again.')) : resolve(result)));
+    if (!reply?.ok) throw new Error(reply?.error || 'Could not join this room.');
+    socket.roomConfig = reply; setRoomId(id); setUserName(name);
   };
 
   const leaveRoom = () => {
+    socket.emit('leave-room', roomId);
     setRoomId(null);
     setUserName('');
     window.location.reload();
   };
 
   // Check if we want to run the test pump route
-  if (window.location.pathname === '/test-pump') {
+  if (import.meta.env.DEV && window.location.pathname === '/test-pump') {
     return <JellyfinPump />;
   }
 
@@ -122,8 +164,8 @@ function App() {
           toggleVideo={toggleVideo}
           isMuted={isMuted}
           isVideoOff={isVideoOff}
-          streamError={streamError}
-          authUser={user}
+          streamError={connectionError || streamError}
+          authUser={user?.isAnonymous ? null : user}
           serverConnected={serverConnected}
         />
       ) : (
