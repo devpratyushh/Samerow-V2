@@ -64,6 +64,9 @@ envVarGroups:
         value: samerow:production:v1
       - key: METRICS_TOKEN
         generateValue: true
+      # Optional: set measured sustainable movie bandwidth budgets in Mbps:
+      # JELLYFIN_ORIGIN_BANDWIDTH_MBPS, JELLYFIN_GATEWAY_BANDWIDTH_MBPS.
+      # Zero/unset leaves capacity unconfigured; all replicas must agree.
       # Add the following secrets manually to this shared environment group:
       # DATA_ENCRYPTION_KEY, CLIENT_ORIGINS, FIREBASE_PROJECT_ID,
       # FIREBASE_SERVICE_ACCOUNT_JSON, LIVEKIT_URL, LIVEKIT_API_KEY,

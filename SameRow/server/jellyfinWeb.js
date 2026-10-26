@@ -3,6 +3,8 @@ const { pipeline } = require('node:stream/promises');
 const path = require('node:path');
 const { readText, readJson } = require('./upstreamBody');
 
+const { negotiateQuality } = require('./jellyfinQuality');
+
 const ROOT = '/api/jellyfin-native';
 const safeJson = value => JSON.stringify(value).replace(/</g, '\\u003c');
 const cleanPath = value => {
@@ -15,7 +17,7 @@ const authorization = (connection, viewer) => `MediaBrowser Client="SameRow Jell
 
 // Every request is restricted to the selected room item. A viewer never receives
 // the library owner's Jellyfin credential or a general-purpose server proxy.
-function installJellyfinWeb(app, { resolveViewer, accounts, saveViewer = async (viewer, patch) => Object.assign(viewer, patch), allowedOrigins, publicOrigin }) {
+function installJellyfinWeb(app, { resolveViewer, accounts, saveViewer = async (viewer, patch) => Object.assign(viewer, patch), quality, allowedOrigins, publicOrigin }) {
   app.use(`${ROOT}/storage`, require('express').static(path.resolve(path.dirname(require.resolve('fake-indexeddb')), '../esm'), { fallthrough: false, immutable: true, maxAge: '1d' }));
   app.get(`${ROOT}/bridge.js`, (req, res) => {
     res.set('Cache-Control', 'no-cache').type('application/javascript').sendFile(path.join(__dirname, 'public/jellyfin-bridge.js'));
@@ -158,6 +160,13 @@ function installJellyfinWeb(app, { resolveViewer, accounts, saveViewer = async (
       } finally { clearInterval(leaseCheck); clearTimeout(timeout); res.off('close', abort); viewer.requests.delete(controller); }
     };
     try {
+      if (resource === '/samerow/quality' && ['GET', 'POST'].includes(req.method)) {
+        if (req.method === 'POST') {
+          if (!['auto', 'original'].includes(requestBody.mode)) { failure(400, 'Choose Auto or Original.'); return; }
+          await saveViewer(viewer, { qualityMode: requestBody.mode, qualityRevision: (viewer.qualityRevision || 0) + 1 });
+        }
+        res.json(await quality.describe(viewer, state)); return;
+      }
       if (resource.startsWith('/web/')) {
         if (!['GET', 'HEAD'].includes(req.method) || !/\.(?:html|js|css|json|png|jpe?g|gif|svg|ico|woff2?|ttf|eot|wasm|map|txt)$/i.test(resource) && resource !== '/web/') { deny(); return; }
         if (/serviceworker/i.test(resource)) { res.type('application/javascript').send(''); return; }
@@ -201,7 +210,10 @@ function installJellyfinWeb(app, { resolveViewer, accounts, saveViewer = async (
         if (/^\/(Intros|Similar|LocalTrailers|SpecialFeatures|AdditionalParts|PlaybackInfo|Images(?:\/.*)?|Ancestors)$/i.test(suffix)) {
           if (/^\/PlaybackInfo$/i.test(suffix) && ['GET', 'POST'].includes(req.method)) {
             parameters.set('UserId', connection.userId); parameters.set('DeviceId', viewer.deviceId);
-            await upstream(`/Items/${state.itemId}/PlaybackInfo`, { ...(req.method === 'POST' ? { body: { ...requestBody, UserId: connection.userId, AutoOpenLiveStream: false } } : {}) }); return;
+            const policy = await quality.describe(viewer, mediaSource ? { ...state, sourceId: mediaSource } : state);
+            const body = negotiateQuality({ ...requestBody, MaxStreamingBitrate: requestBody.MaxStreamingBitrate ?? parameters.get('MaxStreamingBitrate'), UserId: connection.userId, AutoOpenLiveStream: false }, policy);
+            parameters.set('MaxStreamingBitrate', String(body.MaxStreamingBitrate));
+            await upstream(`/Items/${state.itemId}/PlaybackInfo`, { ...(req.method === 'POST' ? { body } : {}) }); return;
           }
           if (/^\/Images\//i.test(suffix) && ['GET', 'HEAD'].includes(req.method)) { await upstream(`/Items/${state.itemId}${suffix}`); return; }
           if (req.method !== 'GET') { deny(); return; }

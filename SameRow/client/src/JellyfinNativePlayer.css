@@ -8,3 +8,7 @@
 .jellyfin-native-info > div { display: flex; gap: 6px; }
 .room-shell.is-fullscreen .jellyfin-native-player { grid-template-rows: minmax(0, 1fr); }
 .room-shell.is-fullscreen .jellyfin-native-info { display: none; }
+
+.jellyfin-native-quality { position: absolute; z-index: 3; right: 12px; top: 12px; color: #fff; font-size: 12px; }
+.jellyfin-native-quality summary { cursor: pointer; padding: 8px 12px; border-radius: 8px; background: #17181ce8; }
+.jellyfin-native-quality[open] { width: min(270px, calc(100% - 24px)); padding: 8px; border-radius: 10px; background: #17181cf5; }

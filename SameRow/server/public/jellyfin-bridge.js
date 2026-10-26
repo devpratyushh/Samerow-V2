@@ -113,8 +113,53 @@
   let resumePending = false;
   let nextOpenAt = 0;
   let video = null;
+  let quality = null;
+  let qualityKey = '';
+  let appliedQualityKey = '';
+  let bufferingSince = 0;
+  let lastQualityChange = -Infinity;
+  let fallbackBitrate = null;
   const listeners = [];
   const cleanup = [];
+
+  function applyQuality() {
+    if (!quality || !started || opening || !manager?.getCurrentPlayer() || typeof manager.setMaxStreamingBitrate !== 'function') return;
+    if (qualityKey === appliedQualityKey) return;
+    const initialAuto = !appliedQualityKey && quality.mode === 'auto';
+    appliedQualityKey = qualityKey;
+    fallbackBitrate = null;
+    // Initial Auto is already negotiated by Jellyfin and the gateway.
+    if (initialAuto) return;
+    suppress(() => manager.setMaxStreamingBitrate({
+      enableAutomaticBitrateDetection: quality.mode === 'auto', maxBitrate: quality.maxBitrate,
+    }));
+    changingTrackUntil = clock() + 15000;
+    lastQualityChange = clock();
+  }
+
+  function adaptQuality() {
+    if (quality?.mode !== 'auto' || !started || opening || !latest?.playing || blocked || !video || typeof manager?.setMaxStreamingBitrate !== 'function') return;
+    if (video.readyState >= 3) {
+      bufferingSince = 0;
+      if (fallbackBitrate && clock() - lastQualityChange >= 120000) {
+        fallbackBitrate = null; lastQualityChange = clock();
+        suppress(() => manager.setMaxStreamingBitrate({ enableAutomaticBitrateDetection: true, maxBitrate: quality.maxBitrate }));
+        changingTrackUntil = clock() + 15000;
+        send('quality-status', { message: 'Rechecking your connection for higher quality.' });
+      }
+      return;
+    }
+    bufferingSince ||= clock();
+    if (clock() - bufferingSince < 8000 || clock() - lastQualityChange < 30000) return;
+    const current = Math.min(quality.maxBitrate, fallbackBitrate || currentState()?.PlayState?.MaxStreamingBitrate || quality.maxBitrate);
+    const bitrate = Math.max(250000, Math.floor(current * 0.65));
+    if (bitrate >= current) return;
+    fallbackBitrate = bitrate;
+    lastQualityChange = clock(); bufferingSince = 0;
+    suppress(() => manager.setMaxStreamingBitrate({ enableAutomaticBitrateDetection: false, maxBitrate: bitrate }));
+    changingTrackUntil = clock() + 15000;
+    send('quality-status', { message: 'Reduced quality on this device to recover from buffering.' });
+  }
 
   function listen(target, name, callback, options) {
     target.addEventListener(name, callback, options);
@@ -321,6 +366,12 @@
       if (latest && state.revision < latest.revision) return;
       latest = { ...state, timestamp: clamp(state.timestamp) }; receivedAt = clock();
       synchronize();
+    } else if (message.type === 'quality') {
+      const policy = message.policy;
+      if (!policy || !['auto', 'original'].includes(policy.mode) || !Number.isFinite(policy.maxBitrate) || policy.maxBitrate <= 0 || policy.maxBitrate > 1000000000) return;
+      quality = policy;
+      qualityKey = `${policy.mode}:${policy.maxBitrate}:${policy.revision || 0}`;
+      applyQuality();
     } else if (message.type === 'play-local') {
       lastInputAt = clock();
       nextOpenAt = 0;
@@ -343,7 +394,7 @@
     }
   });
   const interval = setInterval(() => {
-    if (!disposed) { void openItem(); synchronize(); }
+    if (!disposed) { void openItem(); applyQuality(); adaptQuality(); synchronize(); }
   }, 250);
   const deadline = setTimeout(() => {
     if (!started && !disposed) status('error', 'The Jellyfin player did not finish loading. Reconnect to the server and try again.');
@@ -366,6 +417,9 @@
         revision: latest?.revision ?? null,
         audioIndex: state?.PlayState?.AudioStreamIndex ?? null,
         subtitleIndex: state?.PlayState?.SubtitleStreamIndex ?? null,
+        qualityMode: quality?.mode || 'auto',
+        maxStreamingBitrate: state?.PlayState?.MaxStreamingBitrate ?? null,
+        playMethod: state?.PlayState?.PlayMethod ?? null,
       };
     },
   } });

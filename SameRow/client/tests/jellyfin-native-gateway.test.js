@@ -14,10 +14,12 @@ const ack = (socket, event, ...args) => new Promise((resolve, reject) => socket.
 
 test('native Jellyfin gateway limits guests to the shared item, rewrites credentials, isolates preferences and revokes access', async () => {
   const requests = [];
-  const item = { Id: 'movie', Name: 'Room movie', Type: 'Movie', RunTimeTicks: 600000000, Path: '/private/library/movie.mp4', MediaSources: [{ Id: 'source', Container: 'mp4', RunTimeTicks: 600000000, MediaStreams: [{ Index: 0, Type: 'Video', Codec: 'h264' }, { Index: 1, Type: 'Audio', Codec: 'aac' }] }] };
-  const upstream = http.createServer((req, res) => {
+  const item = { Id: 'movie', Name: 'Room movie', Type: 'Movie', RunTimeTicks: 600000000, Path: '/private/library/movie.mp4', MediaSources: [{ Id: 'source', Container: 'mp4', Bitrate: 40000000, RunTimeTicks: 600000000, MediaStreams: [{ Index: 0, Type: 'Video', Codec: 'h264', Width: 3840, Height: 2160 }, { Index: 1, Type: 'Audio', Codec: 'aac' }] }] };
+  const upstream = http.createServer(async (req, res) => {
+    let body = ''; for await (const chunk of req) body += chunk;
+    const jsonBody = body ? JSON.parse(body) : null;
     const url = new URL(req.url, 'http://upstream');
-    requests.push({ path: url.pathname, query: Object.fromEntries(url.searchParams), authorization: req.headers.authorization });
+    requests.push({ path: url.pathname, query: Object.fromEntries(url.searchParams), authorization: req.headers.authorization, body: jsonBody });
     res.setHeader('Content-Type', 'application/json');
     if (!req.headers.authorization?.includes('Token="owner-secret"')) { res.writeHead(401).end('{}'); return; }
     if (url.pathname === '/Users/user/Items/movie') { res.end(JSON.stringify(item)); return; }
@@ -37,7 +39,7 @@ test('native Jellyfin gateway limits guests to the shared item, rewrites credent
   const accounts = { request: upstreamRequest, getConnection: token => loggedIn && token === connection.token ? connection : null };
   const app = express(); app.use(express.json());
   const server = http.createServer(app), io = new Server(server);
-  const integration = installJellyfin(app, io, accounts);
+  const integration = installJellyfin(app, io, accounts, { quality: { gatewayMbps: 200 } });
   io.on('connection', socket => socket.on('join-room', room => socket.join(room)));
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   const base = `http://127.0.0.1:${server.address().port}`;
@@ -60,6 +62,36 @@ test('native Jellyfin gateway limits guests to the shared item, rewrites credent
     const data = await (await fetch(`${gateway}/Items/movie`)).json(); assert.ok(!JSON.stringify(data).includes('/private/library'));
     const playback = await (await fetch(`${gateway}/Items/movie/PlaybackInfo`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ UserId: 'attacker', DeviceId: 'owner-device', MediaSourceId: 'source' }) })).json();
     assert.equal(playback.MediaSources[0].TranscodingUrl, `/Videos/movie/master.m3u8?ApiKey=${state.accessToken}`);
+    const hostState = (await ack(host, 'jellyfin-sync-request', 'room')).state;
+    const hostGateway = `${base}/api/jellyfin-native/${hostState.accessToken}`;
+    const changeQuality = mode => fetch(`${gateway}/samerow/quality`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode }) });
+    assert.equal((await changeQuality('invalid')).status, 400);
+    const original = await (await changeQuality('original')).json();
+    assert.equal(original.source.height, 2160);
+    assert.equal(original.maxBitrate, 50000000);
+    const deviceProfile = { MaxStreamingBitrate: 4000000, MaxStaticBitrate: 4000000, DirectPlayProfiles: [{ Container: 'mp4', VideoCodec: 'h264', AudioCodec: 'aac' }], CodecProfiles: [{ Type: 'Video', Codec: 'h264', Conditions: [{ Property: 'VideoBitDepth', Value: '8' }] }] };
+    const negotiate = async address => {
+      const response = await fetch(`${address}/Items/movie/PlaybackInfo`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ MaxStreamingBitrate: 4000000, DeviceProfile: deviceProfile, SubtitleStreamIndex: 3, AllowVideoStreamCopy: false }) });
+      assert.equal(response.status, 200);
+      return requests.filter(request => request.path === '/Items/movie/PlaybackInfo').at(-1).body;
+    };
+    const guestRequest = await negotiate(gateway);
+    assert.equal(guestRequest.MaxStreamingBitrate, 50000000, 'Original removes the conservative network estimate');
+    assert.equal(guestRequest.DeviceProfile.MaxStaticBitrate, 50000000);
+    assert.deepEqual(guestRequest.DeviceProfile.CodecProfiles, deviceProfile.CodecProfiles, 'Decoder capabilities remain intact');
+    assert.equal(guestRequest.AllowVideoStreamCopy, false, 'Required subtitle conversion remains intact');
+    assert.equal((await negotiate(hostGateway)).MaxStreamingBitrate, 4000000, 'Auto retains this viewer’s measured network limit');
+    assert.equal((await (await fetch(`${hostGateway}/samerow/quality`)).json()).mode, 'auto');
+    assert.equal((await ack(host, 'jellyfin-sync-request', 'room')).state.revision, hostState.revision, 'Personal quality never changes the timeline');
+    // A different room shares the same origin/gateway budget.
+    const other = await join('other-room');
+    await ack(other, 'jellyfin-open', { roomId: 'other-room', connectionToken: connection.token, itemId: 'movie' });
+    const fourth = await join('fourth-room');
+    await ack(fourth, 'jellyfin-open', { roomId: 'fourth-room', connectionToken: connection.token, itemId: 'movie' });
+    const limited = await (await fetch(`${gateway}/samerow/quality`)).json();
+    assert.equal(limited.maxBitrate, 40000000, '200 Mbps with 20% headroom is shared by four viewers across rooms');
+    assert.equal(limited.capacityLimited, true);
+    assert.equal((await negotiate(gateway)).MaxStreamingBitrate, 40000000, 'Original still respects configured shared capacity');
     const manifest = await (await fetch(`${gateway}/Videos/movie/master.m3u8?ApiKey=attacker&DeviceId=owner-device`)).text();
     assert.ok(!manifest.includes('owner-secret')); assert.ok(!manifest.includes(connection.base));
     assert.match(manifest, /api\/jellyfin-native/);

@@ -204,3 +204,50 @@ Previously checked-in `SameRow/server/node_modules` files were removed from the
 Git index; local installed dependencies remain available. Deployments and CI use
 `npm ci` with the committed lockfiles instead of vendored packages. `.nvmrc`
 selects Node 24 for local development.
+
+
+## Jellyfin quality and bandwidth
+
+Each viewer can choose **Auto** or **Original** in the player's Quality menu,
+including fullscreen. Audio, subtitles, quality and buffering recovery remain
+personal; only play, pause, seek and stop update the shared timeline.
+
+Auto retains Jellyfin Web's measured connection bitrate and real browser device
+profile. Original raises the bitrate allowance to the source bitrate plus 25%
+headroom, bounded by configured shared capacity. Neither mode bypasses decoder,
+audio or subtitle compatibility: Jellyfin selects Direct Play, video-preserving
+remux/audio conversion, or video transcoding when necessary. Original is a
+preference, not a guarantee of bit-for-bit playback or HDR support. The custom
+legacy HLS player also removes the fixed 4 Mbps/1920-pixel ceiling; it can copy
+compatible video but still uses its H.264/AAC HLS compatibility path.
+
+Set these optional values in the shared Render environment group, consistently
+on control and media replicas:
+
+- `JELLYFIN_ORIGIN_BANDWIDTH_MBPS`: measured sustainable upload capacity of each
+  Jellyfin origin. The same configured budget applies separately to each origin.
+- `JELLYFIN_GATEWAY_BANDWIDTH_MBPS`: measured aggregate media gateway egress
+  budget across all replicas.
+
+Zero leaves that budget unconfigured; SameRow cannot infer hosting bandwidth
+from the room's headcount. Each configured budget reserves 20% for peaks and
+HTTP overhead and divides the remainder among active movie viewers. Redis
+leases count viewers across rooms/replicas, renew through room sync and media
+requests, release on leave, and expire within 45 seconds after a crash or session
+replacement. Policies refresh every 10 seconds. Smaller rooms can therefore use
+the original source when the viewers' connections and shared capacity allow it.
+For example, a 200 Mbps gateway gives four active viewers a 40 Mbps budget each;
+a smaller original source can be delivered without lowering its resolution.
+
+The budgets guide playback negotiation; they are not hard network rate limits
+or transcoder admission control. Existing streams take a policy refresh and
+renegotiation to adjust. Validate origin upload, gateway egress and Jellyfin GPU
+capacity under the expected mix of source bitrates and browser codecs before
+promising 20 simultaneous original-quality streams.
+
+Native Auto reduces only the stalled viewer's bitrate after sustained buffering,
+with a 30-second cooldown, and rechecks connection quality after two minutes.
+Original keeps the requested quality; choose Auto if the connection cannot
+sustain it. The legacy HLS player can reduce Auto from measured segment throughput.
+Preferences are scoped to the viewer's current playback session; reconnecting
+with a new viewer token defaults safely to Auto.

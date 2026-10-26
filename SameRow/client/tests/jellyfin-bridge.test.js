@@ -69,6 +69,7 @@ async function fixture({ directToggle = false, playError = null, queue = [] } = 
       else if (video.paused) this.unpause();
       else this.pause();
     },
+    setMaxStreamingBitrate(options) { calls.push(['quality', options]); this.pause(); this.seek(video.currentTime * tick); this.unpause(); },
     setAudioStreamIndex() { this.pause(); this.seek(0); this.unpause(); },
     getPlaylist: () => Promise.resolve(activeQueue),
     removeFromPlaylist(ids) { activeQueue = activeQueue.filter(item => !ids.includes(item.PlaylistItemId)); calls.push(['removeFromPlaylist', ids]); return Promise.resolve(); },
@@ -197,4 +198,38 @@ test('an ended native movie holds its final state and explicit replay opens from
   f.poll(); await f.flush();
   assert.equal(f.calls.filter(call => call[0] === 'play').length, initialOpens + 1);
   assert.equal(f.video.currentTime, 0);
+});
+
+
+test('quality changes use the native bitrate API and never broadcast shared controls', async () => {
+  const f = await fixture();
+  f.input();
+  f.receive({ type: 'quality', policy: { mode: 'original', maxBitrate: 50000000 } });
+  assert.equal(f.calls.filter(call => call[0] === 'quality').at(-1)[1].maxBitrate, 50000000);
+  assert.equal(f.calls.filter(call => call[0] === 'quality').at(-1)[1].enableAutomaticBitrateDetection, false);
+  f.receive({ type: 'quality', policy: { mode: 'original', maxBitrate: 50000000 } });
+  assert.equal(f.calls.filter(call => call[0] === 'quality').length, 1, 'Periodic policy messages do not restart playback');
+  f.receive({ type: 'quality', policy: { mode: 'auto', maxBitrate: 10000000 } });
+  assert.equal(f.calls.filter(call => call[0] === 'quality').at(-1)[1].enableAutomaticBitrateDetection, true);
+  assert.equal(f.commands().length, 0);
+});
+
+test('sustained Auto buffering reduces only local bitrate, bounds retries and recovers quality later', async () => {
+  const f = await fixture();
+  f.receive({ type: 'sync', state: { revision: 1, timestamp: 0, playing: true } });
+  f.receive({ type: 'quality', policy: { mode: 'auto', maxBitrate: 40000000 } });
+  f.video.readyState = 1; f.poll(); f.advance(8100); f.poll();
+  let changes = f.calls.filter(call => call[0] === 'quality');
+  assert.equal(changes.length, 1);
+  assert.equal(changes[0][1].maxBitrate, 26000000);
+  f.advance(9000); f.poll();
+  assert.equal(f.calls.filter(call => call[0] === 'quality').length, 1, 'Cooldown prevents restart storms');
+  f.video.readyState = 4; f.advance(120000); f.poll();
+  changes = f.calls.filter(call => call[0] === 'quality');
+  assert.equal(changes.at(-1)[1].enableAutomaticBitrateDetection, true);
+  assert.equal(f.commands().length, 0);
+  f.receive({ type: 'quality', policy: { mode: 'original', maxBitrate: 40000000 } });
+  const before = f.calls.filter(call => call[0] === 'quality').length;
+  f.video.readyState = 1; f.poll(); f.advance(40000); f.poll();
+  assert.equal(f.calls.filter(call => call[0] === 'quality').length, before, 'Original never silently lowers the requested bitrate');
 });

@@ -2,6 +2,7 @@ const { randomBytes, randomUUID, createHash } = require('node:crypto');
 const { Readable } = require('node:stream');
 const { pipeline } = require('node:stream/promises');
 const { MemoryStore } = require('./store');
+const { createQualityPolicy } = require('./jellyfinQuality');
 const { readText, readJson } = require('./upstreamBody');
 const { upstreamRequest, validateServerUrl } = require('./jellyfinAccounts');
 
@@ -13,6 +14,7 @@ const trackInfo = stream => ({ index: stream.Index, title: stream.DisplayTitle |
 function installJellyfin(app, io, accounts, options = {}) {
   const store = options.store || new MemoryStore(), roomTtl = options.roomTtl || 86400;
   const pending = new Map(), activeRequests = new Map();
+  const quality = createQualityPolicy(store, options.quality);
   const request = accounts?.request || upstreamRequest;
   const member = (socket, roomId) => typeof roomId === 'string' && socket.rooms.has(roomId);
   const permitted = (socket, roomId) => options.canControl ? options.canControl(socket, roomId) : member(socket, roomId);
@@ -26,6 +28,7 @@ function installJellyfin(app, io, accounts, options = {}) {
     const key = `viewer-index:${roomId}:${socket.id}:${state.id}`;
     const accessToken = await store.update(key, value => value || token(), roomTtl);
     await store.update(`viewer:${accessToken}`, value => value || { token: accessToken, socketId: socket.id, roomId, sessionId: state.id, playSessionId: null, deviceId: randomUUID() }, roomTtl);
+    await quality.renew({ token: accessToken }, state);
     return accessToken;
   };
   const saveViewer = async (viewer, patch) => {
@@ -145,7 +148,7 @@ function installJellyfin(app, io, accounts, options = {}) {
     const key = await store.get(index), viewer = key && await store.get(`viewer:${key}`);
     if (!viewer) return;
     activeRequests.get(key)?.requests.forEach(controller => controller.abort()); activeRequests.delete(key);
-    stopEncoding(viewer, state); await store.set(`viewer:${key}`, null); await store.set(index, null);
+    stopEncoding(viewer, state); await quality.release(viewer, state); await store.set(`viewer:${key}`, null); await store.set(index, null);
   }
 
   const resolveViewer = async accessToken => {
@@ -154,11 +157,12 @@ function installJellyfin(app, io, accounts, options = {}) {
     const state = viewer && await store.get(`jellyfin-room:${viewer.roomId}`);
     const belongs = viewer && (options.store ? await store.get(`member:${viewer.roomId}:${viewer.socketId}`) : io.sockets.sockets.get(viewer.socketId)?.rooms.has(viewer.roomId));
     if (!state || state.id !== viewer.sessionId || !belongs) return null;
+    await quality.renew(viewer, state);
     viewer.requests = requestsFor(viewer);
     viewer.assets = new Map();
     return { viewer, state };
   };
-  if (accounts) require('./jellyfinWeb').installJellyfinWeb(app, { resolveViewer, accounts, saveViewer, allowedOrigins: options.allowedOrigins, publicOrigin: options.publicOrigin });
+  if (accounts) require('./jellyfinWeb').installJellyfinWeb(app, { resolveViewer, accounts, saveViewer, quality, allowedOrigins: options.allowedOrigins, publicOrigin: options.publicOrigin });
 
   const registerAsset = async (viewer, url, state) => {
     const parsed = new URL(url);
@@ -211,6 +215,14 @@ function installJellyfin(app, io, accounts, options = {}) {
     if (!resolved || resolved.state.connectionToken && !await accounts?.getConnection(resolved.state.connectionToken)) { res.status(403).send('Join the room to watch this video.'); return; }
     req.jellyfin = resolved; next();
   });
+  app.get('/api/jellyfin/:accessToken/quality', async (req, res) => {
+    res.set('Cache-Control', 'no-store').json(await quality.describe(req.jellyfin.viewer, req.jellyfin.state));
+  });
+  app.post('/api/jellyfin/:accessToken/quality', async (req, res) => {
+    if (!['auto', 'original'].includes(req.body?.mode)) { res.status(400).json({ error: 'Choose Auto or Original.' }); return; }
+    await saveViewer(req.jellyfin.viewer, { qualityMode: req.body.mode, qualityRevision: (req.jellyfin.viewer.qualityRevision || 0) + 1 });
+    res.set('Cache-Control', 'no-store').json(await quality.describe(req.jellyfin.viewer, req.jellyfin.state));
+  });
   app.get('/api/jellyfin/:accessToken/stream.m3u8', async (req, res) => {
     const { viewer, state } = req.jellyfin;
     let audio = req.query.audio === undefined ? state.audioTracks.find(track => track.default)?.index ?? state.audioTracks[0]?.index : Number(req.query.audio);
@@ -219,7 +231,10 @@ function installJellyfin(app, io, accounts, options = {}) {
     if ((audio !== undefined && !state.audioTracks.some(track => track.index === audio)) || (subtitle !== -1 && !state.subtitleTracks.some(track => track.index === subtitle && !track.text))) { res.status(400).send('Unknown track'); return; }
     viewer.requests.forEach(controller => controller.abort());
     stopEncoding(viewer, state); viewer.assets.clear(); await saveViewer(viewer, { playSessionId: randomUUID() });
-    const query = new URLSearchParams({ MediaSourceId: state.sourceId, DeviceId: viewer.deviceId, PlaySessionId: viewer.playSessionId, VideoCodec: 'h264', AudioCodec: 'aac', MaxAudioChannels: '2', VideoBitrate: '4000000', AudioBitrate: '192000', MaxWidth: '1920', SegmentContainer: 'ts', MinSegments: '1', SegmentLength: '4', BreakOnNonKeyFrames: 'true', EnableAutoStreamCopy: 'true', AllowVideoStreamCopy: 'true', AllowAudioStreamCopy: 'true', SubtitleStreamIndex: String(subtitle) });
+    const policy = await quality.describe(viewer, state);
+    const requested = Number(req.query.bitrate);
+    const bitrate = Math.min(policy.maxBitrate, policy.mode === 'auto' && Number.isFinite(requested) && requested > 0 ? requested : policy.maxBitrate);
+    const query = new URLSearchParams({ MediaSourceId: state.sourceId, DeviceId: viewer.deviceId, PlaySessionId: viewer.playSessionId, VideoCodec: 'h264', AudioCodec: 'aac', MaxAudioChannels: '2', VideoBitrate: String(Math.max(1, Math.floor(bitrate - 192000))), AudioBitrate: '192000', SegmentContainer: 'ts', MinSegments: '1', SegmentLength: '4', BreakOnNonKeyFrames: 'true', EnableAutoStreamCopy: 'true', AllowVideoStreamCopy: 'true', AllowAudioStreamCopy: 'true', SubtitleStreamIndex: String(subtitle) });
     if (audio !== undefined) query.set('AudioStreamIndex', String(audio));
     if (subtitle !== -1) { query.set('SubtitleMethod', 'Encode'); query.set('AllowVideoStreamCopy', 'false'); }
     forward(req, res, viewer, state, `${state.base}/Videos/${state.itemId}/master.m3u8?${query}`, true);

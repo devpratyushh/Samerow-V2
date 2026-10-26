@@ -4,6 +4,8 @@ import PlaybackControls from './components/PlaybackControls';
 import { jellyfinTime } from './jellyfinRoom';
 import { createDriftController } from './playbackSync';
 import './JellyfinPlayer.css';
+import { useJellyfinQuality } from './useJellyfinQuality';
+import JellyfinQuality from './JellyfinQuality';
 
 export default function JellyfinPlayer({ state, base, command, connected, focused }) {
   const videoRef = useRef(null);
@@ -22,6 +24,11 @@ export default function JellyfinPlayer({ state, base, command, connected, focuse
   const selectedSubtitle = state.subtitleTracks.find(track => track.index === subtitle);
   const burnSubtitle = selectedSubtitle && !selectedSubtitle.text ? subtitle : -1;
   const root = `${base}/api/jellyfin/${state.accessToken}`;
+  const quality = useJellyfinQuality(`${root}/quality`);
+  const qualityMode = quality.policy?.mode || 'auto';
+  const maxBitrate = quality.policy?.maxBitrate;
+  const [networkBitrate, setNetworkBitrate] = useState(null);
+  const playbackBitrate = qualityMode === 'original' ? maxBitrate : Math.min(maxBitrate || 1000000000, networkBitrate || 1000000000);
   const play = useCallback(() => {
     const video = videoRef.current;
     if (!video || playPending.current || blocked.current) return;
@@ -51,13 +58,23 @@ export default function JellyfinPlayer({ state, base, command, connected, focuse
   const initialTime = useEffectEvent(() => jellyfinTime(state));
   useEffect(() => {
     const video = videoRef.current;
+    if (!maxBitrate) return;
     let disposed = false;
     let hls;
     let ready = false;
+    let bufferingSince = 0;
+    const adaptiveTimer = setInterval(() => {
+      if (qualityMode !== 'auto' || !bufferingSince || performance.now() - bufferingSince < 8000 || !ready) return;
+      const estimate = hls?.bandwidthEstimate;
+      if (Number.isFinite(estimate) && estimate > 0 && estimate * 0.7 < playbackBitrate * 0.8) {
+        setNetworkBitrate(Math.max(250000, Math.floor(estimate * 0.7)));
+        bufferingSince = 0;
+      }
+    }, 2000);
     loading.current = true; blocked.current = false; drift.reset();
     const reportLoading = () => { setPhase('loading'); setError(''); };
     reportLoading();
-    const url = `${root}/stream.m3u8?audio=${audio}&subtitle=${burnSubtitle}`;
+    const url = `${root}/stream.m3u8?audio=${audio}&subtitle=${burnSubtitle}&bitrate=${playbackBitrate}`;
     const load = async () => {
       if (video.canPlayType('application/vnd.apple.mpegurl')) {
         video.src = url; video.load();
@@ -76,8 +93,8 @@ export default function JellyfinPlayer({ state, base, command, connected, focuse
       }
     };
     const onReady = () => { ready = true; loading.current = false; synchronize(true); };
-    const onPlaying = () => { loading.current = false; setPhase('playing'); };
-    const onWaiting = () => { loading.current = true; if (!blocked.current) setPhase('buffering'); };
+    const onPlaying = () => { bufferingSince = 0; loading.current = false; setPhase('playing'); };
+    const onWaiting = () => { bufferingSince ||= performance.now(); loading.current = true; if (!blocked.current) setPhase('buffering'); };
     const onError = () => { setPhase('error'); setError('This stream could not be played. Reconnect playback or choose another track.'); };
     const onPause = () => { if (!loading.current && !blocked.current) setPhase(video.ended ? 'ended' : 'paused'); };
     video.addEventListener('canplay', onReady); video.addEventListener('playing', onPlaying);
@@ -85,12 +102,12 @@ export default function JellyfinPlayer({ state, base, command, connected, focuse
     load().catch(() => { if (!disposed) { setPhase('error'); setError('The video player could not load. Try reconnecting playback.'); } });
     const timeout = setTimeout(() => { if (!ready && !disposed) { setPhase('error'); setError('Jellyfin is taking too long to start. Check the server and reconnect playback.'); } }, 30000);
     return () => {
-      disposed = true; clearTimeout(timeout); hls?.destroy();
+      disposed = true; clearInterval(adaptiveTimer); clearTimeout(timeout); hls?.destroy();
       video.removeEventListener('canplay', onReady); video.removeEventListener('playing', onPlaying); video.removeEventListener('waiting', onWaiting); video.removeEventListener('error', onError); video.removeEventListener('pause', onPause);
       video.pause(); video.removeAttribute('src'); video.load();
       // The next manifest stops its previous encoding. Release only on full unmount below.
     };
-  }, [root, audio, burnSubtitle, attempt, drift]);
+  }, [root, audio, burnSubtitle, attempt, drift, playbackBitrate, qualityMode, maxBitrate]);
   useEffect(() => () => { fetch(`${root}/release`, { method: 'POST', keepalive: true }).catch(() => {}); }, [root]);
   useEffect(() => { videoRef.current.volume = volume; }, [volume]);
   const togglePlay = () => {
@@ -114,6 +131,7 @@ export default function JellyfinPlayer({ state, base, command, connected, focuse
       <details className="player-track-menu" onKeyDown={event => { if (event.key === 'Escape') { event.currentTarget.open = false; event.currentTarget.querySelector('summary').focus(); event.stopPropagation(); } }}>
         <summary className="player-control" aria-label="Audio and subtitles" title="Audio and subtitles"><FaCog /></summary>
         <div className="player-track-panel">
+          <JellyfinQuality {...quality} select={mode => { setNetworkBitrate(null); return quality.select(mode); }} />
           <strong>Audio &amp; subtitles</strong><p>Only changes your playback.</p>
           <label>Audio track<select aria-label="Audio track" value={audio} onChange={event => setAudio(Number(event.target.value))} disabled={!state.audioTracks.length}>{!state.audioTracks.length && <option value="-1">No audio</option>}{state.audioTracks.map(track => <option key={track.index} value={track.index}>{track.title}</option>)}</select></label>
           <label>Subtitles<select aria-label="Subtitles" value={subtitle} onChange={event => setSubtitle(Number(event.target.value))}><option value="-1">Off</option>{state.subtitleTracks.map(track => <option key={track.index} value={track.index}>{track.title}{!track.text ? ' (video subtitles)' : ''}</option>)}</select></label>

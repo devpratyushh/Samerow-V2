@@ -199,7 +199,7 @@ function createApplication(options = {}) {
   }, 20000); heartbeat.unref();
   const networkPolicy = { production: config.production, allowPrivate: config.allowPrivateJellyfin, origins: config.upstreamOrigins };
   const accounts = require('./jellyfinAccounts').installJellyfinAccounts(app, { ...(options.accountOptions || {}), ...(options.store ? { store } : {}), networkPolicy });
-  const jellyfin = require('./jellyfin').installJellyfin(app, io, accounts, { store, canControl, production: config.production, networkPolicy, roomTtl: config.roomTtl, allowedOrigins: config.origins, publicOrigin: config.mediaOrigin });
+  const jellyfin = require('./jellyfin').installJellyfin(app, io, accounts, { store, canControl, production: config.production, networkPolicy, roomTtl: config.roomTtl, allowedOrigins: config.origins, publicOrigin: config.mediaOrigin, quality: config.jellyfinQuality });
   require('./chat').installChat(io, { store, identity });
   app.use((error, req, res, next) => {
     if (res.headersSent) { res.destroy(); return; }

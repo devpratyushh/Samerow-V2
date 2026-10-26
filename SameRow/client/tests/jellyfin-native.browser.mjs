@@ -166,6 +166,26 @@ try {
   assert.equal(await commandCount(guest), commandsBeforeTracks, 'Native track changes do not emit room playback commands.');
   console.log('PASS native audio and subtitles remain independent for each viewer');
 
+  const qualityCommands = await commandCount(guest);
+  const qualityHostState = await diagnostic(hostFrame);
+  await guest.locator('.jellyfin-native-quality summary').click();
+  await guest.getByLabel('Quality on this device', { exact: true }).selectOption('original');
+  await guestFrame.waitForFunction(() => window.__sameRowNativeDiagnostics.state.qualityMode === 'original');
+  await waitPlaying(guestFrame);
+  assert.equal((await diagnostic(hostFrame)).qualityMode, 'auto');
+  const originalPolicy = await guestFrame.evaluate(async () => (await fetch(window.__SAMEROW_JELLYFIN__.serverAddress + '/samerow/quality')).json());
+  const decodedHeight = await guestFrame.evaluate(() => document.querySelector('video').videoHeight);
+  assert.equal(decodedHeight, originalPolicy.source.height, 'Original decodes at the source resolution');
+  assert.equal((await diagnostic(guestFrame)).audioIndex, 2);
+  assert.equal((await diagnostic(guestFrame)).subtitleIndex, 4);
+  assert.equal((await diagnostic(hostFrame)).revision, qualityHostState.revision);
+  assert.equal(await commandCount(guest), qualityCommands);
+  await guest.getByLabel('Quality on this device', { exact: true }).selectOption('auto');
+  await guestFrame.waitForFunction(() => window.__sameRowNativeDiagnostics.state.qualityMode === 'auto');
+  await waitPlaying(guestFrame);
+  await guest.locator('.jellyfin-native-quality summary').click();
+  console.log('PASS Auto/Original changes preserve personal tracks and the shared timeline');
+
   const originalSource = await frameElement(host).getAttribute('src');
   const third = await addViewer('Late viewer');
   const thirdFrame = await nativeFrame(third);
@@ -192,14 +212,18 @@ try {
   await reveal(guest, guestFrame);
   await guestFrame.locator('.btnFullscreen').click();
   await guest.waitForFunction(() => !document.querySelector('.room-shell').classList.contains('is-fullscreen'));
+  await guest.locator('.jellyfin-native-quality summary').click();
   for (const width of [390, 768, 1440]) {
     await guest.setViewportSize({ width, height: 900 });
     const bounds = await frameElement(guest).boundingBox();
+    const menu = await guest.locator('.jellyfin-native-quality').boundingBox();
+    assert.ok(menu.x >= -1 && menu.x + menu.width <= width + 1, `Quality selector fits ${width}px.`);
     assert.ok(bounds.width > 0 && bounds.x >= -1 && bounds.x + bounds.width <= width + 1, `Native frame fits ${width}px.`);
   }
   assert.equal(await guest.locator('.room-shell').count(), 1, 'Only one room layout is mounted.');
   await guest.waitForTimeout(350);
   await guest.screenshot({ path: process.env.JELLYFIN_SCREENSHOT || '/tmp/samerow-jellyfin-native.png' });
+  await guest.locator('.jellyfin-native-quality summary').click();
   console.log('PASS native fullscreen preserves the room layout and frame fits mobile/tablet/desktop');
 
   const gateway = await hostFrame.evaluate(() => window.__SAMEROW_JELLYFIN__.serverAddress);

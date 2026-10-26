@@ -47,6 +47,20 @@ class MemoryStore {
     return count <= maximum;
   }
   async ping() { return this.ready; }
+  async leaseCount(scope, member, seconds = 45) {
+    const now = Date.now();
+    const leases = await this.update(`leases:${scope}`, current => ({
+      ...Object.fromEntries(Object.entries(current || {}).filter(([, expires]) => expires > now)),
+      [member]: now + seconds * 1000,
+    }), seconds);
+    return Object.keys(leases).length;
+  }
+  async releaseLease(scope, member) {
+    await this.update(`leases:${scope}`, current => {
+      if (!current) return null;
+      delete current[member]; return current;
+    }, 45);
+  }
   async close() { this.ready = false; }
 }
 
@@ -127,6 +141,21 @@ class RedisStore {
     // A full noeviction store can answer PING while rejecting every room write.
     await this.client.set(`${this.prefix}:readiness`, '1', { EX: 30 });
     return true;
+  }
+  async leaseCount(scope, member, seconds = 45) {
+    this.check();
+    return this.client.eval(`
+      local time = redis.call('TIME')
+      local now = tonumber(time[1]) * 1000 + math.floor(tonumber(time[2]) / 1000)
+      redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', now)
+      redis.call('ZADD', KEYS[1], now + tonumber(ARGV[2]) * 1000, ARGV[1])
+      redis.call('EXPIRE', KEYS[1], ARGV[2])
+      return redis.call('ZCARD', KEYS[1])`, {
+      keys: [this.key(`leases:${scope}`)], arguments: [this.key(member), String(seconds)],
+    });
+  }
+  async releaseLease(scope, member) {
+    this.check(); await this.client.zRem(this.key(`leases:${scope}`), this.key(member));
   }
   async close() { if (this.client.isOpen) await this.client.quit(); }
 }

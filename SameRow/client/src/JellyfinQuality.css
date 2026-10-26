@@ -1,0 +1,4 @@
+.jellyfin-quality { display: grid; gap: 8px; padding: 8px 0; }
+.jellyfin-quality label { display: grid; gap: 8px; }
+.jellyfin-quality select { padding: 8px; border: 1px solid #ffffff30; border-radius: 6px; color: #fff; background: #25262c; }
+.jellyfin-quality small { display: block; color: #b9bbc5; font-size: 11px; line-height: 1.5; }

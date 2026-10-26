@@ -25,7 +25,7 @@ export async function jellyfinFixture({ media = false } = {}) {
     if(url.pathname==='/Items'){
       await new Promise(resolve=>setTimeout(resolve,controls.delay));
       res.setHeader('Content-Type','application/json');
-      res.end(JSON.stringify({Items:controls.invalid?[]:[{Id:'fixture-video',Name:'Multitrack fixture',RunTimeTicks:650000000,MediaSources:[{Id:'source',RunTimeTicks:650000000,MediaStreams:[{Index:0,Type:'Video',Codec:'h264'},{Index:1,Type:'Audio',DisplayTitle:'English',Language:'eng',IsDefault:true},{Index:2,Type:'Audio',DisplayTitle:'Spanish',Language:'spa'},{Index:3,Type:'Subtitle',DisplayTitle:'English captions',Language:'en',IsTextSubtitle:true},{Index:4,Type:'Subtitle',DisplayTitle:'Spanish captions',Language:'es',IsTextSubtitle:true},{Index:5,Type:'Subtitle',DisplayTitle:'Image captions',IsTextSubtitle:false,Codec:'pgssub'}]}]}]}));return;
+      res.end(JSON.stringify({Items:controls.invalid?[]:[{Id:'fixture-video',Name:'Multitrack fixture',RunTimeTicks:650000000,MediaSources:[{Id:'source',Bitrate:40000000,RunTimeTicks:650000000,MediaStreams:[{Index:0,Type:'Video',Codec:'h264',Width:3840,Height:2160},{Index:1,Type:'Audio',DisplayTitle:'English',Language:'eng',IsDefault:true},{Index:2,Type:'Audio',DisplayTitle:'Spanish',Language:'spa'},{Index:3,Type:'Subtitle',DisplayTitle:'English captions',Language:'en',IsTextSubtitle:true},{Index:4,Type:'Subtitle',DisplayTitle:'Spanish captions',Language:'es',IsTextSubtitle:true},{Index:5,Type:'Subtitle',DisplayTitle:'Image captions',IsTextSubtitle:false,Codec:'pgssub'}]}]}]}));return;
     }
     if(url.pathname==='/Videos/ActiveEncodings'){res.writeHead(204).end();return;}
     if(url.pathname.endsWith('master.m3u8')){

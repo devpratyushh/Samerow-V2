@@ -36,6 +36,9 @@ test('Jellyfin shared controls, late join, private tracks, scoped media access a
     assert.equal((await ack(host,'jellyfin-sync-request','movie')).state.timestamp,25);
     const url=`${base}/api/jellyfin/${lateState.accessToken}`;
     let response=await fetch(`${url}/stream.m3u8?audio=2`);assert.equal(response.status,200);
+    const originalRequest=fixture.requests.findLast(request=>request.path.endsWith('master.m3u8'));
+    assert.equal(originalRequest.query.MaxWidth,undefined,'No fixed 1080p cap');
+    assert.ok(Number(originalRequest.query.VideoBitrate)>40000000,'Source bitrate is retained for 4K');
     const master=await response.text();assert.ok(!master.includes('must-not-leak')&&!master.includes(fixture.url));
     const mediaPath=master.split('\n').find(line=>line.startsWith('/api'));
     const playlist=await(await fetch(base+mediaPath)).text();const segmentPath=playlist.split('\n').find(line=>line.startsWith('/api'));
