@@ -10,11 +10,12 @@ import { auth } from './firebase';
 import { onIdTokenChanged, signInAnonymously } from 'firebase/auth';
 import { configureSession } from './session';
 import { maintainSession } from './sessionRecovery';
+import { isLegacyRoomServer, joinLegacyRoom, legacyControlOrigin } from './legacyRooms';
 
 const localEdition = import.meta.env.VITE_SAMEROW_LOCAL_EDITION === 'true';
 const SOCKET_URL = localEdition
   ? window.location.origin
-  : import.meta.env.VITE_SOCKET_URL || (import.meta.env.DEV ? window.location.origin : 'https://samerow-v2.onrender.com');
+  : import.meta.env.VITE_SOCKET_URL || (import.meta.env.DEV ? window.location.origin : legacyControlOrigin);
 const clientId = browserId();
 
 function localSessionToken() {
@@ -56,6 +57,11 @@ function subscribeToConnection(callback) {
 }
 
 function generateRoom(privateRoom) {
+  if (socket.legacyRooms) {
+    const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    const random = crypto.getRandomValues(new Uint8Array(4));
+    return Promise.resolve({ code: Array.from(random, value => alphabet[value % alphabet.length]).join('') });
+  }
   return new Promise((resolve, reject) => {
     socket.timeout(10000).emit('generate-room', privateRoom, (error, reply) => {
       if (error || !reply?.code) reject(new Error(reply?.error || 'Could not generate a room code.'));
@@ -113,31 +119,47 @@ function App() {
       fetch('/api/config', { signal: AbortSignal.timeout(5000) }).then(response => response.json()).then(config => {
         if (!disposed) setHostedWebOrigin(config.hostedWebOrigin || '');
       }).catch(() => {});
-    } else unsubscribe = onIdTokenChanged(auth, async currentUser => {
-      if (disposed) return;
-      if (!currentUser) {
-        socket.disconnect(); setUser(null);
-        if (!signingIn) {
-          signingIn = true;
-          try { if (!await connectDevelopmentGuest()) await signInAnonymously(auth); }
-          catch { if (!await connectDevelopmentGuest() && !disposed) setConnectionError('Guest sign-in is unavailable. Sign in with Google to join.'); }
-          finally { signingIn = false; }
+    }
+    const connectHosted = async () => {
+      if (SOCKET_URL === legacyControlOrigin) {
+        const config = await fetch(SOCKET_URL + '/api/config', { cache: 'no-store', redirect: 'error', signal: AbortSignal.timeout(5000) }).catch(() => null);
+        if (config && await isLegacyRoomServer(SOCKET_URL, config)) {
+          if (disposed) return;
+          socket.legacyRooms = true;
+          socket.auth = {};
+          unsubscribe = onIdTokenChanged(auth, setUser);
+          socket.connect();
+          return;
         }
-        return;
       }
-      setUser(currentUser);
-      developmentToken = '';
-      if (currentUser.displayName) setUserName(currentUser.displayName);
-      try {
-        const token = await currentUser.getIdToken();
-        if (disposed || auth.currentUser?.uid !== currentUser.uid) return;
-        const previousUid = socket.sessionUid;
-        socket.auth = { clientId, token }; socket.sessionUid = currentUser.uid;
-        if (previousUid && previousUid !== currentUser.uid) socket.disconnect();
-        if (socket.connected) socket.emit('auth-refresh', token);
-        else socket.connect();
-      } catch { setConnectionError('Could not verify your sign-in. Try again.'); }
-    });
+      if (disposed) return;
+      unsubscribe = onIdTokenChanged(auth, async currentUser => {
+        if (disposed) return;
+        if (!currentUser) {
+          socket.disconnect(); setUser(null);
+          if (!signingIn) {
+            signingIn = true;
+            try { if (!await connectDevelopmentGuest()) await signInAnonymously(auth); }
+            catch { if (!await connectDevelopmentGuest() && !disposed) setConnectionError('Guest sign-in is unavailable. Sign in with Google to join.'); }
+            finally { signingIn = false; }
+          }
+          return;
+        }
+        setUser(currentUser);
+        developmentToken = '';
+        if (currentUser.displayName) setUserName(currentUser.displayName);
+        try {
+          const token = await currentUser.getIdToken();
+          if (disposed || auth.currentUser?.uid !== currentUser.uid) return;
+          const previousUid = socket.sessionUid;
+          socket.auth = { clientId, token }; socket.sessionUid = currentUser.uid;
+          if (previousUid && previousUid !== currentUser.uid) socket.disconnect();
+          if (socket.connected) socket.emit('auth-refresh', token);
+          else socket.connect();
+        } catch { setConnectionError('Could not verify your sign-in. Try again.'); }
+      });
+    };
+    if (!localEdition) void connectHosted();
     return () => {
       disposed = true; stopRecovery(); unsubscribe(); socket.disconnect();
       socket.off('connect', connected); socket.off('connect_error', failed);
@@ -191,8 +213,10 @@ function App() {
   const joinRoom = async (id, name, generatedInvite) => {
     const linkedInvite = id === initialRoomFromUrl ? new URLSearchParams(window.location.hash.slice(1)).get('invite') : '';
     const invite = generatedInvite || linkedInvite;
+    if (socket.legacyRooms && invite) throw new Error('Private rooms need the updated room server.');
     let reply;
-    try {
+    if (socket.legacyRooms) reply = await joinLegacyRoom(socket, id, name);
+    else try {
       reply = await socket.timeout(10000).emitWithAck('join-room', id, name, ...(invite ? [invite] : []));
     } catch {
       const config = await fetch(`${SOCKET_URL}/api/config`, { signal: AbortSignal.timeout(3000), cache: 'no-store' }).catch(() => null);
@@ -223,7 +247,7 @@ function App() {
           joinRoom={joinRoom}
           generateRoom={generateRoom}
           hostedWebOrigin={hostedWebOrigin}
-          serverUrl={SOCKET_URL}
+          serverUrl={socket.legacyRooms ? undefined : SOCKET_URL}
           initialRoom={initialRoomFromUrl}
           userStream={userStream}
           toggleMute={toggleMute}

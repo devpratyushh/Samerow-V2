@@ -1,3 +1,5 @@
+import { joinLegacyRoom } from './legacyRooms.js';
+
 // Transport connection is not room membership. Retry only idempotent joins;
 // never replay chat or playback commands after a network interruption.
 export function maintainRoomMembership({ socket, roomId, userName, invite, onReady, onWaiting, onError, retryDelay = attempt => Math.min(1000 * 2 ** Math.min(attempt, 5), 15000) * (0.75 + Math.random() * 0.5) }) {
@@ -6,7 +8,7 @@ export function maintainRoomMembership({ socket, roomId, userName, invite, onRea
     if (disposed || !socket.connected) return;
     const current = ++generation, socketId = socket.id;
     clearTimeout(timer); onWaiting();
-    socket.timeout(10000).emit('join-room', roomId, userName, ...(invite ? [invite] : []), (error, reply) => {
+    const complete = (error, reply) => {
       if (disposed || current !== generation || !socket.connected || socket.id !== socketId) return;
       if (error || reply?.error || !reply?.ok) {
         onError(reply?.error || 'Reconnecting to the room…');
@@ -14,7 +16,12 @@ export function maintainRoomMembership({ socket, roomId, userName, invite, onRea
         timer = setTimeout(join, retryDelay(attempts++)); return;
       }
       attempts = 0; socket.roomConfig = reply; onReady(reply);
-    });
+    };
+    if (socket.legacyRooms) {
+      joinLegacyRoom(socket, roomId, userName).then(reply => complete(null, reply), complete);
+    } else {
+      socket.timeout(10000).emit('join-room', roomId, userName, ...(invite ? [invite] : []), complete);
+    }
   };
   const disconnected = () => { generation++; clearTimeout(timer); onWaiting(); };
   socket.on('connect', join); socket.on('disconnect', disconnected);

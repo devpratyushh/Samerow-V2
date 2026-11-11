@@ -12,6 +12,7 @@ export function useJellyfinRoom(socket, roomId) {
   const [state, setState] = useState(null);
   const current = useRef(null);
   useEffect(() => {
+    if (socket.legacyRooms) return;
     let disposed = false;
     let generation = 0;
     const clock = createServerClock();

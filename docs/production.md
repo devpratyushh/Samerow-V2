@@ -27,6 +27,13 @@ applying the Blueprint; this repository does not deploy or purchase resources.
 
 ## Configure services
 
+The existing SameRow Render service can still host public rooms, direct peer
+calls, and YouTube watch parties while it runs the original backend. The web
+app detects that specific service by its old status response. Its room codes
+are generated in the browser, and it does not offer private invites, server
+chat, or the hosted Jellyfin pilot. The steps below deploy the updated backend
+for those features.
+
 1. In the existing Firebase project, enable Google and Anonymous authentication.
    Add the production Vercel/custom domain to Firebase's authorized domains.
    Create a dedicated service account with Firebase Authentication read access

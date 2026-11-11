@@ -65,3 +65,13 @@ test('deployment check catches blocked browser origins, unready Redis and incons
   });
   await assert.rejects(checkDeployment(env, mismatched.request), /same MEDIA_PUBLIC_URL/);
 });
+
+test('the existing Render service can publish basic rooms with the existing Vercel configuration', async () => {
+  const origin = 'https://samerow-v2.onrender.com';
+  const legacy = fixture({
+    [origin + '/api/config']: () => new Response('', { status: 404, headers: { 'Access-Control-Allow-Origin': '*' } }),
+    [origin + '/api/status']: () => Response.json({ message: 'Server is running' }, { headers: { 'Access-Control-Allow-Origin': '*' } }),
+  });
+  await checkDeployment({ VERCEL_ENV: 'production' }, legacy.request);
+  assert.deepEqual(legacy.requests, [origin + '/api/config', origin + '/api/status']);
+});

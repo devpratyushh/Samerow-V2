@@ -1,3 +1,5 @@
+import { isLegacyRoomServer, legacyControlOrigin } from '../src/legacyRooms.js';
+
 const required = [
   'VITE_SOCKET_URL',
   'VITE_FIREBASE_API_KEY',
@@ -16,12 +18,20 @@ function httpsOrigin(value, name) {
 }
 
 export async function checkDeployment(env = process.env, request = fetch) {
+  const control = httpsOrigin(env.VITE_SOCKET_URL || legacyControlOrigin, 'VITE_SOCKET_URL');
+  const defaultOrigin = env.VERCEL_PROJECT_PRODUCTION_URL && `https://${env.VERCEL_PROJECT_PRODUCTION_URL}`;
+  if (control === legacyControlOrigin) {
+    const origin = httpsOrigin(env.SAMEROW_WEB_ORIGIN || defaultOrigin || 'https://samerow-v2.vercel.app', 'SAMEROW_WEB_ORIGIN');
+    const options = { headers: { Origin: origin }, redirect: 'error', signal: AbortSignal.timeout(8000) };
+    const config = await request(control + '/api/config', options).catch(() => null);
+    if (config && await isLegacyRoomServer(control, config, request, { headers: options.headers })) {
+      console.log('The existing Render service supports basic rooms and peer calls.');
+      return;
+    }
+  }
   const missing = required.filter(name => !env[name]?.trim() || env[name].startsWith('<'));
   if (missing.length) throw new Error(`Set these Vercel environment variables: ${missing.join(', ')}.`);
-  const control = httpsOrigin(env.VITE_SOCKET_URL, 'VITE_SOCKET_URL');
   if (env.VERCEL_ENV === 'preview' || env.VERCEL_ENV === 'development') return;
-
-  const defaultOrigin = env.VERCEL_PROJECT_PRODUCTION_URL && `https://${env.VERCEL_PROJECT_PRODUCTION_URL}`;
   const webOrigin = httpsOrigin(env.SAMEROW_WEB_ORIGIN || defaultOrigin, 'SAMEROW_WEB_ORIGIN');
 
   async function read(origin, role, path) {
