@@ -2,6 +2,7 @@ import './browserGlobals';
 import { useEffect, useEffectEvent, useRef, useState } from 'react';
 import Peer from 'simple-peer';
 import { connectGroupCall } from './groupCall';
+import { maintainRoomMembership } from './roomMembership';
 import { FaDesktop, FaYoutube, FaPlayCircle } from 'react-icons/fa';
 import YouTubePlayer from './YouTubePlayer';
 import { parseYouTubeUrl } from './youtube';
@@ -33,7 +34,7 @@ export default function Room({ socket, roomId, userName, leaveRoom, userStream, 
   const [muted, setMuted] = useState(initialMuted);
   const [videoOff, setVideoOff] = useState(initialVideoOff);
   const [peerStates, setPeerStates] = useState({});
-  const [connected, setConnected] = useState(socket.connected);
+  const [connected, setConnected] = useState(false);
   const [mediaMode, setMediaMode] = useState(socket.roomConfig?.mediaMode || null);
   const groupCallRef = useRef(null);
   const [youtubeState, setYoutubeState] = useState(null);
@@ -93,15 +94,10 @@ export default function Room({ socket, roomId, userName, leaveRoom, userStream, 
     if (existing) { try { existing.peer.signal(payload.signal); } catch { /* Late signals can arrive after a peer closes. */ } }
     else if (payload.signal.type === 'offer') addConnection(payload.from, payload.userName, activeStream, screen, payload.signal, false, screen ? payload.screenOwner || payload.from : null);
   });
-  const onJoin = useEffectEvent(() => {
-    setConnected(true);
-    socket.timeout(10000).emit('join-room', roomId, userName, (error, reply) => {
-      if (error || reply?.error) { setConnected(false); notify(reply?.error || 'Could not rejoin this room. Try again.'); return; }
-      socket.roomConfig = reply; setMediaMode(reply.mediaMode); setConnected(true);
-      socket.emit('sync-request', roomId);
-      socket.emit('room-joined');
-    });
+  const onRoomReady = useEffectEvent(reply => {
+    setMediaMode(reply.mediaMode); setConnected(true);
     socket.emit('sync-request', roomId);
+    socket.emit('room-joined');
     socket.emit('update-user-state', { roomId, type: 'audio', enabled: !muted });
     socket.emit('update-user-state', { roomId, type: 'video', enabled: !videoOff });
   });
@@ -125,7 +121,6 @@ export default function Room({ socket, roomId, userName, leaveRoom, userStream, 
 
   useEffect(() => {
     const disconnected = () => { setConnected(false); peersRef.current.forEach(person => person.peer?.destroy()); peersRef.current = []; setPeers([]); };
-    const joined = () => onJoin();
     const userConnected = payload => onUserConnected(payload);
     const signal = payload => onSignal(payload);
     const stateUpdated = ({ userId, type, enabled }) => setPeerStates(previous => ({ ...previous, [userId]: { ...previous[userId], [type]: enabled } }));
@@ -136,18 +131,20 @@ export default function Room({ socket, roomId, userName, leaveRoom, userStream, 
       setPeers(previous => previous.filter(person => person.peerID !== id));
       setPeerStates(previous => { const next = { ...previous }; delete next[id]; return next; });
     };
-    socket.on('connect', joined); socket.on('disconnect', disconnected);
+    socket.on('disconnect', disconnected);
     socket.on('user-connected', userConnected); socket.on('user-disconnected', userDisconnected); socket.on('signal', signal); socket.on('user-state-updated', stateUpdated);
-    if (socket.connected) joined();
+    const stopMembership = maintainRoomMembership({ socket, roomId, userName,
+      onReady: reply => onRoomReady(reply), onWaiting: () => setConnected(false), onError: message => notify(message),
+    });
     return () => {
       clearTimeout(toastTimer.current);
-      socket.off('connect', joined); socket.off('disconnect', disconnected);
+      stopMembership(); socket.off('disconnect', disconnected);
       socket.off('user-connected', userConnected); socket.off('user-disconnected', userDisconnected); socket.off('signal', signal); socket.off('user-state-updated', stateUpdated);
       peersRef.current.forEach(person => person.peer?.destroy()); peersRef.current = [];
       screenStreamRef.current?.getTracks().forEach(track => track.stop());
       if (ownsFallback) activeStream.getTracks().forEach(track => track.stop());
     };
-  }, [socket, roomId, activeStream, ownsFallback]);
+  }, [socket, roomId, userName, activeStream, ownsFallback]);
   useEffect(() => {
     if (mediaMode !== 'livekit' || !connected) return;
     const controller = new AbortController();

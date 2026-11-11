@@ -251,3 +251,57 @@ Original keeps the requested quality; choose Auto if the connection cannot
 sustain it. The legacy HLS player can reduce Auto from measured segment throughput.
 Preferences are scoped to the viewer's current playback session; reconnecting
 with a new viewer token defaults safely to Auto.
+
+
+## Connection recovery and rollout checks
+
+Room admission is acknowledged before starting the call. A dropped join reply or
+transient admission failure is retried with exponential backoff and jitter;
+responses from an old socket cannot activate a new connection. Reconnects carry
+a random per-page client ID bound to the verified user, allowing the same tab to
+reclaim its seat after a backend crash even when the room is full. Different
+users and different tabs retain separate capacity limits.
+
+Short Redis interruptions no longer disconnect existing participants. Membership
+leases are renewed with one presence update per room per replica, and heartbeat
+runs cannot overlap. After 60 seconds without renewal, transports close and retry
+before the 90-second lease expires. Deploy shutdown closes transports and awaits
+membership cleanup before closing Redis; it does not send a namespace disconnect
+that would disable automatic reconnection. Metrics now include disconnect reasons
+and storage-renewal failures.
+
+Firebase credentials refresh on the existing socket before expiry, with retries
+on network failure. A terminal LiveKit disconnection or initial call failure
+obtains a fresh scoped token and reconnects with bounded backoff, restoring mute
+settings and any still-live screen-share tracks. Local capture remains owned by
+the room. The LiveKit SDK still handles ordinary ICE restarts first.
+
+`MAX_CONNECTIONS_PER_IP_PER_MINUTE` defaults to 600 so a shared office/home IP can
+reconnect many users after an outage. Each authenticated identity has a separate
+60-connections/minute limit; action/auth-refresh limits remain in place. All
+limits use shared Redis in production.
+
+Validation commands:
+
+```sh
+# Disposable local Redis only; launches two temporary app instances and a router.
+TEST_REDIS_URL=redis://127.0.0.1:6379 npm --prefix SameRow/server run test:reconnect
+# Real LiveKit and Vite must be running; supports 2–20 browser clients.
+GROUP_CALL_USERS=6 npm --prefix SameRow/client run test:call
+```
+
+The local reconnect probe recovered all 100 users across five rooms of 20 after
+one backend shut down: 50 clients reconnected, with approximately 0.42 seconds
+recovery and 8.5 ms p95 latency over 500 subsequent synchronization requests. Six
+real browser clients also decoded SFU video and passed mute, screen share,
+terminal SFU failure, and signaling-reconnect tests. These results measure local
+behavior, not WAN reliability or a guarantee of 20 simultaneous HD decoders on
+every device.
+
+Before public rollout, configure the Render control/media services and persistent
+Redis, use LiveKit with working TURN/TLS (Cloud supplies this), configure Firebase
+sign-in, and deploy matching frontend/backend commits. Test a 20-person room on
+representative devices and restrictive networks. Monitor disconnect reasons,
+CPU, memory, Redis errors, SFU bandwidth and movie egress. Keep `MEDIA_MODE=livekit`
+for production; local STUN-only mesh mode remains intended for small development
+rooms and has no TURN fallback. See [LiveKit connectivity](https://docs.livekit.io/intro/basics/connect/).

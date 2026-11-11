@@ -20,7 +20,9 @@ const pages = [], contexts = [], errors = [];
 const base = process.env.UI_BASE_URL || 'http://127.0.0.1:5175';
 const remoteVideo = page => page.locator('.media-tile:not([data-self]) video').first();
 try {
-  for (const name of ['Host', 'Guest']) {
+  const count = Number(process.env.GROUP_CALL_USERS || 2);
+  assert.ok(Number.isInteger(count) && count >= 2 && count <= 20);
+  for (const name of Array.from({ length: count }, (_, i) => i === 0 ? 'Host' : `Guest ${i}`)) {
     const context = await browser.newContext({ viewport: { width: 1440, height: 900 } }); contexts.push(context);
     const page = await context.newPage(); pages.push(page);
     page.on('pageerror', error => errors.push(error.message));
@@ -34,7 +36,7 @@ try {
     await page.waitForFunction(() => [...document.querySelectorAll('.media-tile:not([data-self]) video')].some(video => video.readyState >= 2 && video.getVideoPlaybackQuality().totalVideoFrames > 3), null, { timeout: 30000 });
     assert.equal(await page.evaluate(() => window.socketEmissions.filter(value => value.name === 'signal').length), 0);
   }
-  console.log('PASS two browsers decode remote video through the real LiveKit SFU without mesh signaling');
+  console.log(`PASS ${pages.length} browsers decode remote video through the real LiveKit SFU without mesh signaling`);
   const hostId = await host.evaluate(() => window.fixtureSocket.id);
   await host.getByRole('button', { name: 'Turn camera off', exact: true }).click();
   await guest.waitForFunction(id => document.querySelector(`[data-participant="${id}"] video`)?.classList.contains('camera-off'), hostId);
@@ -49,6 +51,16 @@ try {
   await host.getByRole('button', { name: 'Share something', exact: true }).click();
   await host.getByRole('button', { name: 'Your screen Share a tab, an app, or your desktop.' }).click();
   await guest.locator('.media-tile--screen').waitFor({ timeout: 20000 });
+  const tokenRequests = await host.evaluate(() => window.socketEmissions.filter(event => event.name === 'media-token').length);
+  const { RoomServiceClient } = require('../../server/node_modules/livekit-server-sdk');
+  const media = new RoomServiceClient(config.livekitUrl, config.livekitApiKey, config.livekitApiSecret);
+  await media.removeParticipant(`${config.prefix}:room-ui-test`, hostId);
+  await host.waitForFunction(before => window.socketEmissions.filter(event => event.name === 'media-token').length > before, tokenRequests, { timeout: 30000 });
+  await guest.locator('.media-tile--screen video').waitFor({ timeout: 30000 });
+  await guest.waitForFunction(() => [...document.querySelectorAll('.media-tile--screen video')].some(video => video.readyState >= 2 && video.getVideoPlaybackQuality().totalVideoFrames > 3), null, { timeout: 30000 });
+  assert.equal(await host.evaluate(() => window.fixtureSocket.id), hostId, 'SFU recovery does not restart the room connection');
+  assert.ok(await host.evaluate(() => document.querySelector('[data-self] video').srcObject.getVideoTracks()[0].readyState === 'live'));
+  console.log('PASS terminal SFU interruption obtains a fresh token and automatically restores camera and screen share');
   await host.getByRole('button', { name: 'Stop sharing', exact: true }).click();
   await guest.locator('.media-tile--screen').waitFor({ state: 'detached', timeout: 20000 });
   console.log('PASS screen tracks publish and unpublish through the SFU');

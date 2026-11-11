@@ -207,3 +207,61 @@ test('metadata reads are bounded even when the upstream omits Content-Length', a
   await assert.rejects(readJson(new Response('not-json')), { status: 502 });
   assert.deepEqual(await readJson(new Response('{"ok":true}')), { ok: true });
 });
+
+// Exercise fault paths without waiting for real 20/60-second heartbeat windows.
+test('20 viewers survive brief storage faults; prolonged faults trigger recoverable transport closure', async t => {
+  class FaultStore extends MemoryStore {
+    fail = false; presenceWrites = 0;
+    async set(...args) { if (this.fail) throw Error('temporary storage outage'); return super.set(...args); }
+    async update(key, ...args) { if (key.startsWith('presence:')) this.presenceWrites++; return super.update(key, ...args); }
+  }
+  const store = new FaultStore();
+  const application = await start(t, { store, config: { maxRoomSize: 25 } });
+  const viewers = await Promise.all(Array.from({ length: 20 }, (_, i) => join(t, application, 'crowded', `viewer-${i}`)));
+  assert.ok(viewers.every(viewer => viewer.reply.ok));
+  store.presenceWrites = 0;
+  await application.renewMemberships();
+  assert.equal(store.presenceWrites, 1, 'Renew presence once per room, not once per participant');
+  store.fail = true; store.ready = false;
+  await application.renewMemberships();
+  assert.ok(viewers.every(viewer => viewer.socket.connected), 'A short Redis outage must not drop everyone');
+  store.fail = false; store.ready = true;
+  await application.renewMemberships();
+  assert.equal((await ack(viewers[0].socket, 'sync-request', 'crowded')).state.revision, 0);
+  const client = viewers[0].socket, serverSocket = application.io.sockets.sockets.get(client.id);
+  serverSocket.membershipRenewedAt = Date.now() - 61000;
+  const disconnect = next(client, 'disconnect');
+  store.fail = true; store.ready = false; await application.renewMemberships();
+  assert.notEqual(await disconnect, 'io server disconnect', 'Transport closure allows Socket.IO automatic recovery');
+  store.fail = false; store.ready = true;
+});
+
+test('session expiration warns in advance and closes a recoverable transport after expiry', async t => {
+  const application = await start(t), client = (await join(t, application)).socket;
+  const serverSocket = application.io.sockets.sockets.get(client.id);
+  serverSocket.data.expiresAt = Date.now() + 60000;
+  const warning = next(client, 'session-expiring'); await application.renewMemberships(); await warning;
+  assert.equal(client.connected, true);
+  serverSocket.data.expiresAt = Date.now() - 1;
+  const disconnected = next(client, 'disconnect'); await application.renewMemberships();
+  assert.notEqual(await disconnected, 'io server disconnect');
+});
+
+test('a reconnect reclaims its authenticated tab seat in a full room without evicting another user', async t => {
+  const app = await start(t, { config: { maxRoomSize: 2 } });
+  await join(t, app, 'full-room', 'guest');
+  const clientId = randomUUID();
+  await app.store.update('presence:full-room', current => [...current, { id: 'crashed-socket', uid: 'owner', clientId, until: Date.now() + 90000 }]);
+  await app.store.set('member:full-room:crashed-socket', { uid: 'owner' }, 90);
+  const connectAs = async uid => {
+    const socket = connect(app.url, { transports: ['websocket'], auth: { token: `test:${uid}`, clientId }, reconnection: false });
+    t.after(() => socket.disconnect()); await next(socket, 'connect'); return socket;
+  };
+  const impostor = await connectAs('another-user');
+  assert.equal((await ack(impostor, 'join-room', 'full-room', 'Other')).status, 409, 'Client ID alone cannot reclaim another identity’s seat');
+  const owner = await connectAs('owner');
+  assert.equal((await ack(owner, 'join-room', 'full-room', 'Owner')).ok, true);
+  assert.equal(await app.store.get('member:full-room:crashed-socket'), null);
+  const presence = await app.store.get('presence:full-room');
+  assert.equal(presence.length, 2); assert.ok(presence.some(member => member.uid === 'guest'));
+});

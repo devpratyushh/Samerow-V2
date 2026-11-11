@@ -8,19 +8,25 @@ import './App.css';
 import { auth } from './firebase';
 import { onIdTokenChanged, signInAnonymously } from 'firebase/auth';
 import { configureSession } from './session';
+import { maintainSession } from './sessionRecovery';
 
 const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || (import.meta.env.DEV ? window.location.origin : 'https://samerow-v2.onrender.com');
+const clientId = crypto.randomUUID();
 let developmentToken = '';
 configureSession(() => developmentToken || auth.currentUser?.getIdToken() || '');
 
 const socket = io(SOCKET_URL, {
   transports: ['websocket'],
   autoConnect: false,
-  auth: async callback => callback({ token: developmentToken || await auth.currentUser?.getIdToken() }),
+  auth: async callback => callback({ clientId, token: developmentToken || await auth.currentUser?.getIdToken() }),
   reconnectionAttempts: Infinity,
-  reconnectionDelayMax: 10000,
+  reconnectionDelay: 1000,
+  randomizationFactor: 0.5,
+  reconnectionDelayMax: 15000,
   timeout: 15000
 });
+
+socket.clientId = clientId;
 
 socket.on('connect_error', (err) => {
   console.error("Socket Connection Error:", err.message);
@@ -47,7 +53,7 @@ function App() {
   const [streamError, setStreamError] = useState(null);
 
   useEffect(() => {
-    let disposed = false, signingIn = false, lastAuthRefresh = 0;
+    let disposed = false, signingIn = false;
     const connectDevelopmentGuest = async () => {
       // Local development must work without enabling a Firebase guest provider.
       // Production bundles and Firebase-mode servers never accept this fallback.
@@ -58,25 +64,19 @@ function App() {
         let uid = sessionStorage.getItem('samerow.development.uid');
         if (!uid) { uid = crypto.randomUUID(); sessionStorage.setItem('samerow.development.uid', uid); }
         developmentToken = `dev:${uid}`;
-        socket.auth = { token: developmentToken }; socket.sessionUid = uid;
+        socket.auth = { clientId, token: developmentToken }; socket.sessionUid = uid;
         setUser({ uid, isAnonymous: true }); setConnectionError(''); socket.connect();
         return true;
       } catch { return false; }
     };
-    const refresh = async () => {
-      if (Date.now() - lastAuthRefresh < 30000) return;
-      lastAuthRefresh = Date.now();
-      try {
-        const token = developmentToken || await auth.currentUser?.getIdToken(true);
-        if (!disposed && token) { socket.auth = { token }; socket.connect(); }
-      } catch { setConnectionError('Sign in again to reconnect.'); }
-    };
+    const stopRecovery = maintainSession({ socket,
+      getToken: () => developmentToken || auth.currentUser?.getIdToken(true), onError: setConnectionError,
+    });
     const connected = () => setConnectionError('');
     const failed = error => {
       setConnectionError(error.data?.code === 'UNAUTHENTICATED' ? 'Sign in again to connect.' : 'The room server is reconnecting.');
-      if (error.data?.code === 'UNAUTHENTICATED') refresh();
     };
-    socket.on('connect', connected); socket.on('connect_error', failed); socket.on('session-expired', refresh);
+    socket.on('connect', connected); socket.on('connect_error', failed);
     const unsubscribe = onIdTokenChanged(auth, async currentUser => {
       if (disposed) return;
       if (!currentUser) {
@@ -96,15 +96,15 @@ function App() {
         const token = await currentUser.getIdToken();
         if (disposed || auth.currentUser?.uid !== currentUser.uid) return;
         const previousUid = socket.sessionUid;
-        socket.auth = { token }; socket.sessionUid = currentUser.uid;
+        socket.auth = { clientId, token }; socket.sessionUid = currentUser.uid;
         if (previousUid && previousUid !== currentUser.uid) socket.disconnect();
         if (socket.connected) socket.emit('auth-refresh', token);
         else socket.connect();
       } catch { setConnectionError('Could not verify your sign-in. Try again.'); }
     });
     return () => {
-      disposed = true; unsubscribe(); socket.disconnect();
-      socket.off('connect', connected); socket.off('connect_error', failed); socket.off('session-expired', refresh);
+      disposed = true; stopRecovery(); unsubscribe(); socket.disconnect();
+      socket.off('connect', connected); socket.off('connect_error', failed);
     };
   }, []);
 

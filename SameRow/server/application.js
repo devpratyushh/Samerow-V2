@@ -21,10 +21,11 @@ function createApplication(options = {}) {
   const identity = options.identity || createIdentity(config);
   const mediaService = config.mediaMode === 'livekit' ? options.mediaService || new (require('livekit-server-sdk').RoomServiceClient)(config.livekitUrl, config.livekitApiKey, config.livekitApiSecret) : null;
   const app = express(), server = http.createServer(app);
+  const membershipRemovals = new Set();
   let draining = false, redisPub, redisSub, closed = false;
   const infrastructureReady = () => store.ready && (!store.client || redisPub?.isReady && redisSub?.isReady);
   const eventLoop = monitorEventLoopDelay({ resolution: 20 }); eventLoop.enable();
-  const stats = { startedAt: Date.now(), events: 0, rejected: 0, errors: 0 };
+  const stats = { startedAt: Date.now(), events: 0, rejected: 0, errors: 0, storageFailures: 0, disconnects: {} };
   const originAllowed = origin => !origin || config.origins.includes(origin) || !config.production && !config.origins.length;
   // The Jellyfin iframe deliberately has an opaque sandbox origin. Only its
   // scoped gateway accepts Origin:null; account APIs and signaling reject it.
@@ -66,19 +67,27 @@ function createApplication(options = {}) {
   const io = new Server(server, {
     cors: { origin: (origin, callback) => callback(null, originAllowed(origin)), methods: ['GET', 'POST'] },
     transports: config.production ? ['websocket'] : ['websocket', 'polling'], maxHttpBufferSize: 64 * 1024, serveClient: false,
+    pingInterval: 25000, pingTimeout: 30000,
     allowRequest: (req, callback) => {
       if (draining || !infrastructureReady() || config.serviceRole === 'media' || !originAllowed(req.headers.origin)) return callback('Unavailable', false);
       const ip = config.production ? String(req.headers['x-forwarded-for'] || req.socket.remoteAddress).split(',').at(-1).trim() : req.socket.remoteAddress;
-      store.limit(`connect:${ip}`, 120, 60).then(ok => callback(ok ? null : 'Too many connections', ok)).catch(() => callback('Unavailable', false));
+      store.limit(`connect:${ip}`, config.maxConnectionsPerIp || 600, 60).then(ok => callback(ok ? null : 'Too many connections', ok)).catch(() => callback('Unavailable', false));
     },
   });
   installIdentity(io, app, identity);
+  io.use(async (socket, next) => {
+    try {
+      if (!await store.limit(`authenticated-connect:${socket.data.uid}`, 60, 60)) return next(new Error('Too many reconnect attempts. Please wait.'));
+      next();
+    } catch { next(new Error('Shared storage is reconnecting.')); }
+  });
   const canControl = async (socket, roomId) => {
     if (!validRoom(roomId) || socket.data.roomId !== roomId || !socket.rooms.has(roomId)) return false;
     if (config.controlPolicy === 'everyone') return true;
     return (await store.get(`room:${roomId}`))?.ownerUid === socket.data.uid;
   };
   io.on('connection', socket => {
+    socket.data.clientId = typeof socket.handshake.auth?.clientId === 'string' && /^[a-f0-9-]{36}$/i.test(socket.handshake.auth.clientId) ? socket.handshake.auth.clientId : socket.id;
     socket.queue = Promise.resolve(); socket.pendingEvents = 0;
     // Preserve arrival order across asynchronous joins and Redis operations.
     socket.handle = (event, handler) => socket.on(event, (...args) => {
@@ -86,17 +95,18 @@ function createApplication(options = {}) {
       socket.queue = socket.queue.then(async () => {
         if (!socket.connected) return;
         if (!infrastructureReady()) throw failure(503, 'Room storage is reconnecting. Try again shortly.');
-        if (event !== 'auth-refresh' && socket.data.expiresAt <= Date.now()) { socket.emit('session-expired'); socket.disconnect(true); return; }
+        if (event !== 'auth-refresh' && socket.data.expiresAt <= Date.now()) { socket.emit('session-expired'); socket.conn.close(); return; }
         if (!await store.limit(`events:${socket.data.uid}`, 600, 60)) throw failure(429, 'Too many room actions. Please wait a moment.');
         stats.events++; await handler(...args);
       }).catch(error => {
         if (error.status && error.status < 500) stats.rejected++; else stats.errors++;
         const message = error.status ? error.message : 'The server could not complete that action. Try again.';
         const ack = args.at(-1);
-        if (typeof ack === 'function') ack({ error: message }); else socket.emit('room-error', { error: message });
+        if (typeof ack === 'function') ack({ error: message, status: error.status || 500 }); else socket.emit('room-error', { error: message });
         if (!error.status || error.status >= 500) console.error(JSON.stringify({ level: 'error', event: 'socket_action_failed', action: event }));
       }).finally(() => socket.pendingEvents--);
     });
+    socket.on('disconnect', reason => { stats.disconnects[reason] = (stats.disconnects[reason] || 0) + 1; });
     socket.emit('me', socket.id);
     socket.handle('auth-refresh', async (token, ack) => {
       if (!await store.limit(`auth-refresh:${socket.data.uid}`, 10, 60)) throw failure(429, 'Please wait before refreshing your sign-in.');
@@ -109,11 +119,19 @@ function createApplication(options = {}) {
       if (socket.data.roomId && socket.data.roomId !== roomId) throw failure(409, 'Leave the current room before joining another.');
       const name = userName.trim().replace(/[\u0000-\u001f\u007f]/g, '');
       const now = Date.now();
+      const sameClient = value => value.uid === socket.data.uid && value.clientId === socket.data.clientId;
+      const previousPresence = await store.get(`presence:${roomId}`) || [];
       await store.update(`presence:${roomId}`, current => {
-        const live = (current || []).filter(value => value.until > now && value.id !== socket.id);
+        const live = (current || []).filter(value => value.until > now && value.id !== socket.id && !sameClient(value));
         if (live.length >= config.maxRoomSize) throw failure(409, `This room is full (${config.maxRoomSize} people).`);
-        return [...live, { id: socket.id, uid: socket.data.uid, until: now + LEASE_SECONDS * 1000 }];
+        return [...live, { id: socket.id, uid: socket.data.uid, clientId: socket.data.clientId, until: now + LEASE_SECONDS * 1000 }];
       }, LEASE_SECONDS * 2);
+      // A reconnect reclaims this authenticated tab's seat even when the old
+      // process crashed before releasing its lease. Other tabs keep their seats.
+      for (const previous of previousPresence.filter(value => value.id !== socket.id && sameClient(value))) {
+        await removeMembership({ id: previous.id, data: { roomId } });
+        io.in(previous.id).disconnectSockets(true);
+      }
       const meta = await store.update(`room:${roomId}`, current => current || { ownerUid: socket.data.uid, createdAt: now }, config.roomTtl);
       await store.update(`youtube:${roomId}`, current => current || createState(), config.roomTtl);
       await store.set(`member:${roomId}:${socket.id}`, { uid: socket.data.uid }, LEASE_SECONDS);
@@ -123,7 +141,7 @@ function createApplication(options = {}) {
         return;
       }
       const alreadyJoined = socket.rooms.has(roomId);
-      socket.data.roomId = roomId; socket.data.userName = name; await socket.join(roomId);
+      socket.data.roomId = roomId; socket.data.userName = name; socket.membershipRenewedAt = now; await socket.join(roomId);
       if (!alreadyJoined) socket.to(roomId).emit('user-connected', { userId: socket.id, userName: name });
       const reply = { ok: true, mediaMode: config.mediaMode, mediaBase: config.mediaOrigin, canControl: config.controlPolicy === 'everyone' || meta.ownerUid === socket.data.uid, maxRoomSize: config.maxRoomSize };
       if (typeof ack === 'function') ack(reply); socket.emit('room-ready', reply);
@@ -172,7 +190,8 @@ function createApplication(options = {}) {
     });
     socket.on('disconnecting', () => {
       const roomId = socket.data.roomId; if (roomId) socket.to(roomId).emit('user-disconnected', socket.id);
-      removeMembership(socket).catch(() => {});
+      const removal = removeMembership(socket).catch(() => {}).finally(() => membershipRemovals.delete(removal));
+      membershipRemovals.add(removal);
     });
   });
   async function removeMembership(socket) {
@@ -182,21 +201,54 @@ function createApplication(options = {}) {
     await jellyfin.releaseSocket(socket, roomId);
     await store.update(`presence:${roomId}`, current => (current || []).filter(value => value.id !== socket.id && value.until > Date.now()), LEASE_SECONDS * 2);
   }
-  const heartbeat = setInterval(() => {
-    for (const socket of io.sockets.sockets.values()) {
-      if (socket.data.expiresAt <= Date.now()) { socket.emit('session-expired'); socket.disconnect(true); continue; }
-      const roomId = socket.data.roomId; if (!roomId) continue;
-      (async () => {
-        try { await identity.verify(socket.identityToken); }
-        catch { socket.emit('session-expired'); socket.disconnect(true); return; }
-        await store.set(`member:${roomId}:${socket.id}`, { uid: socket.data.uid }, LEASE_SECONDS);
-        if (!socket.connected || socket.data.roomId !== roomId) { await store.set(`member:${roomId}:${socket.id}`, null); return; }
-        const now = Date.now();
-        await store.update(`presence:${roomId}`, current => [...(current || []).filter(value => value.id !== socket.id && value.until > now), { id: socket.id, uid: socket.data.uid, until: now + LEASE_SECONDS * 1000 }], LEASE_SECONDS * 2);
-        await Promise.all(['room', 'youtube', 'jellyfin-room'].map(kind => store.touch(`${kind}:${roomId}`, config.roomTtl)));
-      })().catch(() => { socket.emit('room-error', { error: 'Room storage is reconnecting.' }); socket.disconnect(true); });
-    }
-  }, 20000); heartbeat.unref();
+  let heartbeatRunning = false;
+  async function renewMemberships() {
+    if (heartbeatRunning || closed) return;
+    heartbeatRunning = true;
+    try {
+      const rooms = new Map();
+      const sockets = [...io.sockets.sockets.values()];
+      // Bound Firebase/Redis concurrency and avoid N competing CAS updates of
+      // the same room presence array every heartbeat.
+      for (let offset = 0; offset < sockets.length; offset += 16) {
+        await Promise.all(sockets.slice(offset, offset + 16).map(async socket => {
+          if (!socket.connected) return;
+          if (socket.data.expiresAt <= Date.now()) { socket.emit('session-expired'); socket.conn.close(); return; }
+          if (socket.data.expiresAt - Date.now() < 120000 && socket.warnedExpiry !== socket.data.expiresAt) {
+            socket.warnedExpiry = socket.data.expiresAt; socket.emit('session-expiring');
+          }
+          const roomId = socket.data.roomId; if (!roomId) return;
+          try { await identity.verify(socket.identityToken); }
+          catch { socket.emit('session-expired'); socket.conn.close(); return; }
+          if (!rooms.has(roomId)) rooms.set(roomId, []);
+          rooms.get(roomId).push(socket);
+        }));
+      }
+      for (const [roomId, members] of rooms) {
+        try {
+          const now = Date.now();
+          await Promise.all(members.map(async socket => {
+            await store.set(`member:${roomId}:${socket.id}`, { uid: socket.data.uid }, LEASE_SECONDS);
+            if (!socket.connected || socket.data.roomId !== roomId) await store.set(`member:${roomId}:${socket.id}`, null);
+          }));
+          const live = members.filter(socket => socket.connected && socket.data.roomId === roomId);
+          const ids = new Set(members.map(socket => socket.id));
+          await store.update(`presence:${roomId}`, current => [
+            ...(current || []).filter(value => !ids.has(value.id) && value.until > now),
+            ...live.filter(socket => socket.connected && socket.data.roomId === roomId).map(socket => ({ id: socket.id, uid: socket.data.uid, clientId: socket.data.clientId, until: now + LEASE_SECONDS * 1000 })),
+          ], LEASE_SECONDS * 2);
+          await Promise.all(['room', 'youtube', 'jellyfin-room'].map(kind => store.touch(`${kind}:${roomId}`, config.roomTtl)));
+          live.forEach(socket => { socket.membershipRenewedAt = now; });
+        } catch {
+          stats.storageFailures++;
+          // Preserve live transports through short Redis interruptions. If the
+          // lease is near expiry, close the transport so Socket.IO retries.
+          for (const socket of members) if (Date.now() - socket.membershipRenewedAt >= 60000) socket.conn.close();
+        }
+      }
+    } finally { heartbeatRunning = false; }
+  }
+  const heartbeat = setInterval(() => { renewMemberships().catch(() => { stats.errors++; }); }, 20000); heartbeat.unref();
   const networkPolicy = { production: config.production, allowPrivate: config.allowPrivateJellyfin, origins: config.upstreamOrigins };
   const accounts = require('./jellyfinAccounts').installJellyfinAccounts(app, { ...(options.accountOptions || {}), ...(options.store ? { store } : {}), networkPolicy });
   const jellyfin = require('./jellyfin').installJellyfin(app, io, accounts, { store, canControl, production: config.production, networkPolicy, roomTtl: config.roomTtl, allowedOrigins: config.origins, publicOrigin: config.mediaOrigin, quality: config.jellyfinQuality });
@@ -217,11 +269,15 @@ function createApplication(options = {}) {
   async function close({ closeStore = true } = {}) {
     if (closed) return; closed = true; draining = true;
     clearInterval(heartbeat); eventLoop.disable(); jellyfin.close(); accounts.close();
+    // io.close() alone sends a namespace disconnect, which disables client
+    // auto-reconnection. A deployment must close transports instead.
+    for (const socket of io.sockets.sockets.values()) socket.conn.close(true);
     await new Promise(resolve => io.close(resolve));
+    await Promise.allSettled([...membershipRemovals]);
     await Promise.allSettled([redisPub?.isOpen && redisPub.quit(), redisSub?.isOpen && redisSub.quit()]);
     if (closeStore) await store.close(); await identity.close?.();
   }
   server.on('close', () => { clearInterval(heartbeat); eventLoop.disable(); accounts.close(); jellyfin.close(); });
-  return { app, server, io, store, identity, config, ready, close, drain: () => { draining = true; } };
+  return { app, server, io, store, identity, config, ready, close, renewMemberships, drain: () => { draining = true; } };
 }
 module.exports = { createApplication };

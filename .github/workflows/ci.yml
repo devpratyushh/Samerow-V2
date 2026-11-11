@@ -33,6 +33,10 @@ jobs:
         working-directory: SameRow/server
         env:
           TEST_REDIS_URL: redis://127.0.0.1:6379
+      - run: npm run test:reconnect
+        working-directory: SameRow/server
+        env:
+          TEST_REDIS_URL: redis://127.0.0.1:6379
       - run: npm test && npm run lint && npm run build
         working-directory: SameRow/client
       - run: npm audit --audit-level=high

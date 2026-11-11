@@ -1,6 +1,12 @@
+import { maintainCall } from './callRecovery';
+
 // One uplink per published track. LiveKit supplies congestion control,
 // simulcast, TURN fallback and selective subscriptions for group rooms.
-export async function connectGroupCall({ socket, roomId, stream, onPeers, onError, signal }) {
+export async function connectGroupCall(options) {
+  return maintainCall({ ...options, open: recovery => openGroupCall({ ...options, ...recovery }) });
+}
+
+async function openGroupCall({ socket, roomId, stream, onPeers, onError, signal, onDisconnected }) {
   const { Room, RoomEvent, Track } = await import('livekit-client');
   if (signal.aborted) return null;
   const credentials = await new Promise((resolve, reject) => socket.timeout(10000).emit('media-token', roomId, (error, reply) => error || reply?.error ? reject(new Error(reply?.error || 'Could not connect the call.')) : resolve(reply)));
@@ -33,10 +39,11 @@ export async function connectGroupCall({ socket, roomId, stream, onPeers, onErro
   };
   for (const event of [RoomEvent.ParticipantConnected, RoomEvent.ParticipantDisconnected, RoomEvent.TrackSubscribed, RoomEvent.TrackUnsubscribed, RoomEvent.TrackMuted, RoomEvent.TrackUnmuted, RoomEvent.TrackPublished, RoomEvent.TrackUnpublished, RoomEvent.Reconnected]) room.on(event, refresh);
   room.on(RoomEvent.MediaDevicesError, () => onError('The call lost access to your camera or microphone.'));
-  room.on(RoomEvent.Disconnected, () => { if (!signal.aborted) { onPeers([]); if (socket.connected) onError('The call disconnected. Rejoin the room to reconnect.'); } });
+  room.on(RoomEvent.Disconnected, () => { if (!signal.aborted) onDisconnected(); });
   let trackQueue = Promise.resolve();
   const syncTracks = () => {
     trackQueue = trackQueue.catch(() => {}).then(async () => {
+      if (signal.aborted) return;
       for (const kind of ['audio', 'video']) {
         const source = kind === 'audio' ? Track.Source.Microphone : Track.Source.Camera;
         const track = stream.getTracks().find(value => value.kind === kind && value.readyState === 'live');
@@ -56,10 +63,12 @@ export async function connectGroupCall({ socket, roomId, stream, onPeers, onErro
   return {
     syncTracks,
     async setMuted(kind, muted) {
+      if (signal.aborted) return;
       const publication = room.localParticipant.getTrackPublication(kind === 'audio' ? Track.Source.Microphone : Track.Source.Camera);
       if (publication?.track) await (muted ? publication.track.mute() : publication.track.unmute());
     },
     async publishScreen(screenStream) {
+      if (signal.aborted) return;
       for (const track of screenStream.getTracks()) await room.localParticipant.publishTrack(track, { source: track.kind === 'video' ? Track.Source.ScreenShare : Track.Source.ScreenShareAudio, name: `screen-${track.kind}`, simulcast: track.kind === 'video' });
     },
     async stopScreen() {

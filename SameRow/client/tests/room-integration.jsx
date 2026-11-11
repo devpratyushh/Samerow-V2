@@ -15,7 +15,7 @@ const mockSocket = {
   emit(name, ...args) { window.socketEmissions.push({name,args}); },
 };
 window.socketEmissions = [];
-const socket = params.get('server') ? io(params.get('server')) : mockSocket;
+const socket = params.get('server') ? io(params.get('server'), { auth: { clientId: crypto.randomUUID() } }) : mockSocket;
 if (params.get('server')) socket.onAnyOutgoing((name,...args)=>window.socketEmissions.push({name,args}));
 window.fixtureSocket = socket;
 function testStream() {
