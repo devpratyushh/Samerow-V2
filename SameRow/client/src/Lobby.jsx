@@ -25,10 +25,12 @@ function timeAgo(timestamp, now) {
   return `${Math.floor(minutes / 1440)}d ago`;
 }
 
-const Lobby = ({ joinRoom, generateRoom, hostedWebOrigin, serverUrl, initialRoom, userStream, toggleMute, toggleVideo, isMuted, isVideoOff, streamError, authUser, localEdition, serverConnected }) => {
+const Lobby = ({ joinRoom, generateRoom, hostedWebOrigin, serverUrl, initialRoom, userStream, toggleMute, toggleVideo, isMuted, isVideoOff, streamError, connectionError, authUser, localEdition, serverConnected }) => {
   const identity = authUser?.uid || null;
   const [generated, setGenerated] = useState(null);
   const [generating, setGenerating] = useState(false);
+  const [joining, setJoining] = useState(false);
+  const [joinError, setJoinError] = useState('');
   const [roomDraft, setRoomDraft] = useState(null);
   const [nameDraft, setNameDraft] = useState({ identity: null, value: '' });
   const [recentRooms, setRecentRooms] = useState(null);
@@ -50,13 +52,24 @@ const Lobby = ({ joinRoom, generateRoom, hostedWebOrigin, serverUrl, initialRoom
   const hasVideo = Boolean(userStream?.getVideoTracks().some((track) => track.readyState === 'live'));
   const showVideo = hasVideo && !isVideoOff;
   const initials = trimmedName ? trimmedName.split(/\s+/).slice(0, 2).map((word) => word[0]).join('').toUpperCase() : 'YOU';
-  const canJoin = serverConnected && validRoomCode(trimmedRoom) && Boolean(trimmedName);
+  const canJoin = serverConnected && !joining && validRoomCode(trimmedRoom) && Boolean(trimmedName);
 
   useEffect(() => {
     const video = videoRef.current;
     if (video) video.srcObject = userStream || null;
     return () => { if (video) video.srcObject = null; };
   }, [userStream]);
+
+  useEffect(() => {
+    if (!serverConnected || !generateRoom || initialRoom || roomDraft !== null || generating) return;
+    let cancelled = false;
+    generateRoom(false).then(({ code }) => {
+      if (!cancelled) setRoomDraft(current => current ?? code);
+    }).catch(() => {
+      // The user can still type a code or request another from the lobby.
+    });
+    return () => { cancelled = true; };
+  }, [generateRoom, generating, initialRoom, roomDraft, serverConnected]);
 
   const handleAuth = async () => {
     setAuthBusy(true);
@@ -72,13 +85,21 @@ const Lobby = ({ joinRoom, generateRoom, hostedWebOrigin, serverUrl, initialRoom
   };
 
   const rememberAndJoin = async (code) => {
-    if (!serverConnected || !validRoomCode(code) || !trimmedName) return;
+    if (!serverConnected || joining || !validRoomCode(code) || !trimmedName) return;
+    setJoining(true);
+    setJoinError('');
     if (authUser) {
       const entries = [{ code, timestamp: Date.now() }, ...history.filter((entry) => entry.code !== code)].slice(0, 5);
       setRecentRooms({ identity, entries });
       try { localStorage.setItem(`recent_rooms_${identity}`, JSON.stringify(entries)); } catch { /* Joining works if browser storage is unavailable. */ }
     }
-    try { await joinRoom(code, trimmedName, generated?.code === code ? generated.invite : undefined); } catch (error) { setFeedback(error.message || 'Could not join this room. Try again.'); }
+    try {
+      await joinRoom(code, trimmedName, generated?.code === code ? generated.invite : undefined);
+    } catch (error) {
+      setJoinError(error.message || 'Could not join this room. Try again.');
+    } finally {
+      setJoining(false);
+    }
   };
 
   const makeRoom = async privateRoom => {
@@ -134,8 +155,9 @@ const Lobby = ({ joinRoom, generateRoom, hostedWebOrigin, serverUrl, initialRoom
               <div className="lobby-field"><label htmlFor="lobby-name">Your name</label><input ref={nameRef} id="lobby-name" autoComplete="nickname" placeholder="Your name" maxLength={64} value={userName} onChange={(event) => setNameDraft({ identity, value: event.target.value })} aria-invalid={Boolean(nameError)} aria-describedby={nameError ? 'lobby-name-error' : undefined} required />{nameError && <span className="lobby-field-error" id="lobby-name-error">{nameError}</span>}</div>
               <div className="lobby-field"><label htmlFor="lobby-room">Room code</label><input id="lobby-room" autoComplete="off" autoCapitalize="none" spellCheck={false} placeholder="e.g. friday-movie" value={roomId} onChange={(event) => setRoomDraft(event.target.value)} aria-invalid={Boolean(roomError)} aria-describedby={roomError ? 'lobby-room-error' : 'lobby-room-hint'} required />{roomError ? <span className="lobby-field-error" id="lobby-room-error">{roomError}</span> : <span className="lobby-field-hint" id="lobby-room-hint">Use the same code as your friends.</span>}</div>
               {generateRoom && <button className="sr-button" type="button" disabled={!serverConnected || generating} onClick={() => makeRoom(false)}>Generate room code</button>}
-              <button className="lobby-join-button" type="submit" disabled={!canJoin}>{serverConnected ? 'Enter room' : 'Connecting…'}<FaArrowRight aria-hidden="true" /></button>
-              {!serverConnected && <p className="lobby-server-help" role="status">The server is waking up. You can fill in your details while you wait.</p>}
+              <button className="lobby-join-button" type="submit" disabled={!canJoin}>{joining ? 'Joining…' : serverConnected ? 'Enter room' : 'Connecting…'}<FaArrowRight aria-hidden="true" /></button>
+              {joinError && <p className="lobby-auth-feedback" role="alert">{joinError}</p>}
+              {!serverConnected && <p className="lobby-server-help" role="status">{connectionError || 'Connecting to the room server…'}</p>}
             </form>
             {hostedWebOrigin && <a href={hostedWebOrigin} target="_blank" rel="noreferrer">Share to SameRow Web</a>}
             {!localEdition && authUser && serverUrl && <ConnectorPairing serverUrl={serverUrl} onPrivateRoom={() => makeRoom(true)} disabled={!serverConnected || generating} />}

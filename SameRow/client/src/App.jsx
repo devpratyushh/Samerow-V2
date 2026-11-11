@@ -55,6 +55,15 @@ function subscribeToConnection(callback) {
   return () => { socket.off('connect', callback); socket.off('disconnect', callback); };
 }
 
+function generateRoom(privateRoom) {
+  return new Promise((resolve, reject) => {
+    socket.timeout(10000).emit('generate-room', privateRoom, (error, reply) => {
+      if (error || !reply?.code) reject(new Error(reply?.error || 'Could not generate a room code.'));
+      else resolve(reply);
+    });
+  });
+}
+
 function App() {
   const [hostedWebOrigin, setHostedWebOrigin] = useState('');
   const [roomInvite, setRoomInvite] = useState('');
@@ -179,17 +188,18 @@ function App() {
     });
   };
 
-  const generateRoom = privateRoom => new Promise((resolve, reject) => {
-    socket.timeout(10000).emit('generate-room', privateRoom, (error, reply) => {
-      if (error || !reply?.code) reject(new Error(reply?.error || 'Could not generate a room code.'));
-      else resolve(reply);
-    });
-  });
-
   const joinRoom = async (id, name, generatedInvite) => {
     const linkedInvite = id === initialRoomFromUrl ? new URLSearchParams(window.location.hash.slice(1)).get('invite') : '';
     const invite = generatedInvite || linkedInvite;
-    const reply = await new Promise((resolve, reject) => socket.timeout(10000).emit('join-room', id, name, ...(invite ? [invite] : []), (error, result) => error ? reject(new Error('The room did not respond. Try again.')) : resolve(result)));
+    let reply;
+    try {
+      reply = await socket.timeout(10000).emitWithAck('join-room', id, name, ...(invite ? [invite] : []));
+    } catch {
+      const config = await fetch(`${SOCKET_URL}/api/config`, { signal: AbortSignal.timeout(3000), cache: 'no-store' }).catch(() => null);
+      if (config?.status === 404) throw new Error('This room server needs an update before you can join.');
+      if (config?.status === 503 || !socket.connected) throw new Error('Lost connection to the room server. Try again when it reconnects.');
+      throw new Error('The room server did not confirm your join. Try again.');
+    }
     if (!reply?.ok) throw new Error(reply?.error || 'Could not join this room.');
     socket.roomConfig = reply; setRoomInvite(reply.invite || ''); setRoomId(id); setUserName(name);
   };
@@ -220,7 +230,8 @@ function App() {
           toggleVideo={toggleVideo}
           isMuted={isMuted}
           isVideoOff={isVideoOff}
-          streamError={connectionError || streamError}
+          streamError={streamError}
+          connectionError={connectionError}
           authUser={user?.isAnonymous ? null : user}
           localEdition={localEdition}
           serverConnected={serverConnected}

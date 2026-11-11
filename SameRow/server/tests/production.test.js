@@ -19,7 +19,7 @@ const next = (socket, event) => new Promise((resolve, reject) => {
   socket.once(event, receive);
 });
 async function start(t, options = {}) {
-  const application = createApplication({ config: config(options.config), store: options.store || new MemoryStore(), identity });
+  const application = createApplication({ config: config(options.config), store: options.store || new MemoryStore(), identity, mediaService: options.mediaService });
   await application.ready;
   await new Promise(resolve => application.server.listen(0, '127.0.0.1', resolve));
   application.url = `http://127.0.0.1:${application.server.address().port}`;
@@ -318,4 +318,58 @@ test('the Jellyfin pilot admits only four participants across control replicas',
   assert.match(denied.reply.error, /room is full \(4 people\)/i);
   await ack(guest.socket, 'leave-room', room);
   assert.equal((await ack(denied.socket, 'join-room', room, 'Viewer')).ok, true);
+});
+
+test('production control acknowledges a generated room join and the media service advertises the same deployment', {
+  skip: !process.env.TEST_REDIS_URL,
+}, async t => {
+  const settings = configuration({
+    NODE_ENV: 'production',
+    SERVICE_ROLE: 'control',
+    CLIENT_ORIGINS: 'https://samerow.example',
+    REDIS_URL: process.env.TEST_REDIS_URL,
+    REDIS_PREFIX: `samerow-deploy-test:${randomUUID()}`,
+    DATA_ENCRYPTION_KEY: 'd'.repeat(64),
+    FIREBASE_PROJECT_ID: 'project',
+    FIREBASE_SERVICE_ACCOUNT_JSON: '{}',
+    LIVEKIT_URL: 'wss://livekit.example',
+    LIVEKIT_API_KEY: 'example-key',
+    LIVEKIT_API_SECRET: 'example-secret',
+    MEDIA_PUBLIC_URL: 'https://media.example',
+    JELLYFIN_RELAY_ENABLED: 'true',
+  });
+  const createdRooms = [];
+  const mediaService = { createRoom: async options => { createdRooms.push(options); } };
+  const control = await start(t, { config: settings, store: await createStore(settings), mediaService });
+  const media = await start(t, {
+    config: { ...settings, serviceRole: 'media' }, store: await createStore(settings), mediaService,
+  });
+  const origin = settings.origins[0];
+  for (const [service, role] of [[control, 'control'], [media, 'media']]) {
+    const headers = { Origin: origin };
+    const ready = await fetch(service.url + '/health/ready', { headers });
+    assert.equal(ready.status, 200);
+    assert.equal(ready.headers.get('Access-Control-Allow-Origin'), origin);
+    const response = await fetch(service.url + '/api/config', { headers });
+    const result = await response.json();
+    assert.equal(result.role, role);
+    assert.equal(result.roomProtocol, 1);
+    assert.equal(result.firebaseProjectId, 'project');
+    assert.equal(result.mediaOrigin, settings.mediaOrigin);
+    assert.equal(result.maxRoomSize, 4);
+  }
+  const socket = connect(control.url, {
+    transports: ['websocket'], auth: { token: 'test:host' }, extraHeaders: { Origin: origin }, reconnection: false,
+  });
+  t.after(() => socket.disconnect());
+  await next(socket, 'connect');
+  const { code } = await ack(socket, 'generate-room', false);
+  assert.match(code, /^[A-Z0-9]{4}$/);
+  const joined = await ack(socket, 'join-room', code, 'Host');
+  assert.equal(joined.ok, true);
+  assert.equal(joined.mediaBase, settings.mediaOrigin);
+  const token = await ack(socket, 'media-token', code);
+  assert.equal(token.mode, 'livekit');
+  assert.match(token.token, /^[^.]+\.[^.]+\.[^.]+$/);
+  assert.equal(createdRooms[0].maxParticipants, 4);
 });

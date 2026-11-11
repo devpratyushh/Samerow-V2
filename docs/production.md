@@ -37,8 +37,13 @@ applying the Blueprint; this repository does not deploy or purchase resources.
 3. Review `render.yaml`. Attach it to the existing repository using a Render
    Blueprint, or apply its environment variables/build settings to the existing
    service and add the media/Key Value services manually. All three Render
-   services must share a region/private network. The Blueprint uses two paid
-   control instances, one media instance and persistent paid Key Value.
+   services must share a region/private network. The Blueprint tracks `main`
+   for both web services and uses two paid control instances, one media
+   instance and persistent paid Key Value. If the old Render service already
+   serves your site, update that service's branch and root directory rather
+   than leaving Vercel pointed at the old service. Set its root directory to
+   `SameRow/server`, build command to `npm ci --omit=dev`, start command to
+   `npm start`, and health check path to `/health/ready`.
 4. Add the required values manually to the `samerow-production` environment
    group (Render does not support secret prompts inside environment groups).
    Services remain unready until these are present; deploy/redeploy both after
@@ -59,16 +64,31 @@ applying the Blueprint; this repository does not deploy or purchase resources.
    Preserve the key separately from Redis backups. Changing it without migrating
    data makes existing credentials and room state unreadable. Use a different
    prefix, encryption key and credentials in staging.
-5. On the existing Vercel project, use root directory `SameRow/client`, Node 24,
-   `npm ci`, `npm run build`, and output directory `dist`. Set `VITE_SOCKET_URL`
-   to the control service's actual HTTPS URL. Set the four public Firebase web
-   variables in `SameRow/client/.env.example` to the same Firebase project.
-   `SameRow/client/vercel.json` supplies SPA routing and response headers.
-6. Deploy the backend and frontend together. Production startup refuses missing
-   Redis, encryption, origins, Firebase or LiveKit configuration and refuses
-   development authentication or mesh media. Verify `/health/ready` on both
-   Render services. The media service deliberately rejects Socket.IO clients;
-   the control service deliberately rejects native movie proxy requests.
+5. Deploy both Render services first. Production startup requires Redis,
+   encryption, origins, Firebase and LiveKit. Check that both public Render
+   URLs return HTTP 200 from `/health/ready`. On the control service, check
+   that `/api/config` reports `"role":"control"` and `"roomProtocol":1`.
+   A 404 here means Vercel would be talking to an older backend. In the pilot,
+   the Blueprint enables the Jellyfin relay and caps rooms at four.
+6. On the existing Vercel project, use production branch `main`, root
+   directory `SameRow/client`, Node 24, install command `npm ci`, and output
+   directory `dist`. Set `VITE_SOCKET_URL` to the control service's exact
+   HTTPS origin and set all four public Firebase web variables listed in
+   `SameRow/client/.env.example`. They must refer to the same Firebase
+   project as Render. Use the repository's build command from
+   `SameRow/client/vercel.json` and enable Vercel's system environment
+   variables. If the site uses a different production domain from the
+   Vercel default, set `SAMEROW_WEB_ORIGIN` to the exact HTTPS origin users
+   open. Include that origin in Render's `CLIENT_ORIGINS` and Firebase's
+   authorized domains.
+
+   The Vercel production build checks both Render services before publishing.
+   It rejects a stale endpoint, wrong service role, wrong Firebase project,
+   blocked browser origin, or unready service. Preview builds check the
+   environment variables. After Vercel deploys, open the production site,
+   create a room, and have a second browser join from the invite link. Check
+   that both browsers receive the call and that a private pilot room can
+   start Jellyfin playback when the host's connector is online.
 7. After the new backend/frontend are running, deploy `firestore.rules` with
    `firebase deploy --only firestore:rules --project YOUR_PROJECT`. These rules
    deny direct browser access to room collections; the Admin SDK still works.

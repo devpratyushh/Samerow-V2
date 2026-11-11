@@ -5,6 +5,7 @@ services:
     name: samerow-v2
     runtime: node
     plan: starter
+    branch: main
     rootDir: SameRow/server
     buildCommand: npm ci --omit=dev
     startCommand: npm start
@@ -21,8 +22,10 @@ services:
           property: connectionString
   - type: web
     name: samerow-media
+    numInstances: 1
     runtime: node
     plan: starter
+    branch: main
     rootDir: SameRow/server
     buildCommand: npm ci --omit=dev
     startCommand: npm start
@@ -56,6 +59,8 @@ envVarGroups:
         value: livekit
       - key: CONTROL_POLICY
         value: everyone
+      - key: JELLYFIN_RELAY_ENABLED
+        value: 'true'
       - key: MAX_ROOM_SIZE
         value: '4'
       - key: ROOM_TTL_SECONDS

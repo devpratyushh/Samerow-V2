@@ -59,7 +59,16 @@ function createApplication(options = {}) {
     try { if (draining || !infrastructureReady() || !await store.ping()) throw Error(); res.json({ status: 'ready' }); }
     catch { res.status(503).json({ status: 'unavailable' }); }
   });
-  app.get('/api/config', (req, res) => res.json({ auth: config.authMode, media: config.mediaMode, maxRoomSize: config.maxRoomSize, ...(config.jellyfinRelay ? { jellyfinRelay: true } : {}), ...(config.hostedWebOrigin ? { hostedWebOrigin: config.hostedWebOrigin } : {}) }));
+  app.get('/api/config', (req, res) => res.set('Cache-Control', 'no-store').json({
+    auth: config.authMode,
+    media: config.mediaMode,
+    maxRoomSize: config.maxRoomSize,
+    role: config.serviceRole,
+    roomProtocol: 1,
+    ...(config.production ? { firebaseProjectId: config.firebaseProjectId, mediaOrigin: config.mediaOrigin } : {}),
+    ...(config.jellyfinRelay ? { jellyfinRelay: true } : {}),
+    ...(config.hostedWebOrigin ? { hostedWebOrigin: config.hostedWebOrigin } : {}),
+  }));
   app.get('/metrics', (req, res) => {
     if (!process.env.METRICS_TOKEN || req.get('Authorization') !== `Bearer ${process.env.METRICS_TOKEN}`) return res.sendStatus(404);
     res.json({ ...stats, sockets: io.engine.clientsCount, eventLoopP99Ms: eventLoop.percentile(99) / 1e6, rssBytes: process.memoryUsage().rss });

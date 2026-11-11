@@ -5,20 +5,54 @@ screen. SameRow keeps playback in sync, so when someone pauses or skips ahead,
 everyone follows. Each person can adjust their own volume, and Jellyfin viewers
 can choose their own audio and subtitles.
 
-## Run with Docker
+## Install SameRow on your server with Docker
 
-Run SameRow on a computer that can reach your Jellyfin server. From the
-repository root, replace the example IP with your Jellyfin address and run:
+Use a home server or NAS that can reach your Jellyfin library. The commands
+below run **on that server**. If you're using a different computer, connect
+to the server over SSH first. You'll need Git, Docker Engine, and Docker
+Compose. [Docker installation instructions](https://docs.docker.com/engine/install/)
+
+### 1. Download SameRow
 
 ```sh
-JELLYFIN_ALLOWED_ORIGINS=http://192.168.1.50:8096 \
-  docker compose -f compose.local.yaml up --build -d
+docker compose version
+git clone https://github.com/devpratyushh/Samerow-V2.git
+cd Samerow-V2
 ```
 
-Open [localhost:8080](http://localhost:8080). This builds the image from the
-repository. The [Docker setup guide](docs/local-edition.md) shows how to let
-other devices on your network join. To invite friends through SameRow Web,
-follow the [Jellyfin pilot walkthrough](docs/jellyfin-pilot.md).
+### 2. Set your server and Jellyfin addresses
+
+Create `.env.local-docker` in the folder you just cloned. Replace
+`192.168.1.20` with the **SameRow server's LAN IP** and `192.168.1.50`
+with the **Jellyfin server's LAN IP**. Use the actual Jellyfin port if it
+differs from `8096`.
+
+```dotenv
+SAMEROW_BIND_IP=192.168.1.20
+SAMEROW_ORIGINS=http://192.168.1.20:8080
+JELLYFIN_ALLOWED_ORIGINS=http://192.168.1.50:8096
+```
+
+If Jellyfin is on the same server as Docker, you can use
+`http://host.docker.internal:8096` for the Jellyfin address, provided
+Jellyfin listens on an interface the container can reach.
+
+### 3. Start SameRow and open it
+
+```sh
+docker compose --env-file .env.local-docker -f compose.local.yaml up --build -d
+docker compose --env-file .env.local-docker -f compose.local.yaml ps
+```
+
+From your phone or computer on the same network, open
+`http://192.168.1.20:8080` using your **SameRow server's** IP. Enter your
+name, use the room code that SameRow fills in, and select **Enter room**.
+Choose **Share something → Your Jellyfin library** and sign in to Jellyfin.
+Use the room's invite button to bring in up to three guests.
+
+**[Read the full Docker guide →](docs/local-edition.md)** for alternate network
+setups, updates, and troubleshooting. For guests outside your home network,
+follow the [hosted Jellyfin pilot](docs/jellyfin-pilot.md).
 
 ![SameRow watch room with a shared video, participant tiles, and chat](docs/images/watch-room.jpg)
 
@@ -36,8 +70,8 @@ full, try again once someone leaves.
 
 ## Host a watch party
 
-1. Open SameRow, enter your name, and choose **Generate room code** for a random
-   four-character code, or enter a code of your own.
+1. Open SameRow and enter your name. The lobby fills in a random four-character
+   room code. You can generate another code or type one of your own.
 2. Select **Enter room** and use the invite button to share the room link.
 3. Open **Share something** to start a YouTube video, share your screen, or
    browse your Jellyfin library. When you're done, stop sharing from the room.

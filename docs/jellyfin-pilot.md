@@ -65,7 +65,7 @@ that `/api/config` reports `"maxRoomSize": 4` and `"jellyfinRelay": true`.
    If Jellyfin runs on the Docker host, use `http://host.docker.internal:8096`
    for the two Jellyfin settings. If Jellyfin uses a base path, include it in
    `SAMEROW_CONNECTOR_JELLYFIN_URL` and leave it out of the origin allowlist.
-   See the [local networking guide](local-edition.md#start-on-one-computer).
+   See the [local networking guide](local-edition.md#1-choose-your-jellyfin-address).
 
 3. From the repository root, start the container and check its status.
 
