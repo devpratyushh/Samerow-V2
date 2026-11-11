@@ -2,6 +2,12 @@ const { randomUUID, createHash } = require('node:crypto');
 
 function createIdentity(config) {
   if (config.authMode === 'development') return { verify: async token => ({ uid: typeof token === 'string' && token.startsWith('dev:') ? token.slice(4, 132) : token ? createHash('sha256').update(String(token)).digest('hex').slice(0, 32) : 'development-guest', exp: Math.floor(Date.now() / 1000) + 3600 }) };
+  if (config.authMode === 'local') return {
+    verify: async token => {
+      if (typeof token !== 'string' || !/^[a-f0-9]{64}$/.test(token)) throw new Error('Invalid local session.');
+      return { uid: createHash('sha256').update(token).digest('hex'), exp: Math.floor(Date.now() / 1000) + 3600 };
+    },
+  };
   const { initializeApp, cert } = require('firebase-admin/app');
   const { getAuth } = require('firebase-admin/auth');
   const { getFirestore } = require('firebase-admin/firestore');

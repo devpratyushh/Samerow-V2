@@ -4,6 +4,7 @@ const { pipeline } = require('node:stream/promises');
 const { MemoryStore } = require('./store');
 const { createQualityPolicy } = require('./jellyfinQuality');
 const { readText, readJson } = require('./upstreamBody');
+const { connectorId } = require('./jellyfinRelay');
 const { upstreamRequest, validateServerUrl } = require('./jellyfinAccounts');
 
 const idPattern = /^[a-zA-Z0-9_-]{1,128}$/;
@@ -74,9 +75,16 @@ function installJellyfin(app, io, accounts, options = {}) {
       const connection = payload.connectionToken && await accounts?.getConnection(payload.connectionToken);
       if (payload.connectionToken && (!connection || connection.ownerUid && connection.ownerUid !== socket.data.uid)) { ack({ error: 'Your Jellyfin connection expired. Sign in again from the library.' }); return; }
       if (options.production && !connection) { ack({ error: 'Sign in to your Jellyfin library first.' }); return; }
+      if (connectorId(connection?.base)) {
+        const room = await store.get(`room:${roomId}`);
+        if (!room?.invite || room.ownerUid !== socket.data.uid) {
+          ack({ error: 'Create a private web room to share from your Docker connector.' });
+          return;
+        }
+      }
       let base, apiToken;
       try {
-        base = validateServerUrl(connection?.base || payload.serverUrl, options.networkPolicy);
+        base = connection?.base || validateServerUrl(payload.serverUrl, options.networkPolicy);
         apiToken = connection?.apiToken || payload.apiToken;
         if (typeof itemId !== 'string' || !idPattern.test(itemId) || typeof apiToken !== 'string' || !/^[A-Za-z0-9._~-]{1,4096}$/.test(apiToken)) throw new Error();
       } catch { ack({ error: 'Choose a video from a connected Jellyfin library.' }); return; }

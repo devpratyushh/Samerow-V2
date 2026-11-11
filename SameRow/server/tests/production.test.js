@@ -265,3 +265,57 @@ test('a reconnect reclaims its authenticated tab seat in a full room without evi
   const presence = await app.store.get('presence:full-room');
   assert.equal(presence.length, 2); assert.ok(presence.some(member => member.uid === 'guest'));
 });
+
+test('generated codes are reserved and private rooms require the full invite link', async t => {
+  const application = await start(t);
+  const makeSocket = async user => {
+    const socket = connect(application.url, { transports: ['websocket'], auth: { token: `test:${user}` } });
+    t.after(() => socket.disconnect());
+    await next(socket, 'connect');
+    return socket;
+  };
+  const [host, guest] = await Promise.all([makeSocket('host'), makeSocket('guest')]);
+  const privateRoom = await ack(host, 'generate-room', true);
+  const publicRoom = await ack(host, 'generate-room', false);
+  assert.match(privateRoom.code, /^[A-Z0-9]{4}$/);
+  assert.match(publicRoom.code, /^[A-Z0-9]{4}$/);
+  assert.notEqual(privateRoom.code, publicRoom.code);
+  assert.match(privateRoom.invite, /^[a-f0-9]{48}$/);
+  assert.equal(publicRoom.invite, undefined);
+  assert.equal((await ack(guest, 'join-room', privateRoom.code, 'Guest')).status, 403);
+  assert.equal((await ack(guest, 'join-room', privateRoom.code, 'Guest', 'wrong-secret')).status, 403);
+  assert.equal((await ack(host, 'join-room', privateRoom.code, 'Host')).ok, true);
+  assert.equal((await ack(guest, 'join-room', privateRoom.code, 'Guest', privateRoom.invite)).ok, true);
+});
+
+test('the Jellyfin pilot admits only four participants across control replicas', {
+  skip: !process.env.TEST_REDIS_URL,
+}, async t => {
+  const settings = configuration({
+    JELLYFIN_RELAY_ENABLED: 'true',
+    MAX_ROOM_SIZE: '25',
+    MEDIA_PUBLIC_URL: 'https://media.example',
+    REDIS_URL: process.env.TEST_REDIS_URL,
+    DATA_ENCRYPTION_KEY: 'c'.repeat(64),
+    REDIS_PREFIX: `samerow-pilot-test:${randomUUID()}`,
+  });
+  assert.equal(settings.maxRoomSize, 4);
+  const first = await start(t, { store: await createStore(settings), config: settings });
+  const second = await start(t, { store: await createStore(settings), config: settings });
+  const room = 'pilot';
+  const host = await join(t, first, room, 'pilot-host');
+  const guest = await join(t, second, room, 'pilot-guest');
+  const third = await join(t, first, room, 'pilot-third');
+  assert.ok([host, guest, third].every(member => member.reply.ok));
+  assert.equal(host.reply.maxRoomSize, 4);
+  const contenders = await Promise.all([
+    join(t, first, room, 'pilot-fourth'),
+    join(t, second, room, 'pilot-fifth'),
+  ]);
+  assert.equal(contenders.filter(member => member.reply.ok).length, 1);
+  const denied = contenders.find(member => !member.reply.ok);
+  assert.equal(denied.reply.status, 409);
+  assert.match(denied.reply.error, /room is full \(4 people\)/i);
+  await ack(guest.socket, 'leave-room', room);
+  assert.equal((await ack(denied.socket, 'join-room', room, 'Viewer')).ok, true);
+});

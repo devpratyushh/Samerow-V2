@@ -57,7 +57,7 @@ envVarGroups:
       - key: CONTROL_POLICY
         value: everyone
       - key: MAX_ROOM_SIZE
-        value: '25'
+        value: '4'
       - key: ROOM_TTL_SECONDS
         value: '86400'
       - key: REDIS_PREFIX

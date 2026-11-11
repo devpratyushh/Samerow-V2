@@ -26,7 +26,7 @@ function createFallbackStream() {
   return stream;
 }
 
-export default function Room({ socket, roomId, userName, leaveRoom, userStream, initialMuted, initialVideoOff }) {
+export default function Room({ socket, roomId, roomInvite, userName, leaveRoom, userStream, initialMuted, initialVideoOff }) {
   const [activeStream] = useState(() => userStream || createFallbackStream());
   const [ownsFallback] = useState(() => !userStream);
   const [peers, setPeers] = useState([]);
@@ -133,7 +133,7 @@ export default function Room({ socket, roomId, userName, leaveRoom, userStream, 
     };
     socket.on('disconnect', disconnected);
     socket.on('user-connected', userConnected); socket.on('user-disconnected', userDisconnected); socket.on('signal', signal); socket.on('user-state-updated', stateUpdated);
-    const stopMembership = maintainRoomMembership({ socket, roomId, userName,
+    const stopMembership = maintainRoomMembership({ socket, roomId, userName, invite: roomInvite,
       onReady: reply => onRoomReady(reply), onWaiting: () => setConnected(false), onError: message => notify(message),
     });
     return () => {
@@ -144,7 +144,7 @@ export default function Room({ socket, roomId, userName, leaveRoom, userStream, 
       screenStreamRef.current?.getTracks().forEach(track => track.stop());
       if (ownsFallback) activeStream.getTracks().forEach(track => track.stop());
     };
-  }, [socket, roomId, userName, activeStream, ownsFallback]);
+  }, [socket, roomId, roomInvite, userName, activeStream, ownsFallback]);
   useEffect(() => {
     if (mediaMode !== 'livekit' || !connected) return;
     const controller = new AbortController();
@@ -231,6 +231,7 @@ export default function Room({ socket, roomId, userName, leaveRoom, userStream, 
   };
   const invite = async () => {
     const url = new URL('/', window.location.origin); url.searchParams.set('room', roomId);
+    if (roomInvite) url.hash = new URLSearchParams({ invite: roomInvite }).toString();
     try { await navigator.clipboard.writeText(url.href); notify('Invite link copied.'); }
     catch { notify(`Invite your friends: ${url.href}`); }
   };

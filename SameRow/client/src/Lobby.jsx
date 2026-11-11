@@ -3,6 +3,7 @@ import { FaArrowRight, FaGoogle, FaHistory, FaMicrophone, FaMicrophoneSlash, FaS
 import { signInWithPopup, signOut } from 'firebase/auth';
 import { auth, googleProvider } from './firebase';
 import './Lobby.css';
+import ConnectorPairing from './components/ConnectorPairing';
 
 const validRoomCode = (value) => /^[a-zA-Z0-9_-]{1,64}$/.test(value);
 
@@ -24,8 +25,10 @@ function timeAgo(timestamp, now) {
   return `${Math.floor(minutes / 1440)}d ago`;
 }
 
-const Lobby = ({ joinRoom, initialRoom, userStream, toggleMute, toggleVideo, isMuted, isVideoOff, streamError, authUser, serverConnected }) => {
+const Lobby = ({ joinRoom, generateRoom, hostedWebOrigin, serverUrl, initialRoom, userStream, toggleMute, toggleVideo, isMuted, isVideoOff, streamError, authUser, localEdition, serverConnected }) => {
   const identity = authUser?.uid || null;
+  const [generated, setGenerated] = useState(null);
+  const [generating, setGenerating] = useState(false);
   const [roomDraft, setRoomDraft] = useState(null);
   const [nameDraft, setNameDraft] = useState({ identity: null, value: '' });
   const [recentRooms, setRecentRooms] = useState(null);
@@ -75,7 +78,18 @@ const Lobby = ({ joinRoom, initialRoom, userStream, toggleMute, toggleVideo, isM
       setRecentRooms({ identity, entries });
       try { localStorage.setItem(`recent_rooms_${identity}`, JSON.stringify(entries)); } catch { /* Joining works if browser storage is unavailable. */ }
     }
-    try { await joinRoom(code, trimmedName); } catch (error) { setFeedback(error.message || 'Could not join this room. Try again.'); }
+    try { await joinRoom(code, trimmedName, generated?.code === code ? generated.invite : undefined); } catch (error) { setFeedback(error.message || 'Could not join this room. Try again.'); }
+  };
+
+  const makeRoom = async privateRoom => {
+    setGenerating(true);
+    setFeedback('');
+    try {
+      const next = await generateRoom(privateRoom);
+      setGenerated(next);
+      setRoomDraft(next.code);
+    } catch (error) { setFeedback(error.message); }
+    finally { setGenerating(false); }
   };
 
   const handleSubmit = (event) => {
@@ -119,11 +133,15 @@ const Lobby = ({ joinRoom, initialRoom, userStream, toggleMute, toggleVideo, isM
             <form className="lobby-form" onSubmit={handleSubmit} noValidate>
               <div className="lobby-field"><label htmlFor="lobby-name">Your name</label><input ref={nameRef} id="lobby-name" autoComplete="nickname" placeholder="Your name" maxLength={64} value={userName} onChange={(event) => setNameDraft({ identity, value: event.target.value })} aria-invalid={Boolean(nameError)} aria-describedby={nameError ? 'lobby-name-error' : undefined} required />{nameError && <span className="lobby-field-error" id="lobby-name-error">{nameError}</span>}</div>
               <div className="lobby-field"><label htmlFor="lobby-room">Room code</label><input id="lobby-room" autoComplete="off" autoCapitalize="none" spellCheck={false} placeholder="e.g. friday-movie" value={roomId} onChange={(event) => setRoomDraft(event.target.value)} aria-invalid={Boolean(roomError)} aria-describedby={roomError ? 'lobby-room-error' : 'lobby-room-hint'} required />{roomError ? <span className="lobby-field-error" id="lobby-room-error">{roomError}</span> : <span className="lobby-field-hint" id="lobby-room-hint">Use the same code as your friends.</span>}</div>
+              {generateRoom && <button className="sr-button" type="button" disabled={!serverConnected || generating} onClick={() => makeRoom(false)}>Generate room code</button>}
               <button className="lobby-join-button" type="submit" disabled={!canJoin}>{serverConnected ? 'Enter room' : 'Connecting…'}<FaArrowRight aria-hidden="true" /></button>
               {!serverConnected && <p className="lobby-server-help" role="status">The server is waking up. You can fill in your details while you wait.</p>}
             </form>
+            {hostedWebOrigin && <a href={hostedWebOrigin} target="_blank" rel="noreferrer">Share to SameRow Web</a>}
+            {!localEdition && authUser && serverUrl && <ConnectorPairing serverUrl={serverUrl} onPrivateRoom={() => makeRoom(true)} disabled={!serverConnected || generating} />}
+            {generated?.invite && generated.code === trimmedRoom && <p>Private room. Invite guests using the link inside the room.</p>}
             <div className="lobby-auth">
-              {authUser ? <div className="lobby-profile">{authUser.photoURL ? <img src={authUser.photoURL} alt="" referrerPolicy="no-referrer" /> : <span className="lobby-profile-avatar" aria-hidden="true">{initials}</span>}<div><strong>{authUser.displayName || 'Signed in'}</strong><span>Recent rooms saved to this browser</span></div><button className="lobby-signout" type="button" onClick={handleAuth} disabled={authBusy} aria-label="Sign out" title="Sign out"><FaSignOutAlt aria-hidden="true" /></button></div> : <><div className="lobby-divider"><span>or save your recent rooms</span></div><button className="lobby-google-button" type="button" onClick={handleAuth} disabled={authBusy}><FaGoogle aria-hidden="true" />{authBusy ? 'Opening sign-in…' : 'Continue with Google'}</button><p className="lobby-guest-note">No account needed to join.</p></>}
+              {!localEdition && (authUser ? <div className="lobby-profile">{authUser.photoURL ? <img src={authUser.photoURL} alt="" referrerPolicy="no-referrer" /> : <span className="lobby-profile-avatar" aria-hidden="true">{initials}</span>}<div><strong>{authUser.displayName || 'Signed in'}</strong><span>Recent rooms saved to this browser</span></div><button className="lobby-signout" type="button" onClick={handleAuth} disabled={authBusy} aria-label="Sign out" title="Sign out"><FaSignOutAlt aria-hidden="true" /></button></div> : <><div className="lobby-divider"><span>or save your recent rooms</span></div><button className="lobby-google-button" type="button" onClick={handleAuth} disabled={authBusy}><FaGoogle aria-hidden="true" />{authBusy ? 'Opening sign-in…' : 'Continue with Google'}</button><p className="lobby-guest-note">No account needed to join.</p></>)}
               {feedback && <p className="lobby-auth-feedback" role="status">{feedback}</p>}
             </div>
             {authUser && history.length > 0 && <section className="lobby-history" aria-labelledby="lobby-history-heading"><h3 id="lobby-history-heading"><FaHistory aria-hidden="true" />Recent rooms</h3><ul>{history.map((entry) => <li key={entry.code}><button type="button" onClick={() => joinRecentRoom(entry.code)} disabled={!serverConnected} title={`Join ${entry.code}`}><span className="lobby-history-code">{entry.code}</span><span className="lobby-history-time">{timeAgo(entry.timestamp, now)}</span><FaArrowRight aria-hidden="true" /></button></li>)}</ul></section>}

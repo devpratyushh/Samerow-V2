@@ -10,6 +10,7 @@ const { randomBytes, randomUUID } = require('node:crypto');
 const idPattern = /^[a-zA-Z0-9_-]{1,128}$/;
 const validId = value => typeof value === 'string' && idPattern.test(value);
 const tokenPattern = /^[a-f0-9]{64}$/;
+const { connectorId } = require('./jellyfinRelay');
 const upstreamTokenPattern = /^[A-Za-z0-9._~-]{1,4096}$/;
 const idleLifetime = 30 * 24 * 60 * 60 * 1000;
 const quickLifetime = 10 * 60 * 1000;
@@ -124,7 +125,14 @@ function normalizeItem(item) {
 function installJellyfinAccounts(app, options = {}) {
   const connections = new Map(), pending = new Map(), limits = new Map();
   const shared = options.store;
-  const request = (connection, resource, opts = {}) => upstreamRequest(connection, resource, { ...opts, networkPolicy: options.networkPolicy });
+  const request = (connection, resource, opts = {}) => options.relay && connectorId(connection.base)
+    ? options.relay.request(connection, resource, opts)
+    : upstreamRequest(connection, resource, { ...opts, networkPolicy: options.networkPolicy });
+  const resolveBase = async (value, uid) => {
+    const candidate = typeof value === 'string' ? value.trim() : '';
+    if (options.relay && await options.relay.authorize(candidate, uid)) return candidate;
+    return validateServerUrl(value, options.networkPolicy);
+  };
   const getPending = key => shared ? shared.get(`quick:${key}`) : pending.get(key);
   const putPending = (key, value) => shared ? shared.set(`quick:${key}`, value, 600) : pending.set(key, value);
   const deletePending = key => shared ? shared.set(`quick:${key}`, null) : pending.delete(key);
@@ -231,7 +239,7 @@ function installJellyfinAccounts(app, options = {}) {
   router.post('/login', parseJson, wrap(async (req, res) => {
     const { serverUrl, username, password, remember } = req.body || {};
     if (typeof username !== 'string' || !username.trim() || username.length > 256 || typeof password !== 'string' || password.length > 4096 || (remember !== undefined && typeof remember !== 'boolean')) throw failure(400, 'Enter your Jellyfin username and password.');
-    const connection = { base: validateServerUrl(serverUrl, options.networkPolicy), deviceId: randomUUID() };
+    const connection = { base: await resolveBase(serverUrl, req.identity?.uid), deviceId: randomUUID() };
     const result = await jsonRequest(connection, '/Users/AuthenticateByName', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ Username: username.trim(), Pw: password }) }, true);
     res.json(await completeLogin(connection, result, remember, req.identity?.uid));
   }, true));
@@ -250,7 +258,7 @@ function installJellyfinAccounts(app, options = {}) {
     const { serverUrl, remember } = req.body || {};
     if (remember !== undefined && typeof remember !== 'boolean') throw failure(400, 'Choose whether to remember this connection.');
     if (pending.size >= 1000) throw failure(503, 'Too many sign-ins are waiting. Try again shortly.');
-    const connection = { base: validateServerUrl(serverUrl, options.networkPolicy), deviceId: randomUUID() };
+    const connection = { base: await resolveBase(serverUrl, req.identity?.uid), deviceId: randomUUID() };
     const result = await jsonRequest(connection, '/QuickConnect/Initiate', { method: 'POST' });
     if (typeof result.Secret !== 'string' || !result.Secret || result.Secret.length > 4096 || typeof result.Code !== 'string' || !/^[A-Z0-9]{4,16}$/i.test(result.Code)) throw failure(502, 'Jellyfin did not return a Quick Connect code. Check that Quick Connect is enabled.');
     const id = mintToken(), expiresAt = Date.now() + quickLifetime;

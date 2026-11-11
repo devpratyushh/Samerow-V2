@@ -1,0 +1,23 @@
+services:
+  samerow:
+    image: samerow-local
+    build:
+      context: .
+      dockerfile: Dockerfile.local
+    restart: unless-stopped
+    ports:
+      - "${SAMEROW_BIND_IP:-127.0.0.1}:${SAMEROW_PORT:-8080}:3000"
+    environment:
+      CLIENT_ORIGINS: "${SAMEROW_ORIGINS:-http://localhost:8080,http://127.0.0.1:8080}"
+      JELLYFIN_ALLOWED_ORIGINS: "${JELLYFIN_ALLOWED_ORIGINS:?Set JELLYFIN_ALLOWED_ORIGINS to your Jellyfin server origin}"
+      SAMEROW_HOSTED_WEB_ORIGIN: "${SAMEROW_HOSTED_WEB_ORIGIN:-}"
+      SAMEROW_CONNECTOR_TOKEN: "${SAMEROW_CONNECTOR_TOKEN:-}"
+      SAMEROW_CONNECTOR_GATEWAY: "${SAMEROW_CONNECTOR_GATEWAY:-}"
+      SAMEROW_CONNECTOR_JELLYFIN_URL: "${SAMEROW_CONNECTOR_JELLYFIN_URL:-}"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - samerow-data:/data
+
+volumes:
+  samerow-data:

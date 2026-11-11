@@ -1,3 +1,4 @@
+import { browserId } from './browserId';
 import { useEffect, useEffectEvent, useRef, useState } from 'react';
 import { FaFilm, FaStop } from 'react-icons/fa';
 import { jellyfinTime } from './jellyfinRoom';
@@ -8,7 +9,7 @@ import JellyfinQuality from './JellyfinQuality';
 
 export default function JellyfinNativePlayer({ state, base, command, connected, focused, onBrowse }) {
   const frameRef = useRef(null);
-  const [channel] = useState(() => crypto.randomUUID());
+  const [channel] = useState(() => browserId());
   const [attempt, setAttempt] = useState(0);
   const [qualityNote, setQualityNote] = useState('');
   const [status, setStatus] = useState({ phase: 'loading' });

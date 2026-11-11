@@ -1,3 +1,4 @@
+import { browserId } from './browserId';
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { FaArrowDown, FaComments, FaPaperPlane, FaTimes } from 'react-icons/fa';
 import Dialog from './components/Dialog';
@@ -129,7 +130,7 @@ export default function Chat({ socket, roomId, userName, onClose, open = true, o
         setMessages((previous) => [...previous, { id: `preview-${Date.now()}`, text, sender: userName, createdAt: new Date() }]);
       } else {
         if (!socket?.connected) throw new Error('Wait for the room to reconnect.');
-        if (pendingMessage.current?.text !== text) pendingMessage.current = { id: crypto.randomUUID(), text };
+        if (pendingMessage.current?.text !== text) pendingMessage.current = { id: browserId(), text };
         const reply = await new Promise((resolve, reject) => socket.timeout(10000).emit('chat-send', { roomId, ...pendingMessage.current }, (error, result) => error ? reject(error) : resolve(result)));
         if (reply?.error) throw new Error(reply.error);
         pendingMessage.current = null;

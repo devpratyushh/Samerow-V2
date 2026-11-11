@@ -1,0 +1,18 @@
+FROM node:24-bookworm-slim AS web
+WORKDIR /app/SameRow/client
+COPY SameRow/client/package*.json ./
+RUN npm ci
+COPY SameRow/client/ ./
+RUN VITE_SAMEROW_LOCAL_EDITION=true npm run build
+
+FROM node:24-bookworm-slim
+WORKDIR /app/SameRow/server
+ENV SAMEROW_LOCAL_EDITION=true PORT=3000 SAMEROW_DATA_DIR=/data
+COPY SameRow/server/package*.json ./
+RUN npm ci --omit=dev && mkdir /data && chown node:node /data
+COPY SameRow/server/ ./
+COPY --from=web /app/SameRow/client/dist ../client/dist
+USER node
+EXPOSE 3000
+VOLUME ["/data"]
+CMD ["node", "index.js"]

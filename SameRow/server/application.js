@@ -1,6 +1,6 @@
 const express = require('express');
 const http = require('node:http');
-const { randomUUID } = require('node:crypto');
+const { randomUUID, randomBytes, randomInt } = require('node:crypto');
 const { monitorEventLoopDelay } = require('node:perf_hooks');
 const { Server } = require('socket.io');
 const helmet = require('helmet');
@@ -26,6 +26,8 @@ function createApplication(options = {}) {
   const infrastructureReady = () => store.ready && (!store.client || redisPub?.isReady && redisSub?.isReady);
   const eventLoop = monitorEventLoopDelay({ resolution: 20 }); eventLoop.enable();
   const stats = { startedAt: Date.now(), events: 0, rejected: 0, errors: 0, storageFailures: 0, disconnects: {} };
+  const localHosts = new Set(config.origins.map(origin => new URL(origin).host));
+  const hostAllowed = req => !config.localEdition || localHosts.has(req.headers.host);
   const originAllowed = origin => !origin || config.origins.includes(origin) || !config.production && !config.origins.length;
   // The Jellyfin iframe deliberately has an opaque sandbox origin. Only its
   // scoped gateway accepts Origin:null; account APIs and signaling reject it.
@@ -33,6 +35,7 @@ function createApplication(options = {}) {
   app.disable('x-powered-by'); app.set('trust proxy', config.production ? 1 : false);
   app.use(helmet({ contentSecurityPolicy: false, crossOriginEmbedderPolicy: false, crossOriginResourcePolicy: { policy: 'cross-origin' }, frameguard: false }));
   app.use((req, res, next) => {
+    if (!hostAllowed(req)) return res.status(403).send('Open SameRow using its configured local address.');
     const requestId = randomUUID(), started = Date.now(); res.set('X-Request-Id', requestId);
     res.on('finish', () => {
       // Raw URLs contain media bearer capabilities; never log them or headers.
@@ -56,7 +59,7 @@ function createApplication(options = {}) {
     try { if (draining || !infrastructureReady() || !await store.ping()) throw Error(); res.json({ status: 'ready' }); }
     catch { res.status(503).json({ status: 'unavailable' }); }
   });
-  app.get('/api/config', (req, res) => res.json({ auth: config.authMode, media: config.mediaMode, maxRoomSize: config.maxRoomSize }));
+  app.get('/api/config', (req, res) => res.json({ auth: config.authMode, media: config.mediaMode, maxRoomSize: config.maxRoomSize, ...(config.jellyfinRelay ? { jellyfinRelay: true } : {}), ...(config.hostedWebOrigin ? { hostedWebOrigin: config.hostedWebOrigin } : {}) }));
   app.get('/metrics', (req, res) => {
     if (!process.env.METRICS_TOKEN || req.get('Authorization') !== `Bearer ${process.env.METRICS_TOKEN}`) return res.sendStatus(404);
     res.json({ ...stats, sockets: io.engine.clientsCount, eventLoopP99Ms: eventLoop.percentile(99) / 1e6, rssBytes: process.memoryUsage().rss });
@@ -69,7 +72,7 @@ function createApplication(options = {}) {
     transports: config.production ? ['websocket'] : ['websocket', 'polling'], maxHttpBufferSize: 64 * 1024, serveClient: false,
     pingInterval: 25000, pingTimeout: 30000,
     allowRequest: (req, callback) => {
-      if (draining || !infrastructureReady() || config.serviceRole === 'media' || !originAllowed(req.headers.origin)) return callback('Unavailable', false);
+      if (draining || !infrastructureReady() || config.serviceRole === 'media' || !hostAllowed(req) || !originAllowed(req.headers.origin)) return callback('Unavailable', false);
       const ip = config.production ? String(req.headers['x-forwarded-for'] || req.socket.remoteAddress).split(',').at(-1).trim() : req.socket.remoteAddress;
       store.limit(`connect:${ip}`, config.maxConnectionsPerIp || 600, 60).then(ok => callback(ok ? null : 'Too many connections', ok)).catch(() => callback('Unavailable', false));
     },
@@ -114,9 +117,34 @@ function createApplication(options = {}) {
       if (user.uid !== socket.data.uid) { socket.disconnect(true); return; }
       socket.identityToken = token; socket.data.expiresAt = user.exp * 1000; if (typeof ack === 'function') ack({ ok: true });
     });
-    socket.handle('join-room', async (roomId, userName, ack) => {
+    socket.handle('generate-room', async (privateRoom, ack) => {
+      if (typeof ack !== 'function') return;
+      if (!await store.limit(`generate-room:${socket.data.uid}`, 10, 60)) throw failure(429, 'Wait before generating another room code.');
+      const invite = privateRoom === true ? randomBytes(24).toString('hex') : undefined;
+      for (let attempt = 0; attempt < 12; attempt++) {
+        const code = randomInt(36 ** 4).toString(36).padStart(4, '0').toUpperCase();
+        try {
+          await store.update(`room:${code}`, current => {
+            if (current) throw failure(409, 'Room code is in use.');
+            return { ownerUid: socket.data.uid, createdAt: Date.now(), invite };
+          }, 300);
+          return ack({ code, invite });
+        } catch (error) {
+          if (error.status !== 409) throw error;
+        }
+      }
+      throw failure(503, 'Could not reserve a room code. Try again.');
+    });
+    socket.handle('join-room', async (roomId, userName, invite, ack) => {
+      if (typeof invite === 'function') { ack = invite; invite = undefined; }
       if (!validRoom(roomId) || typeof userName !== 'string' || !userName.trim() || userName.length > 80) throw failure(400, 'Use a valid room code and a name of at most 80 characters.');
       if (socket.data.roomId && socket.data.roomId !== roomId) throw failure(409, 'Leave the current room before joining another.');
+      const reserved = await store.update(`room:${roomId}`, current => {
+        if (current?.invite && current.ownerUid !== socket.data.uid && current.invite !== invite) {
+          throw failure(403, 'This room requires an invite link.');
+        }
+        return current || { ownerUid: socket.data.uid, createdAt: Date.now() };
+      }, config.roomTtl);
       const name = userName.trim().replace(/[\u0000-\u001f\u007f]/g, '');
       const now = Date.now();
       const sameClient = value => value.uid === socket.data.uid && value.clientId === socket.data.clientId;
@@ -132,7 +160,6 @@ function createApplication(options = {}) {
         await removeMembership({ id: previous.id, data: { roomId } });
         io.in(previous.id).disconnectSockets(true);
       }
-      const meta = await store.update(`room:${roomId}`, current => current || { ownerUid: socket.data.uid, createdAt: now }, config.roomTtl);
       await store.update(`youtube:${roomId}`, current => current || createState(), config.roomTtl);
       await store.set(`member:${roomId}:${socket.id}`, { uid: socket.data.uid }, LEASE_SECONDS);
       if (!socket.connected) {
@@ -143,7 +170,7 @@ function createApplication(options = {}) {
       const alreadyJoined = socket.rooms.has(roomId);
       socket.data.roomId = roomId; socket.data.userName = name; socket.membershipRenewedAt = now; await socket.join(roomId);
       if (!alreadyJoined) socket.to(roomId).emit('user-connected', { userId: socket.id, userName: name });
-      const reply = { ok: true, mediaMode: config.mediaMode, mediaBase: config.mediaOrigin, canControl: config.controlPolicy === 'everyone' || meta.ownerUid === socket.data.uid, maxRoomSize: config.maxRoomSize };
+      const reply = { ok: true, mediaMode: config.mediaMode, mediaBase: config.mediaOrigin, canControl: config.controlPolicy === 'everyone' || reserved.ownerUid === socket.data.uid, invite: reserved.invite, maxRoomSize: config.maxRoomSize };
       if (typeof ack === 'function') ack(reply); socket.emit('room-ready', reply);
     });
     socket.handle('sync-request', async (roomId, ack) => {
@@ -249,10 +276,15 @@ function createApplication(options = {}) {
     } finally { heartbeatRunning = false; }
   }
   const heartbeat = setInterval(() => { renewMemberships().catch(() => { stats.errors++; }); }, 20000); heartbeat.unref();
+  const relay = require('./jellyfinRelay').installJellyfinRelay(app, { config, store, identity });
   const networkPolicy = { production: config.production, allowPrivate: config.allowPrivateJellyfin, origins: config.upstreamOrigins };
-  const accounts = require('./jellyfinAccounts').installJellyfinAccounts(app, { ...(options.accountOptions || {}), ...(options.store ? { store } : {}), networkPolicy });
+  const accounts = require('./jellyfinAccounts').installJellyfinAccounts(app, { ...(options.accountOptions || {}), relay, ...(options.store ? { store } : {}), networkPolicy });
   const jellyfin = require('./jellyfin').installJellyfin(app, io, accounts, { store, canControl, production: config.production, networkPolicy, roomTtl: config.roomTtl, allowedOrigins: config.origins, publicOrigin: config.mediaOrigin, quality: config.jellyfinQuality });
   require('./chat').installChat(io, { store, identity });
+  if (config.localEdition) {
+    const webRoot = require('node:path').resolve(__dirname, '../client/dist');
+    app.use(express.static(webRoot));
+  }
   app.use((error, req, res, next) => {
     if (res.headersSent) { res.destroy(); return; }
     const status = error.type === 'entity.too.large' ? 413 : error instanceof SyntaxError ? 400 : error.status || 500;
@@ -268,7 +300,7 @@ function createApplication(options = {}) {
   })();
   async function close({ closeStore = true } = {}) {
     if (closed) return; closed = true; draining = true;
-    clearInterval(heartbeat); eventLoop.disable(); jellyfin.close(); accounts.close();
+    clearInterval(heartbeat); eventLoop.disable(); relay?.close(); jellyfin.close(); accounts.close();
     // io.close() alone sends a namespace disconnect, which disables client
     // auto-reconnection. A deployment must close transports instead.
     for (const socket of io.sockets.sockets.values()) socket.conn.close(true);

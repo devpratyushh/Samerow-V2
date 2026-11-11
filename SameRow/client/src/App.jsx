@@ -1,3 +1,4 @@
+import { browserId, randomHex } from './browserId';
 import { useState, useEffect, useSyncExternalStore } from 'react';
 import io from 'socket.io-client';
 import Lobby from './Lobby';
@@ -10,8 +11,24 @@ import { onIdTokenChanged, signInAnonymously } from 'firebase/auth';
 import { configureSession } from './session';
 import { maintainSession } from './sessionRecovery';
 
-const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || (import.meta.env.DEV ? window.location.origin : 'https://samerow-v2.onrender.com');
-const clientId = crypto.randomUUID();
+const localEdition = import.meta.env.VITE_SAMEROW_LOCAL_EDITION === 'true';
+const SOCKET_URL = localEdition
+  ? window.location.origin
+  : import.meta.env.VITE_SOCKET_URL || (import.meta.env.DEV ? window.location.origin : 'https://samerow-v2.onrender.com');
+const clientId = browserId();
+
+function localSessionToken() {
+  const key = 'samerow.local.session';
+  try {
+    const saved = localStorage.getItem(key);
+    if (/^[a-f0-9]{64}$/.test(saved || '')) return saved;
+    const token = randomHex(32);
+    localStorage.setItem(key, token);
+    return token;
+  } catch {
+    return randomHex(32);
+  }
+}
 let developmentToken = '';
 configureSession(() => developmentToken || auth.currentUser?.getIdToken() || '');
 
@@ -39,6 +56,8 @@ function subscribeToConnection(callback) {
 }
 
 function App() {
+  const [hostedWebOrigin, setHostedWebOrigin] = useState('');
+  const [roomInvite, setRoomInvite] = useState('');
   const [roomId, setRoomId] = useState(null);
   const [userName, setUserName] = useState('');
   const [user, setUser] = useState(null);
@@ -62,7 +81,7 @@ function App() {
         const response = await fetch(`${SOCKET_URL}/api/config`, { signal: AbortSignal.timeout(5000) });
         if (!response.ok || (await response.json()).auth !== 'development' || disposed || auth.currentUser) return false;
         let uid = sessionStorage.getItem('samerow.development.uid');
-        if (!uid) { uid = crypto.randomUUID(); sessionStorage.setItem('samerow.development.uid', uid); }
+        if (!uid) { uid = browserId(); sessionStorage.setItem('samerow.development.uid', uid); }
         developmentToken = `dev:${uid}`;
         socket.auth = { clientId, token: developmentToken }; socket.sessionUid = uid;
         setUser({ uid, isAnonymous: true }); setConnectionError(''); socket.connect();
@@ -77,7 +96,15 @@ function App() {
       setConnectionError(error.data?.code === 'UNAUTHENTICATED' ? 'Sign in again to connect.' : 'The room server is reconnecting.');
     };
     socket.on('connect', connected); socket.on('connect_error', failed);
-    const unsubscribe = onIdTokenChanged(auth, async currentUser => {
+    let unsubscribe = () => {};
+    if (localEdition) {
+      developmentToken ||= localSessionToken();
+      socket.auth = { clientId, token: developmentToken };
+      socket.connect();
+      fetch('/api/config', { signal: AbortSignal.timeout(5000) }).then(response => response.json()).then(config => {
+        if (!disposed) setHostedWebOrigin(config.hostedWebOrigin || '');
+      }).catch(() => {});
+    } else unsubscribe = onIdTokenChanged(auth, async currentUser => {
       if (disposed) return;
       if (!currentUser) {
         socket.disconnect(); setUser(null);
@@ -152,10 +179,19 @@ function App() {
     });
   };
 
-  const joinRoom = async (id, name) => {
-    const reply = await new Promise((resolve, reject) => socket.timeout(10000).emit('join-room', id, name, (error, result) => error ? reject(new Error('The room did not respond. Try again.')) : resolve(result)));
+  const generateRoom = privateRoom => new Promise((resolve, reject) => {
+    socket.timeout(10000).emit('generate-room', privateRoom, (error, reply) => {
+      if (error || !reply?.code) reject(new Error(reply?.error || 'Could not generate a room code.'));
+      else resolve(reply);
+    });
+  });
+
+  const joinRoom = async (id, name, generatedInvite) => {
+    const linkedInvite = id === initialRoomFromUrl ? new URLSearchParams(window.location.hash.slice(1)).get('invite') : '';
+    const invite = generatedInvite || linkedInvite;
+    const reply = await new Promise((resolve, reject) => socket.timeout(10000).emit('join-room', id, name, ...(invite ? [invite] : []), (error, result) => error ? reject(new Error('The room did not respond. Try again.')) : resolve(result)));
     if (!reply?.ok) throw new Error(reply?.error || 'Could not join this room.');
-    socket.roomConfig = reply; setRoomId(id); setUserName(name);
+    socket.roomConfig = reply; setRoomInvite(reply.invite || ''); setRoomId(id); setUserName(name);
   };
 
   const leaveRoom = () => {
@@ -175,6 +211,9 @@ function App() {
       {!roomId ? (
         <Lobby
           joinRoom={joinRoom}
+          generateRoom={generateRoom}
+          hostedWebOrigin={hostedWebOrigin}
+          serverUrl={SOCKET_URL}
           initialRoom={initialRoomFromUrl}
           userStream={userStream}
           toggleMute={toggleMute}
@@ -183,11 +222,13 @@ function App() {
           isVideoOff={isVideoOff}
           streamError={connectionError || streamError}
           authUser={user?.isAnonymous ? null : user}
+          localEdition={localEdition}
           serverConnected={serverConnected}
         />
       ) : (
         <Room
           roomId={roomId}
+          roomInvite={roomInvite}
           userName={userName}
           socket={socket}
           leaveRoom={leaveRoom}

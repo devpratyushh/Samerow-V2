@@ -57,6 +57,10 @@ a peer mesh; larger rooms and restrictive networks need appropriate TURN/SFU
 infrastructure. Provision backend bandwidth and Jellyfin transcoding for the
 expected number of movie viewers.
 
+## SameRow Local
+
+Run the app and Jellyfin gateway together on your LAN with [Docker Compose](docs/local-edition.md).
+
 ## Production deployment
 
 The multi-instance Render/Vercel deployment, required secrets, LiveKit setup,

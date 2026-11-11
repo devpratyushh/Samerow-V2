@@ -1,3 +1,4 @@
+import { browserId } from './browserId';
 import { useEffect, useRef, useState } from 'react';
 import { createServerClock } from './playbackSync';
 
@@ -49,7 +50,7 @@ export function useJellyfinRoom(socket, roomId) {
   }, [socket, roomId]);
   const command = (action, time) => {
     if (!socket.connected || !current.current) return;
-    socket.emit('jellyfin-command', { roomId, sessionId: current.current.sessionId, action, time, commandId: crypto.randomUUID() });
+    socket.emit('jellyfin-command', { roomId, sessionId: current.current.sessionId, action, time, commandId: browserId() });
   };
   const open = details => new Promise((resolve, reject) => {
     if (!socket.connected) { reject(new Error('Wait for the room to reconnect.')); return; }

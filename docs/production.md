@@ -103,10 +103,11 @@ bounded Redis/memory history (1,000 messages, seven-day retention).
 
 ## Room behavior and limits
 
-A room code is its invitation capability: anyone with the code and a verified
-identity can join. Use long random codes in shared invitations. Users have one
-active room per socket. `MAX_ROOM_SIZE` defaults to 25 with LiveKit and four in
-local mesh mode; this is an admission limit, not a proven capacity guarantee.
+Public rooms can be joined by code. Private web rooms require the full invite
+link, which carries a separate secret. Users have one active room per socket.
+The Render Blueprint sets `MAX_ROOM_SIZE=4` for the pilot, including the host.
+Enabling the Jellyfin relay or local edition also caps admission at four even
+if `MAX_ROOM_SIZE` is higher. See the [pilot walkthrough](jellyfin-pilot.md).
 `CONTROL_POLICY=everyone` preserves collaborative controls; `host` restricts
 playback changes to the first creator's Firebase identity. Host ownership lasts
 with the room state; an absent host does not transfer control automatically.
