@@ -1,69 +1,203 @@
-# SameRow-V2: Architecture & Data Pipeline
+# SameRow
 
-**SameRow** is a real-time collaborative platform that combines **peer-to-peer video calling** with **synchronized media playback**. It allows users to watch YouTube videos together with shared playback controls while seeing and talking to each other in a virtual room.
+Watch a movie or YouTube video with friends while you talk, chat, or share your
+screen. SameRow keeps playback in sync, so when someone pauses or skips ahead,
+everyone follows. Each person can adjust their own volume, and Jellyfin viewers
+can choose their own audio and subtitles.
 
-This project is designed to demonstrate advanced concepts in **distributed systems**, **networking**, and **real-time state management**.
+## Run with Docker
 
-### 🏗️ Architecture
-SameRow uses a hybrid architecture to ensure low latency for video calls and precise state synchronization for media playback.
-* **Video/Audio:** Uses **WebRTC** for a direct, peer-to-peer connection between clients.
-* **Signaling & State:** Uses a central **Node.js/Socket.io** server to manage room state (video timestamps, play/pause status) and broker the WebRTC handshake.
+Run SameRow on a computer that can reach your Jellyfin server. From the
+repository root, replace the example IP with your Jellyfin address and run:
 
-### ✨ Key Features
-* **Room-Based Video Calling:** Users can join rooms via a simple ID, instantly connecting with others.
-* **Synchronized Media:**
-    * Embeds YouTube links directly in the room.
-    * Play, pause, and seek actions are broadcast in real-time to all users in the room.
-    * Periodic drift correction keeps players close to the room's current position. Each participant loads the video directly from YouTube; media is not captured or relayed through WebRTC.
-* **Peer-to-Peer (P2P) Video:** Video and audio streams go directly between users, reducing server load and latency.
-* **Smart State Management:** The server maintains a deterministic state, allowing new users to join and instantly sync to the current point in the video.
+```sh
+JELLYFIN_ALLOWED_ORIGINS=http://192.168.1.50:8096 \
+  docker compose -f compose.local.yaml up --build -d
+```
 
-### 🛠️ Tech Stack
-| Component | Technology | Purpose | Deployment |
-| :--- | :--- | :--- | :--- |
-| **Frontend** | React, Vite | UI, Video Rendering, Media Player | Vercel |
-| **Backend** | Node.js, Express | Signaling Server, API | Render |
-| **Real-Time** | Socket.io | Signaling, State Synchronization | - |
-| **Video/Audio** | WebRTC (simple-peer) | P2P Media Streaming | - |
-| **Media Player** | react-player | Unified player for YouTube, etc. | - |
+Open [localhost:8080](http://localhost:8080). This builds the image from the
+repository. The [Docker setup guide](docs/local-edition.md) shows how to let
+other devices on your network join. To invite friends through SameRow Web,
+follow the [Jellyfin pilot walkthrough](docs/jellyfin-pilot.md).
 
----
+![SameRow watch room with a shared video, participant tiles, and chat](docs/images/watch-room.jpg)
 
-## Jellyfin integration
+## Join a room
 
-SameRow now connects to Jellyfin using normal sign-in or Quick Connect and remembers
-the connection. Browse/search movies, shows, seasons, and episodes without API keys
-or item IDs. The room embeds the server's real Jellyfin Web player, with native
-playback controls and personal audio, subtitle, quality, and volume settings.
-SameRow synchronizes play/pause/seeking and restores late viewers/reconnections.
-Friends join using a room link; the server grants video-scoped access without
-exposing the owner's Jellyfin token or library. Camera/microphone traffic remains
-WebRTC; each viewer's movie stream passes through the backend over HTTP.
+Open the invite link, enter your name, and select **Enter room**. If someone
+shared a public room code, enter it in the lobby. Private rooms need the
+full link. You can join with your camera and microphone off.
 
-Deploy both client and backend. The backend must reach the Jellyfin API and `/web/`
-assets; for a LAN-only Jellyfin, run the backend on that LAN. Configure
-`VITE_SOCKET_URL` for the client and a private persistent `SAMEROW_DATA_DIR` for the
-backend's remembered connections. The default data directory is `server/.data`.
-Jellyfin Web 12.3.0 is verified against the included real local sandbox.
+For a Jellyfin movie, only the person sharing it needs a Jellyfin account.
+The hosted pilot fits **one host and up to three guests**. If the room is
+full, try again once someone leaves.
 
-See [client setup, architecture and acceptance tests](SameRow/client/README.md#native-jellyfin-integration).
-Run `npm test`, `npm run lint`, and `npm run build` in `SameRow/client`.
-With Vite and the Jellyfin sandbox running, `npm run test:jellyfin` checks real
-Quick Connect, native video decoding, shared controls, personal tracks, late join,
-reconnect, fullscreen, scoped access, and revocation in independent browsers.
+![SameRow lobby showing the name and room code fields and the Generate room code button](docs/images/lobby.jpg)
 
-Camera capture and RTP sender budgets adapt to participant count. Calls still use
-a peer mesh; larger rooms and restrictive networks need appropriate TURN/SFU
-infrastructure. Provision backend bandwidth and Jellyfin transcoding for the
-expected number of movie viewers.
+## Host a watch party
 
-## SameRow Local
+1. Open SameRow, enter your name, and choose **Generate room code** for a random
+   four-character code, or enter a code of your own.
+2. Select **Enter room** and use the invite button to share the room link.
+3. Open **Share something** to start a YouTube video, share your screen, or
+   browse your Jellyfin library. When you're done, stop sharing from the room.
 
-Run the app and Jellyfin gateway together on your LAN with [Docker Compose](docs/local-edition.md).
+If your Jellyfin library is at home and your guests will join from the web,
+pair your Docker container once, then use **Generate private room code** in
+the Docker hosting panel. Start with **Auto** quality and invite one guest
+first. The [pilot walkthrough](docs/jellyfin-pilot.md) shows the host and guest
+steps, then covers pairing and deployment.
 
-## Production deployment
+## Choose how to run SameRow
 
-The multi-instance Render/Vercel deployment, required secrets, LiveKit setup,
-Jellyfin connectivity, Firestore migration, recovery behavior and operational
-checks are documented in [docs/production.md](docs/production.md). Deployment
-configuration is in `render.yaml` and `SameRow/client/vercel.json`.
+| What you want to do | Setup |
+| --- | --- |
+| Watch YouTube and call friends from different networks | Run the [hosted edition](docs/production.md). |
+| Watch from Jellyfin at home, on devices on the same network | Run [SameRow Local](docs/local-edition.md) alongside your library with Docker Compose. |
+| Share a home Jellyfin library with friends on the regular SameRow website | Use the [hosted Jellyfin pilot](docs/jellyfin-pilot.md). Only the host runs Docker. |
+| Change the code or run tests | Start with [local development](#local-development). |
+
+## Technical overview
+
+SameRow separates room coordination, calls, and movie delivery. Room coordination
+runs through Socket.IO. The hosted edition uses a LiveKit SFU for camera,
+microphone, and screen tracks. The local edition uses a small WebRTC peer mesh.
+YouTube viewers load video from YouTube and receive playback state from SameRow.
+
+```mermaid
+flowchart LR
+    Browser[Viewer browser]
+    Web[Vercel frontend]
+    Control[Render control service]
+    Media[Render media gateway]
+    State[(Shared Redis)]
+    Call[LiveKit SFU]
+    Docker[Host Docker connector]
+    Jellyfin[Home Jellyfin server]
+
+    Browser --> Web
+    Browser <-->|Rooms and playback state| Control
+    Browser <-->|Camera, microphone and screen| Call
+    Browser -->|Movie requests| Media
+    Control <--> State
+    Media <--> State
+    Docker -->|Outbound HTTPS| Media
+    Docker -->|Local network| Jellyfin
+```
+
+| Component | Role |
+| --- | --- |
+| React and Vite | Lobby, room UI, shared player controls, chat, and media layout |
+| Node.js, Express, and Socket.IO | Authenticated room admission, signaling, chat, and playback synchronization |
+| Redis | Shared room state, membership leases, rate limits, and encrypted Jellyfin connection state across hosted services |
+| Firebase | Hosted Google and guest authentication, with Firestore for chat history |
+| LiveKit | Hosted WebRTC forwarding and TURN connectivity |
+| Jellyfin media gateway | Video access scoped to the selected item and current room membership |
+
+### Playback and recovery
+
+- **YouTube.** The server tracks the shared timeline. Clients estimate their
+  offset using acknowledged server timestamps and correct drift locally.
+- **Jellyfin.** The owner signs in with a Jellyfin account or Quick Connect.
+  The room embeds Jellyfin Web through the media gateway. Play, pause, and
+  seek are shared. Audio tracks, subtitles, volume, and quality are personal.
+  Viewers receive scoped playback access, and the owner's upstream credential
+  stays server-side.
+- **Reconnection.** Room admission must succeed before media starts. Clients
+  retry transient failures and refresh their session. A reconnecting tab can
+  reclaim its seat in a full room. The LiveKit connection can recover
+  independently and restore active local tracks, including a screen share.
+
+### Jellyfin routing and capacity
+
+For LAN viewing, SameRow Local serves the UI and media gateway from the same
+address. The container contacts Jellyfin directly. For hosted playback, Render
+can connect to a reachable HTTPS Jellyfin origin, or the host can pair a
+Docker connector that reaches their LAN library. The connector uses outbound
+HTTPS and needs no inbound router port. Guest browsers request media from
+SameRow's gateway, so Jellyfin's CORS configuration can stay as it is.
+
+The pilot relays media per viewer. Four viewers at 8 Mbps each can require
+about 32 Mbps of upload from the host. Shared movie segment delivery is future
+work. The hosted pilot allows four participants per room, and the relay
+currently runs on a single media replica. LiveKit call traffic follows a
+separate path from Jellyfin movie traffic.
+
+## Local development
+
+Use **Node.js 24** and npm. From the repository root, start the backend in
+one terminal:
+
+```sh
+npm --prefix SameRow/server ci
+npm --prefix SameRow/server start
+```
+
+In another terminal, install and start the web client:
+
+```sh
+npm --prefix SameRow/client ci
+npm --prefix SameRow/client run dev
+```
+
+Open the URL printed by Vite. By default the development client uses Vite's
+proxy to the backend on port 3000 and the local backend accepts development
+guests. If you run the backend on a different port, point `VITE_SOCKET_URL`
+at its address. For a UI-only preview with sample data, open
+`/ui-preview?scene=lobby` on Vite.
+
+See the [client environment example](SameRow/client/.env.example) and the
+[server environment example](SameRow/server/.env.example) for configuration.
+Keep private keys, service account credentials, and connector tokens out of
+Git and out of `VITE_*` variables.
+
+## Docker and hosted deployment
+
+- **SameRow Local.** [Dockerfile.local](Dockerfile.local) builds the web UI and
+  Node service in one image. [compose.local.yaml](compose.local.yaml) binds
+  to loopback by default and stores remembered Jellyfin connections in a
+  Docker volume. The [local setup guide](docs/local-edition.md) covers LAN access
+  and the address to use when Jellyfin runs on the Docker host.
+- **Hosted edition.** [render.yaml](render.yaml) defines the control and
+  media services and Redis. Vercel builds from `SameRow/client` using
+  [vercel.json](SameRow/client/vercel.json). Use matching revisions of the
+  frontend and backend. The [production runbook](docs/production.md) covers
+  environment variables, Firebase, LiveKit, readiness checks, and recovery.
+- **Jellyfin pilot.** Enable `JELLYFIN_RELAY_ENABLED=true` on both Render
+  services and use one media replica. Follow the
+  [pilot deployment and pairing steps](docs/jellyfin-pilot.md#technical-setup-and-background)
+  before inviting guests.
+
+## Tests and verification
+
+Run the server and client checks from the repository root:
+
+```sh
+npm --prefix SameRow/server test
+npm --prefix SameRow/client test
+npm --prefix SameRow/client run lint
+npm --prefix SameRow/client run build
+```
+
+Set `TEST_REDIS_URL` to a disposable local Redis instance to include shared
+state and admission tests. The reconnect load test starts two backend
+instances and checks that clients recover when one shuts down.
+
+```sh
+TEST_REDIS_URL=redis://127.0.0.1:6379 npm --prefix SameRow/server test
+TEST_REDIS_URL=redis://127.0.0.1:6379 npm --prefix SameRow/server run test:reconnect
+```
+
+See the [client browser checks](SameRow/client/README.md#checks) for Playwright
+setup and the [native Jellyfin checks](SameRow/client/README.md#native-jellyfin-integration)
+for testing against a real server. The [GitHub Actions workflow](.github/workflows/ci.yml)
+runs server tests, the Redis reconnect test, client checks, and dependency audits.
+
+## Repository layout
+
+| Path | Contents |
+| --- | --- |
+| [`SameRow/client`](SameRow/client) | React web client and browser fixtures |
+| [`SameRow/server`](SameRow/server) | Room service, chat, Jellyfin gateway, and Docker connector |
+| [`docs/`](docs) | Local setup, hosted pilot walkthrough, and production runbook |
+| [`firestore.rules`](firestore.rules) | Firebase security rules for hosted chat data |
