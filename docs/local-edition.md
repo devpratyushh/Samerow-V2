@@ -5,11 +5,40 @@ the container on a computer or NAS that can reach Jellyfin. Guests on the
 same network open SameRow in a browser. Only the person sharing the movie
 needs a Jellyfin account.
 
+## Install Docker on your server
+
+Open a terminal on the computer that will run SameRow. If you're using a
+different computer, connect to the server over SSH first. Docker runs SameRow.
+Compose is the command that starts it using the settings in this repo.
+
+1. Run `docker compose version`. If it prints a version, Docker Compose is
+   already installed. Skip to step 3.
+2. On Linux, run `cat /etc/os-release` if you don't know what your server
+   runs. Follow Docker's **Install using the apt repository** steps for
+   [Ubuntu](https://docs.docker.com/engine/install/ubuntu/#install-using-the-apt-repository)
+   or [Debian](https://docs.docker.com/engine/install/debian/#install-using-the-apt-repository).
+   Install the Compose plugin with Docker Engine as shown there. If Docker
+   Engine is already installed but Compose is missing, use the
+   [Compose plugin guide](https://docs.docker.com/compose/install/linux/).
+   For a NAS, use its Docker or container app if it provides the Compose
+   command. For other systems, see [Docker's installation guide](https://docs.docker.com/engine/install/).
+3. Run `docker compose version` and `docker info`. The first checks Compose.
+   The second checks that Docker is running. On Linux, if Docker reports a
+   permission error, run `sudo docker info` and use `sudo docker compose` in the
+   commands below. If Git or Nano is missing on Ubuntu or Debian, install
+   them with `sudo apt update && sudo apt install git nano`. Git downloads
+   SameRow. Nano opens the settings file.
+
 ## 1. Choose your Jellyfin address
 
-You need Docker with the Compose plugin, a working Jellyfin server, and a
-checkout of this repository on the Docker host. Check that `docker compose
-version` works, then choose the address the SameRow **container** will use.
+In the server terminal, download SameRow if you haven't already:
+
+```sh
+git clone https://github.com/devpratyushh/Samerow-V2.git
+cd Samerow-V2
+```
+
+Choose the address the SameRow **container** will use to reach Jellyfin.
 
 | Where Jellyfin runs | Address to use |
 | --- | --- |
@@ -23,9 +52,9 @@ Jellyfin uses a base path such as `/jellyfin`, leave that path out of
 
 ## 2. Build and start SameRow
 
-From the repository root, create a file called `.env.local-docker` with your
-Jellyfin origin. Keeping the setting in a file makes it available the next
-time you rebuild or restart.
+In the SameRow folder, run `nano .env.local-docker`. Paste the line below
+and replace the example with your Jellyfin address. Leave off any path after
+the port. Press **Ctrl+O**, **Enter**, then **Ctrl+X** to save and close.
 
 ```dotenv
 JELLYFIN_ALLOWED_ORIGINS=http://192.168.1.50:8096
@@ -71,9 +100,9 @@ screen capture.
 ## Host for guests on SameRow Web
 
 If guests are outside your home network, use the hosted pilot. Pair this
-container from SameRow Web and generate a **private room code** there. Send
-guests the full web invite link. Only the host installs Docker, and the
-container connects outbound without router port forwarding. Follow the
+container from SameRow Web once. Then choose **Host for friends online**
+from SameRow Local to start the movie and copy the web invite link. Only
+the host installs Docker, and the container connects outbound. Follow the
 [hosted pilot walkthrough](jellyfin-pilot.md) for pairing and deployment.
 
 ## Operate and troubleshoot

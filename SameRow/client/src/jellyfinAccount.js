@@ -1,9 +1,11 @@
 import { sessionHeaders } from './session';
-const storageKey = 'samerow.jellyfin.connection';
-export function savedConnection() {
+const connectionKey = scope => scope ? `samerow.jellyfin.connection:${scope}` : 'samerow.jellyfin.connection';
+export function savedConnection(scope) {
+  const storageKey = connectionKey(scope);
   try { return sessionStorage.getItem(storageKey) || localStorage.getItem(storageKey) || ''; } catch { return ''; }
 }
-export function rememberConnection(token, remember) {
+export function rememberConnection(token, remember, scope) {
+  const storageKey = connectionKey(scope);
   try {
     localStorage.removeItem(storageKey); sessionStorage.removeItem(storageKey);
     if (token) (remember ? localStorage : sessionStorage).setItem(storageKey, token);

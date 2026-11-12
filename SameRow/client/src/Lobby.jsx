@@ -25,7 +25,7 @@ function timeAgo(timestamp, now) {
   return `${Math.floor(minutes / 1440)}d ago`;
 }
 
-const Lobby = ({ joinRoom, generateRoom, hostedWebOrigin, serverUrl, initialRoom, userStream, toggleMute, toggleVideo, isMuted, isVideoOff, streamError, connectionError, authUser, localEdition, serverConnected }) => {
+const Lobby = ({ joinRoom, generateRoom, hostedWebOrigin, connectorHosting, hostedRoom, serverUrl, initialRoom, userStream, toggleMute, toggleVideo, isMuted, isVideoOff, streamError, connectionError, authUser, localEdition, serverConnected }) => {
   const identity = authUser?.uid || null;
   const [generated, setGenerated] = useState(null);
   const [generating, setGenerating] = useState(false);
@@ -66,8 +66,11 @@ const Lobby = ({ joinRoom, generateRoom, hostedWebOrigin, serverUrl, initialRoom
     let retryDelay = 2000;
     async function reserveCode() {
       try {
-        const { code } = await generateRoom(false);
-        if (!cancelled) setRoomDraft(current => current ?? code);
+        const next = await generateRoom(false);
+        if (!cancelled) {
+          setGenerated(next);
+          setRoomDraft(current => current ?? next.code);
+        }
       } catch {
         if (cancelled) return;
         timer = setTimeout(reserveCode, retryDelay);
@@ -103,7 +106,13 @@ const Lobby = ({ joinRoom, generateRoom, hostedWebOrigin, serverUrl, initialRoom
     try {
       await joinRoom(code, trimmedName, generated?.code === code ? generated.invite : undefined);
     } catch (error) {
-      setJoinError(error.message || 'Could not join this room. Try again.');
+      if (hostedRoom && error.status === 403) {
+        setGenerated(null);
+        setRoomDraft(null);
+        setJoinError('That room code expired. Try again when the new code appears.');
+      } else {
+        setJoinError(error.message || 'Could not join this room. Try again.');
+      }
     } finally {
       setJoining(false);
     }
@@ -141,7 +150,7 @@ const Lobby = ({ joinRoom, generateRoom, hostedWebOrigin, serverUrl, initialRoom
         <span className={`lobby-connection ${serverConnected ? 'is-connected' : ''}`} role="status"><span aria-hidden="true" />{serverConnected ? 'Ready to connect' : 'Connecting to server'}</span>
       </header>
       <div className="lobby-content">
-        <section className="lobby-intro" aria-labelledby="lobby-heading"><h1 id="lobby-heading">Join a room</h1><p className="lobby-description">Check your camera, then enter your room or join a friend.</p></section>
+        <section className="lobby-intro" aria-labelledby="lobby-heading"><h1 id="lobby-heading">{hostedRoom ? 'Host for friends online' : 'Join a room'}</h1><p className="lobby-description">{hostedRoom ? 'Enter your private room, then send friends the invite link.' : 'Check your camera, then enter your room or join a friend.'}</p></section>
         <div className="lobby-setup">
           <section className="lobby-preview-section" aria-labelledby="preview-heading">
             <div className="lobby-section-label"><h2 id="preview-heading">Your preview</h2><span>Only you can see this</span></div>
@@ -160,12 +169,14 @@ const Lobby = ({ joinRoom, generateRoom, hostedWebOrigin, serverUrl, initialRoom
             <div className="lobby-join-heading"><h2 id="join-heading">Room details</h2></div>
             <form className="lobby-form" onSubmit={handleSubmit} noValidate>
               <div className="lobby-field"><label htmlFor="lobby-name">Your name</label><input ref={nameRef} id="lobby-name" autoComplete="nickname" placeholder="Your name" maxLength={64} value={userName} onChange={(event) => setNameDraft({ identity, value: event.target.value })} aria-invalid={Boolean(nameError)} aria-describedby={nameError ? 'lobby-name-error' : undefined} required />{nameError && <span className="lobby-field-error" id="lobby-name-error">{nameError}</span>}</div>
-              <div className="lobby-field"><label htmlFor="lobby-room">Room code</label><input id="lobby-room" autoComplete="off" autoCapitalize="none" spellCheck={false} placeholder={roomDraft === null && !initialRoom && generateRoom ? 'Getting your room code…' : 'Enter a room code'} value={roomId} onChange={(event) => setRoomDraft(event.target.value)} aria-invalid={Boolean(roomError)} aria-describedby={roomError ? 'lobby-room-error' : 'lobby-room-hint'} required />{roomError ? <span className="lobby-field-error" id="lobby-room-error">{roomError}</span> : <span className="lobby-field-hint" id="lobby-room-hint">Use the code we give you or enter a friend’s code.</span>}</div>
+              <div className="lobby-field"><label htmlFor="lobby-room">Room code</label><input id="lobby-room" autoComplete="off" autoCapitalize="none" spellCheck={false} placeholder={roomDraft === null && !initialRoom && generateRoom ? 'Getting your room code…' : 'Enter a room code'} value={roomId} readOnly={hostedRoom} onChange={(event) => setRoomDraft(event.target.value)} aria-invalid={Boolean(roomError)} aria-describedby={roomError ? 'lobby-room-error' : 'lobby-room-hint'} required />{roomError ? <span className="lobby-field-error" id="lobby-room-error">{roomError}</span> : <span className="lobby-field-hint" id="lobby-room-hint">{hostedRoom ? 'SameRow creates your private room code automatically.' : 'Use the code we give you or enter a friend’s code.'}</span>}</div>
               <button className="lobby-join-button" type="submit" disabled={!canJoin}>{joining ? 'Joining…' : serverConnected ? 'Enter room' : 'Connecting…'}<FaArrowRight aria-hidden="true" /></button>
               {joinError && <p className="lobby-auth-feedback" role="alert">{joinError}</p>}
               {!serverConnected && <p className="lobby-server-help" role="status">{connectionError || 'Connecting to the room server…'}</p>}
             </form>
-            {hostedWebOrigin && <a href={hostedWebOrigin} target="_blank" rel="noreferrer">Share to SameRow Web</a>}
+            {connectorHosting && <a className="sr-button" href="/?host=online">Host for friends online</a>}
+            {hostedRoom && <a href="/">Back to SameRow Local</a>}
+            {!connectorHosting && hostedWebOrigin && <a href={hostedWebOrigin} target="_blank" rel="noreferrer">Share to SameRow Web</a>}
             {!localEdition && authUser && serverUrl && <ConnectorPairing serverUrl={serverUrl} onPrivateRoom={() => makeRoom(true)} disabled={!serverConnected || generating} />}
             {generated?.invite && generated.code === trimmedRoom && <p>Private room. Invite guests using the link inside the room.</p>}
             <div className="lobby-auth">

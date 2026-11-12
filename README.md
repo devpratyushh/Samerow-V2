@@ -7,52 +7,14 @@ can choose their own audio and subtitles.
 
 ## Install SameRow on your server with Docker
 
-Use a home server or NAS that can reach your Jellyfin library. The commands
-below run **on that server**. If you're using a different computer, connect
-to the server over SSH first. You'll need Git, Docker Engine, and Docker
-Compose. [Docker installation instructions](https://docs.docker.com/engine/install/)
+Choose the guide that matches where your friends will watch:
 
-### 1. Download SameRow
+- **Friends joining over the internet:** [Set up the Jellyfin connector](docs/jellyfin-pilot.md).
+  Host from SameRow on your server. Friends open your SameRow invite in their browser.
+- **Everyone on the same home network:** [Run SameRow Local](docs/local-edition.md).
+  Everyone opens SameRow at your server's local address.
 
-```sh
-docker compose version
-git clone https://github.com/devpratyushh/Samerow-V2.git
-cd Samerow-V2
-```
-
-### 2. Set your server and Jellyfin addresses
-
-Create `.env.local-docker` in the folder you just cloned. Replace
-`192.168.1.20` with the **SameRow server's LAN IP** and `192.168.1.50`
-with the **Jellyfin server's LAN IP**. Use the actual Jellyfin port if it
-differs from `8096`.
-
-```dotenv
-SAMEROW_BIND_IP=192.168.1.20
-SAMEROW_ORIGINS=http://192.168.1.20:8080
-JELLYFIN_ALLOWED_ORIGINS=http://192.168.1.50:8096
-```
-
-If Jellyfin is on the same server as Docker, you can use
-`http://host.docker.internal:8096` for the Jellyfin address, provided
-Jellyfin listens on an interface the container can reach.
-
-### 3. Start SameRow and open it
-
-```sh
-docker compose --env-file .env.local-docker -f compose.local.yaml up --build -d
-docker compose --env-file .env.local-docker -f compose.local.yaml ps
-```
-
-From your phone or computer on the same network, open
-`http://192.168.1.20:8080` using your **SameRow server's** IP. Enter your
-name, use the room code that SameRow fills in, and select **Enter room**.
-Choose **Share something → Your Jellyfin library** and sign in to Jellyfin.
-Use the room's invite button to bring in up to three guests.
-
-**[Read the full Docker guide →](docs/local-edition.md)** for alternate network
-setups, updates, and troubleshooting. For guests outside your home network,
-follow the [hosted Jellyfin pilot](docs/jellyfin-pilot.md).
+New to Docker? Start with [Install Docker on your server](docs/local-edition.md#install-docker-on-your-server).
 
 ![SameRow watch room with a shared video, participant tiles, and chat](docs/images/watch-room.jpg)
 
@@ -66,21 +28,21 @@ For a Jellyfin movie, only the person sharing it needs a Jellyfin account.
 The hosted pilot fits **one host and up to three guests**. If the room is
 full, try again once someone leaves.
 
-![SameRow lobby showing the name and room code fields and the Generate room code button](docs/images/lobby.jpg)
+![SameRow lobby showing the name and room code fields](docs/images/lobby.jpg)
 
 ## Host a watch party
 
 1. Open SameRow and enter your name. The lobby fills in a random four-character
-   room code. You can generate another code or type one of your own.
+   room code. Use it to start a room, or replace it with a friend’s code.
 2. Select **Enter room** and use the invite button to share the room link.
 3. Open **Share something** to start a YouTube video, share your screen, or
    browse your Jellyfin library. When you're done, stop sharing from the room.
 
 If your Jellyfin library is at home and your guests will join from the web,
-pair your Docker container once, then use **Generate private room code** in
-the Docker hosting panel. Start with **Auto** quality and invite one guest
-first. The [pilot walkthrough](docs/jellyfin-pilot.md) shows the host and guest
-steps, then covers pairing and deployment.
+pair your Docker container once, then choose **Host for friends online** in
+SameRow Local. Start with **Auto** quality and invite one guest
+first. The [connector guide](docs/jellyfin-pilot.md) shows what to copy from the
+website, what to paste on your server, and what to send to friends.
 
 ## Choose how to run SameRow
 
@@ -199,7 +161,7 @@ Git and out of `VITE_*` variables.
   environment variables, Firebase, LiveKit, readiness checks, and recovery.
 - **Jellyfin pilot.** Enable `JELLYFIN_RELAY_ENABLED=true` on both Render
   services and use one media replica. Follow the
-  [pilot deployment and pairing steps](docs/jellyfin-pilot.md#technical-setup-and-background)
+  [pilot deployment and pairing steps](docs/jellyfin-pilot.md)
   before inviting guests.
 
 ## Tests and verification

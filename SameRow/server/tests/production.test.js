@@ -155,7 +155,7 @@ test('readiness reports storage failure and graceful drain rejects new work', as
   assert.equal((await fetch(`${application.url}/health/live`)).status, 200);
 });
 
-test('Redis: Jellyfin sign-in, credentials, native gateway and revocation work across separate services', { skip: !redisUrl }, async t => {
+async function startJellyfinFixture(t) {
   const http = require('node:http');
   const item = { Id: 'movie', Name: 'Room movie', Type: 'Movie', RunTimeTicks: 600000000, MediaSources: [{ Id: 'source', Container: 'mp4', RunTimeTicks: 600000000, MediaStreams: [{ Index: 0, Type: 'Video', Codec: 'h264' }, { Index: 1, Type: 'Audio', Codec: 'aac' }] }] };
   const upstream = http.createServer((req, res) => {
@@ -173,7 +173,11 @@ test('Redis: Jellyfin sign-in, credentials, native gateway and revocation work a
   });
   await new Promise(resolve => upstream.listen(0, '127.0.0.1', resolve));
   t.after(() => new Promise(resolve => upstream.close(resolve)));
-  const upstreamUrl = `http://127.0.0.1:${upstream.address().port}`;
+  return `http://127.0.0.1:${upstream.address().port}`;
+}
+
+test('Redis: Jellyfin sign-in, credentials, native gateway and revocation work across separate services', { skip: !redisUrl }, async t => {
+  const upstreamUrl = await startJellyfinFixture(t);
   const settings = config({ redisUrl, encryptionKey: 'b'.repeat(64), prefix: `samerow-test:${randomUUID()}` });
   const first = await start(t, { store: await createStore(settings), config: settings });
   const second = await start(t, { store: await createStore(settings), config: settings });
@@ -264,6 +268,133 @@ test('a reconnect reclaims its authenticated tab seat in a full room without evi
   assert.equal(await app.store.get('member:full-room:crashed-socket'), null);
   const presence = await app.store.get('presence:full-room');
   assert.equal(presence.length, 2); assert.ok(presence.some(member => member.uid === 'guest'));
+});
+
+test('a paired Docker host can open a private web room and relay Jellyfin to a guest', async t => {
+  const origin = 'http://localhost:8080';
+  const web = 'https://samerow.example';
+  const store = new MemoryStore();
+  const shared = { jellyfinRelay: true, mediaOrigin: 'https://media.example', encryptionKey: 'a'.repeat(64), origins: [web] };
+  const media = await start(t, { config: { ...shared, serviceRole: 'media' }, store });
+  const application = await start(t, { config: { ...shared, mediaOrigin: media.url, serviceRole: 'control' }, store });
+  const pairUrl = `${application.url}/api/jellyfin-relay/pair`;
+  const pair = async () => {
+    const response = await fetch(pairUrl, { method: 'POST', headers: { 'X-SameRow-Token': 'test:owner' } });
+    assert.equal(response.status, 200);
+    return response.json();
+  };
+  const pairing = await pair();
+  const otherPairing = await pair();
+  const sessionUrl = `${media.url}/api/jellyfin-relay/host-session`;
+  assert.equal((await fetch(sessionUrl, { method: 'POST' })).status, 401);
+  const sessionResponse = await fetch(sessionUrl, { method: 'POST', headers: { Authorization: `Bearer ${pairing.token}` } });
+  assert.equal(sessionResponse.status, 200);
+  const { token } = await sessionResponse.json();
+  const makeSocket = (token, origin) => {
+    const socket = connect(application.url, { transports: ['websocket'], extraHeaders: { Origin: origin }, auth: { token }, reconnection: false });
+    t.after(() => socket.disconnect());
+    return socket;
+  };
+  const ordinaryLocal = makeSocket('test:owner', origin);
+  assert.match((await next(ordinaryLocal, 'connect_error')).message, /Sign in/);
+  const host = makeSocket(token, origin);
+  await next(host, 'connect');
+  assert.equal((await ack(host, 'generate-room', false)).status, 403);
+  assert.equal((await ack(host, 'join-room', 'public-room', 'Host')).status, 403);
+  const { code, invite } = await ack(host, 'generate-room', true);
+  assert.match(code, /^[A-Z]{4}$/);
+  assert.ok(invite);
+  assert.equal((await ack(host, 'join-room', code, 'Host', invite)).ok, true);
+  const guest = makeSocket('test:guest', web);
+  await next(guest, 'connect');
+  assert.equal((await ack(guest, 'join-room', code, 'Guest')).status, 403);
+  assert.equal((await ack(guest, 'join-room', code, 'Guest', invite)).ok, true);
+  const wrongLibrary = await fetch(`${media.url}/api/jellyfin/login`, {
+    method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json', 'X-SameRow-Token': token },
+    body: JSON.stringify({ serverUrl: otherPairing.address, username: 'host', password: 'test' }),
+  });
+  assert.equal(wrongLibrary.status, 403);
+
+  const upstreamUrl = await startJellyfinFixture(t);
+  const relay = `${media.url}/api/jellyfin-relay`;
+  const signal = AbortSignal.timeout(4000);
+  // Use the connector's actual relay endpoints to deliver the fixture responses.
+  const connector = async () => {
+    for (let index = 0; index < 5; index++) {
+      const headers = { Authorization: `Bearer ${pairing.token}` };
+      const request = await fetch(`${relay}/poll`, { headers, signal });
+      assert.equal(request.status, 200);
+      const job = await request.json();
+      const response = await upstreamRequest(
+        { base: upstreamUrl, apiToken: job.apiToken, deviceId: job.deviceId }, job.resource,
+        { method: job.method, headers: job.headers, body: job.body, signal },
+      );
+      const uploaded = await fetch(`${relay}/response/${job.job}`, {
+        method: 'POST', body: await response.arrayBuffer(), signal,
+        headers: { ...headers, 'X-Relay-Status': response.status, 'X-Relay-Headers': JSON.stringify(Object.fromEntries(response.headers)) },
+      });
+      assert.equal(uploaded.status, 204);
+    }
+  };
+  await Promise.all([connector(), (async () => {
+    const response = await fetch(`${media.url}/api/jellyfin/login`, {
+      method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json', 'X-SameRow-Token': token }, signal,
+      body: JSON.stringify({ serverUrl: pairing.address, username: 'host', password: 'test' }),
+    });
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('access-control-allow-origin'), origin);
+    const login = await response.json();
+    assert.equal((await ack(host, 'jellyfin-open', { roomId: code, connectionToken: login.token, itemId: 'movie' })).ok, true);
+    const hostState = (await ack(host, 'jellyfin-sync-request', code)).state;
+    const guestState = (await ack(guest, 'jellyfin-sync-request', code)).state;
+    assert.notEqual(hostState.accessToken, guestState.accessToken);
+    assert.ok(!JSON.stringify(guestState).includes('owner-secret'));
+    const stream = await fetch(`${media.url}/api/jellyfin-native/${guestState.accessToken}/Videos/movie/stream.mp4`, { signal });
+    assert.equal(stream.status, 200);
+    assert.deepEqual(new Uint8Array(await stream.arrayBuffer()), Uint8Array.of(1, 2, 3, 4));
+  })()]);
+  assert.equal((await fetch(pairUrl, { method: 'POST', headers: { 'X-SameRow-Token': token } })).status, 403);
+  assert.equal((await fetch(`${pairUrl}/${pairing.token.split('.')[0]}`, { method: 'DELETE', headers: { 'X-SameRow-Token': 'test:owner' } })).status, 204);
+  await assert.rejects(application.identity.verify(token), /revoked/);
+});
+
+test('the Docker session endpoint only forwards requests from the local app', async t => {
+  const express = require('express');
+  const { installLocalHostSession } = require('../connectorHost');
+  const app = express();
+  const connectorToken = `${'a'.repeat(32)}.${'b'.repeat(64)}`;
+  const shortToken = `srhost.${'c'.repeat(64)}`;
+  let calls = 0;
+  installLocalHostSession(app, { token: connectorToken, gateway: 'https://media.example', controlOrigin: 'https://control.example', webOrigin: 'https://web.example' }, async (url, options) => {
+    calls++;
+    assert.equal(url, 'https://media.example/api/jellyfin-relay/host-session');
+    assert.equal(options.headers.Authorization, `Bearer ${connectorToken}`);
+    return Response.json({ token: shortToken });
+  });
+  const server = app.listen(0, '127.0.0.1');
+  await new Promise(resolve => server.once('listening', resolve));
+  t.after(() => new Promise(resolve => server.close(resolve)));
+  const url = `http://127.0.0.1:${server.address().port}/api/connector-host/session`;
+  const request = headers => new Promise((resolve, reject) => {
+    const outgoing = require('node:http').request(url, { method: 'POST', headers: { Host: 'localhost:8080', ...headers } }, incoming => {
+      let body = '';
+      incoming.setEncoding('utf8').on('data', chunk => { body += chunk; });
+      incoming.on('end', () => resolve({ status: incoming.statusCode, headers: incoming.headers, body }));
+      incoming.on('error', reject);
+    });
+    outgoing.on('error', reject);
+    outgoing.end();
+  });
+  assert.equal((await request({ Origin: 'https://evil.example', 'X-SameRow-Local-Host': '1' })).status, 403);
+  assert.equal((await request({ Origin: 'http://localhost:8080' })).status, 403);
+  assert.equal(calls, 0);
+  const response = await request({ Origin: 'http://localhost:8080', 'X-SameRow-Local-Host': '1' });
+  assert.equal(response.status, 200);
+  assert.equal(response.headers['cache-control'], 'no-store');
+  const body = JSON.parse(response.body);
+  assert.equal(body.token, shortToken);
+  assert.equal(body.jellyfinAddress, `https://${'a'.repeat(32)}.samerow-connector.invalid`);
+  assert.ok(!JSON.stringify(body).includes(connectorToken));
 });
 
 test('generated codes are reserved and private rooms require the full invite link', async t => {

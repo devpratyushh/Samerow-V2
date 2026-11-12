@@ -2,6 +2,8 @@ const { createHash, createHmac, randomBytes } = require('node:crypto');
 const { PassThrough, Readable } = require('node:stream');
 const { pipeline } = require('node:stream/promises');
 
+const { connectorUid, issueHostSession } = require('./connectorHost');
+
 const ROOT = '/api/jellyfin-relay';
 const suffix = '.samerow-connector.invalid';
 const hash = value => createHash('sha256').update(value).digest('hex');
@@ -33,7 +35,7 @@ function installJellyfinRelay(app, { config, store, identity }) {
     let user;
     try { user = await identity.verify(req.get('X-SameRow-Token')); }
     catch { return res.sendStatus(401); }
-    if (user.firebase?.sign_in_provider === 'anonymous') return res.sendStatus(403);
+    if (user.connectorId || user.firebase?.sign_in_provider === 'anonymous') return res.sendStatus(403);
     if (!await store.limit(`connector-pair:${user.uid}`, 5, 3600)) return res.sendStatus(429);
     const id = random(16), token = `${id}.${random(32)}`;
     await store.set(`connector:${id}`, { ownerUid: user.uid, digest: hash(token) }, 30 * 86400);
@@ -54,13 +56,22 @@ function installJellyfinRelay(app, { config, store, identity }) {
 
   async function authorize(base, uid) {
     const id = connectorId(base);
+    if (uid?.startsWith('connector:') && (!id || uid !== connectorUid(id))) {
+      throw Object.assign(new Error('Use the Jellyfin library paired to this connector.'), { status: 403 });
+    }
     if (!id) return false;
     const record = await store.get(`connector:${id}`);
-    if (!record || record.ownerUid !== uid) throw Object.assign(new Error('This connector is not paired to your SameRow account.'), { status: 403 });
+    if (!record || (record.ownerUid !== uid && connectorUid(id) !== uid)) throw Object.assign(new Error('This connector is not paired to your SameRow account.'), { status: 403 });
     return true;
   }
 
   if (onMedia) {
+    app.post(`${ROOT}/host-session`, async (req, res) => {
+      const id = await authenticate(req);
+      if (!id) return res.sendStatus(401);
+      if (!await store.limit(`connector-host-session:${id}`, 12, 60)) return res.sendStatus(429);
+      res.set('Cache-Control', 'no-store').json(await issueHostSession(store, id));
+    });
     app.get(`${ROOT}/poll`, async (req, res) => {
       const id = await authenticate(req);
       if (!id) return res.sendStatus(401);

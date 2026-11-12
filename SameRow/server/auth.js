@@ -27,10 +27,12 @@ function createIdentity(config) {
   }, firestore: getFirestore(firebase), close: () => require('firebase-admin/app').deleteApp(firebase) };
 }
 
-function installIdentity(io, app, identity) {
+function installIdentity(io, app, identity, connectorBrowser = () => false) {
   io.use(async (socket, next) => {
     try {
       const user = await identity.verify(socket.handshake.auth?.token);
+      if (connectorBrowser(socket.handshake.headers.origin) && !user.connectorId) throw new Error('Use a connector session.');
+      socket.data.connectorId = user.connectorId;
       socket.identityToken = socket.handshake.auth?.token;
       socket.data.uid = user.uid; socket.data.expiresAt = user.exp * 1000;
       next();
@@ -38,7 +40,11 @@ function installIdentity(io, app, identity) {
   });
   // Jellyfin account capabilities use Authorization; Firebase identity is separate.
   app.use('/api/jellyfin', async (req, res, next) => {
-    try { req.identity = await identity.verify(req.get('X-SameRow-Token')); next(); }
+    try {
+      req.identity = await identity.verify(req.get('X-SameRow-Token'));
+      if (connectorBrowser(req.get('Origin')) && !req.identity.connectorId) throw new Error('Use a connector session.');
+      next();
+    }
     catch { res.status(401).json({ error: 'Sign in again to connect your library.' }); }
   });
 }

@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="920" height="270" viewBox="0 0 920 270" role="img" aria-labelledby="title desc">
+  <title id="title">How a Jellyfin movie gets to your friends</title>
+  <desc id="desc">Jellyfin sends the movie to your SameRow Docker container. The container sends it to SameRow Web, where friends watch in their browsers.</desc>
+  <rect width="920" height="270" rx="20" fill="#181b20"/>
+  <g font-family="system-ui, sans-serif">
+    <text x="32" y="51" font-size="28" font-weight="700" fill="#fff">How the movie reaches your friends</text>
+    <text x="32" y="88" font-size="17" fill="#b7c2d2">On your server or home network</text>
+    <text x="665" y="88" font-size="17" fill="#b7c2d2">Over the internet</text>
+    <rect x="32" y="112" width="210" height="92" rx="12" fill="#242a33" stroke="#59677b"/>
+    <rect x="314" y="112" width="274" height="92" rx="12" fill="#283747" stroke="#6e9aca"/>
+    <rect x="660" y="112" width="228" height="92" rx="12" fill="#242a33" stroke="#59677b"/>
+    <g fill="#fff" font-weight="700" font-size="22">
+      <text x="52" y="151">Jellyfin</text><text x="334" y="151">SameRow in Docker</text><text x="680" y="151">SameRow Web</text>
+    </g>
+    <g fill="#c5d0df" font-size="16">
+      <text x="52" y="179">Stores your movie</text><text x="334" y="179">Fetches and sends it</text><text x="680" y="179">Plays it for friends</text>
+      <text x="32" y="240">Your friends only need the private invite link and a browser.</text>
+    </g>
+    <path d="M254 158h45m-10-8 10 8-10 8M600 158h45m-10-8 10 8-10 8" fill="none" stroke="#a5caff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+</svg>

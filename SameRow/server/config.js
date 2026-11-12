@@ -50,6 +50,27 @@ function configuration(env = process.env) {
     }
     config.hostedWebOrigin = origin.origin;
   }
+  if (localEdition && env.SAMEROW_CONNECTOR_HOST_ENABLED === 'true') {
+    const { hostOrigins } = require('./connectorHost');
+    if (!/^[a-f0-9]{32}\.[a-f0-9]{64}$/.test(env.SAMEROW_CONNECTOR_TOKEN || '') || !env.SAMEROW_CONNECTOR_GATEWAY) {
+      throw new Error('Online hosting requires the gateway and token from the Docker pairing panel.');
+    }
+    if ((env.SAMEROW_BIND_IP || '127.0.0.1') !== '127.0.0.1' ||
+        (env.SAMEROW_PORT || '8080') !== '8080' || !origins.every(origin => hostOrigins.includes(origin))) {
+      throw new Error('Online hosting requires SameRow to bind to 127.0.0.1:8080 with localhost origins only.');
+    }
+    const exactHttpsOrigin = value => {
+      const parsed = new URL(value);
+      if (parsed.protocol !== 'https:' || parsed.origin !== value) throw new Error('Online hosting URLs must be exact HTTPS origins.');
+      return value;
+    };
+    config.connectorHost = {
+      token: env.SAMEROW_CONNECTOR_TOKEN,
+      gateway: exactHttpsOrigin(env.SAMEROW_CONNECTOR_GATEWAY),
+      controlOrigin: exactHttpsOrigin(env.SAMEROW_HOSTED_CONTROL_URL || 'https://samerow-v2.onrender.com'),
+      webOrigin: config.hostedWebOrigin || 'https://samerow-v2.vercel.app',
+    };
+  }
   return config;
 }
 module.exports = { configuration };

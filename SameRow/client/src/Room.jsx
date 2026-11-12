@@ -26,7 +26,7 @@ function createFallbackStream() {
   return stream;
 }
 
-export default function Room({ socket, roomId, roomInvite, userName, leaveRoom, userStream, initialMuted, initialVideoOff }) {
+export default function Room({ socket, roomId, roomInvite, inviteOrigin, jellyfinAddress, userName, leaveRoom, userStream, initialMuted, initialVideoOff }) {
   const [activeStream] = useState(() => userStream || createFallbackStream());
   const [ownsFallback] = useState(() => !userStream);
   const [peers, setPeers] = useState([]);
@@ -233,7 +233,7 @@ export default function Room({ socket, roomId, roomInvite, userName, leaveRoom, 
     youtubeRoomRef.current.submit(video);
   };
   const invite = async () => {
-    const url = new URL('/', window.location.origin); url.searchParams.set('room', roomId);
+    const url = new URL('/', inviteOrigin || window.location.origin); url.searchParams.set('room', roomId);
     if (roomInvite) url.hash = new URLSearchParams({ invite: roomInvite }).toString();
     try { await navigator.clipboard.writeText(url.href); notify('Invite link copied.'); }
     catch { notify(`Invite your friends: ${url.href}`); }
@@ -249,6 +249,6 @@ export default function Room({ socket, roomId, roomInvite, userName, leaveRoom, 
       diagnostics={<p>Socket <strong>{socket.id || 'Waiting'}</strong></p>} />
     <Dialog open={showShare} title="Share with the room" description="Choose what to share." onClose={() => setShowShare(false)}><div className="room-share-options"><button onClick={myScreenStream ? () => { stopScreenShare(); setShowShare(false); } : startScreenShare}><FaDesktop /><span><strong>{myScreenStream ? 'Stop sharing your screen' : 'Your screen'}</strong><small>Share a tab, an app, or your desktop.</small></span></button><button onPointerEnter={preloadYouTube} onFocus={preloadYouTube} onClick={() => { preloadYouTube(); setShowShare(false); setShowUrlInput(true); }}><FaYoutube /><span><strong>A YouTube video</strong><small>Watch a video together.</small></span></button>{!socket.legacyRooms && <button onClick={() => { setShowShare(false); setShowJellyfinInput(true); }}><FaPlayCircle /><span><strong>Your Jellyfin library</strong><small>Stream a video from your server.</small></span></button>}</div></Dialog>
     <Dialog open={showUrlInput} title="Share a YouTube video" description="Paste a YouTube link. Playback controls are shared with the room." onClose={() => setShowUrlInput(false)}><form onSubmit={submitUrl}><label className="room-field">YouTube video link<input type="url" data-autofocus disabled={isSubmittingUrl} placeholder="https://youtube.com/watch?v=…" value={inputUrl} onChange={event => { setInputUrl(event.target.value); setUrlError(''); }} aria-describedby={urlError ? 'youtube-url-error' : undefined} required /></label>{urlError && <p id="youtube-url-error" className="room-field-error" role="alert">{urlError}</p>}<button className="sr-button sr-button--primary" type="submit" disabled={!inputUrl.trim() || !connected || isSubmittingUrl}>{isSubmittingUrl ? 'Opening video…' : 'Watch together'}</button></form></Dialog>
-    <JellyfinDialog base={jellyfin.base} open={showJellyfinInput} onClose={() => setShowJellyfinInput(false)} onShare={jellyfin.open} onCancel={jellyfin.cancel} />
+    <JellyfinDialog base={jellyfin.base} initialServerUrl={jellyfinAddress} open={showJellyfinInput} onClose={() => setShowJellyfinInput(false)} onShare={jellyfin.open} onCancel={jellyfin.cancel} />
   </>;
 }

@@ -17,10 +17,10 @@ function Poster({ base, token, item }) {
   return <div className="jellyfin-poster">{src ? <img src={src} alt="" loading="lazy" /> : <FaFilm aria-hidden="true" />}</div>;
 }
 
-export default function JellyfinDialog({ open, onClose, onShare, onCancel, base = '' }) {
-  const [token, setToken] = useState(savedConnection);
+export default function JellyfinDialog({ open, onClose, onShare, onCancel, base = '', initialServerUrl = '' }) {
+  const [token, setToken] = useState(() => savedConnection(initialServerUrl));
   const [account, setAccount] = useState(null);
-  const [serverUrl, setServerUrl] = useState('');
+  const [serverUrl, setServerUrl] = useState(initialServerUrl);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [remember, setRemember] = useState(true);
@@ -37,7 +37,7 @@ export default function JellyfinDialog({ open, onClose, onShare, onCancel, base 
   const generation = useRef(0);
   const parentId = trail.at(-1)?.id || '';
   const authenticated = reply => {
-    rememberConnection(reply.token, remember); setToken(reply.token); setAccount(reply.account);
+    rememberConnection(reply.token, remember, initialServerUrl); setToken(reply.token); setAccount(reply.account);
     setPassword(''); setQuick(null); setPending(''); setError(''); setTrail([]); setPage(0); setSearch(''); setQuery('');
   };
   useEffect(() => {
@@ -45,11 +45,11 @@ export default function JellyfinDialog({ open, onClose, onShare, onCancel, base 
     const controller = new AbortController();
     jellyfinRequest(base, '/account', { token, signal: controller.signal }).then(reply => { setAccount(reply.account); setServerUrl(reply.account.serverUrl); }).catch(err => {
       if (controller.signal.aborted) return;
-      if (err.status === 401) { rememberConnection('', false); setToken(''); setAccount(null); }
+      if (err.status === 401) { rememberConnection('', false, initialServerUrl); setToken(''); setAccount(null); }
       setError(err.message);
     });
     return () => controller.abort();
-  }, [open, token, base]);
+  }, [open, token, base, initialServerUrl]);
   useEffect(() => {
     const timer = setTimeout(() => { setQuery(search.trim()); setPage(0); }, 300);
     return () => clearTimeout(timer);
@@ -95,7 +95,7 @@ export default function JellyfinDialog({ open, onClose, onShare, onCancel, base 
     setPending('logout'); setError('');
     try { await jellyfinRequest(base, '/logout', { token, method: 'POST' }); }
     catch (err) { setError(err.message); setPending(''); return; }
-    rememberConnection('', false); setToken(''); setAccount(null); setItems([]); setPending(''); setPassword('');
+    rememberConnection('', false, initialServerUrl); setToken(''); setAccount(null); setItems([]); setPending(''); setPassword('');
   };
   const choose = async item => {
     if (['Series', 'Season', 'CollectionFolder', 'Folder', 'BoxSet'].includes(item.type)) { setTrail(previous => [...previous, item]); setSearch(''); setQuery(''); setPage(0); return; }
@@ -106,7 +106,7 @@ export default function JellyfinDialog({ open, onClose, onShare, onCancel, base 
   return <Dialog open={open} title="Your Jellyfin library" description={account ? 'Choose something to watch together. Audio and subtitles stay personal.' : 'Connect once, then choose movies and episodes from your library.'} onClose={close} className={account ? 'jellyfin-library-dialog' : ''}>
     {error && <div className="jellyfin-error" role="alert"><p>{error}</p>{account && <button className="sr-button" onClick={() => setRefresh(value => value + 1)}>Try again</button>}</div>}
     {!account ? <form onSubmit={signIn} className="jellyfin-sign-in">
-      <label className="room-field">Server address<input type="url" data-autofocus value={serverUrl} onChange={e => setServerUrl(e.target.value)} placeholder="https://jellyfin.example.com" autoComplete="url" disabled={!!pending} required /></label>
+      <label className="room-field">Server address<input type="url" data-autofocus value={serverUrl} readOnly={Boolean(initialServerUrl)} onChange={e => setServerUrl(e.target.value)} placeholder="https://jellyfin.example.com" autoComplete="url" disabled={!!pending} required /></label>
       {!quick && <><label className="room-field">Username<input value={username} onChange={e => setUsername(e.target.value)} autoComplete="username" disabled={!!pending} required /></label>
         <label className="room-field">Password<input type="password" value={password} onChange={e => setPassword(e.target.value)} autoComplete="current-password" disabled={!!pending} /></label>
         <label className="jellyfin-remember"><input type="checkbox" checked={remember} onChange={e => setRemember(e.target.checked)} disabled={!!pending} />Remember this connection</label>
