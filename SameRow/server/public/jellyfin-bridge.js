@@ -180,6 +180,12 @@
     suppression += 1;
     try { return callback(); } finally { suppression -= 1; }
   }
+  async function stopPlayer() {
+    if (disposed) return;
+    disposed = true;
+    // The room may already have revoked this player's access when it closes.
+    try { await suppress(() => manager?.stop()); } catch { /* The player is closing. */ }
+  }
   function clamp(time) {
     const duration = Number(latest?.duration || config.duration);
     return Math.max(0, Math.min(Number.isFinite(duration) && duration > 0 ? duration : Infinity, time));
@@ -389,8 +395,7 @@
       document.dispatchEvent(new Event('fullscreenchange'));
       document.dispatchEvent(new Event('webkitfullscreenchange'));
     } else if (message.type === 'stop') {
-      disposed = true;
-      suppress(() => manager?.stop());
+      void stopPlayer();
     }
   });
   const interval = setInterval(() => {
@@ -401,8 +406,7 @@
   }, 45000);
   cleanup.push(() => clearInterval(interval), () => clearTimeout(deadline));
   listen(window, 'pagehide', () => {
-    disposed = true;
-    suppress(() => manager?.stop());
+    void stopPlayer();
     listeners.forEach(remove => remove());
     cleanup.forEach(remove => remove());
   });
