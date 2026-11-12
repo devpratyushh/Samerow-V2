@@ -47,7 +47,7 @@ function installLocalHostSession(app, settings, request = fetch) {
     try {
       const response = await request(`${pairing.gateway}/api/jellyfin-relay/host-session`, {
         method: 'POST', headers: { Authorization: `Bearer ${pairing.token}` },
-        redirect: 'error', signal: AbortSignal.timeout(12000),
+        redirect: 'error', signal: AbortSignal.timeout(70000),
       });
       if (!response.ok) {
         await response.body?.cancel();

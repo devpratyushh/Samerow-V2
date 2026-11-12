@@ -55,19 +55,19 @@ For a different port or a Jellyfin base path, see
 
 1. Open [SameRow Local](http://localhost:8080/) and click **Host for friends
    online**.
-2. The first time, click **Connect to SameRow Web** and approve the connection.
-   If prompted, sign in with Google. SameRow returns you to the Docker app and
-   saves the connection automatically.
+2. Check the **Jellyfin address**. Choose **Continue to room** to use your
+   saved server. To use another server, enter its address and click **Connect to
+   SameRow Web**. Approve the connection in your browser. SameRow returns you
+   to the Docker app and saves the selected server.
 3. Enter your name and click **Enter room**. SameRow fills in the private room
    code for you.
 4. Click **+ → Your Jellyfin library**. Sign in to Jellyfin or use Quick
    Connect, then choose a movie. If your server uses a path such as
-   `/jellyfin`, enter the full address under **Use a different Jellyfin address**
-   when connecting the Docker app.
+   `/jellyfin`, include it in the address in step 2.
 5. Click **Invite friends** and send the **whole link**. Your friends open it,
    enter a name, and click **Enter room**.
 
-Next time, click **Host for friends online** to go straight to the room setup.
+Next time, click **Host for friends online** and **Continue to room**.
 Use **Stop movie for everyone** when you're done.
 
 If Docker runs on another machine, open a terminal **on the computer where you

@@ -411,12 +411,12 @@ test('browser approval connects only the requesting Docker instance and survives
   const post = (url, body, headers) => fetch(url, {
     method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify(body),
   });
-  let workerToken;
+  let worker;
   const app = express();
   app.use(express.json());
   const dependencies = {
     request: (url, options) => fetch(url.replace(settings.controlOrigin, control.url), options),
-    startWorker: env => { workerToken = env.SAMEROW_CONNECTOR_TOKEN; return () => {}; },
+    startWorker: env => { worker = env; return () => {}; },
   };
   const local = app.listen(0, '127.0.0.1');
   await new Promise(resolve => local.once('listening', resolve));
@@ -437,8 +437,9 @@ test('browser approval connects only the requesting Docker instance and survives
   const stop = installConnectorSetup(app, settings, { SAMEROW_DATA_DIR: dataDir }, dependencies);
   t.after(stop);
   assert.equal((await request('session', {})).status, 428);
-  assert.equal((await request('start', { jellyfinUrl: 'http://other:8096' })).status, 400);
-  const started = await request('start', {});
+  assert.deepEqual(JSON.parse((await request('settings', {})).data), { paired: false, jellyfinUrl: settings.jellyfinUrl });
+  assert.equal((await request('start', { jellyfinUrl: 'http://user:password@other:8096' })).status, 400);
+  const started = await request('start', { jellyfinUrl: 'http://other:8096/jellyfin/web/index.html' });
   assert.equal(started.status, 200);
   const approval = new URL(JSON.parse(started.data).approvalUrl);
   assert.equal(approval.origin, settings.webOrigin);
@@ -455,11 +456,18 @@ test('browser approval connects only the requesting Docker instance and survives
   const file = join(dataDir, 'connector-pairing.json');
   assert.equal(statSync(file).mode & 0o777, 0o600);
   const saved = JSON.parse(readFileSync(file, 'utf8'));
-  assert.equal(workerToken, saved.token);
-  workerToken = null;
+  assert.equal(worker.SAMEROW_CONNECTOR_TOKEN, saved.token);
+  assert.equal(worker.SAMEROW_CONNECTOR_JELLYFIN_URL, 'http://other:8096/jellyfin');
+  assert.equal(worker.JELLYFIN_ALLOWED_ORIGINS, 'http://other:8096');
+  assert.deepEqual(JSON.parse((await request('settings', {})).data), { paired: true, jellyfinUrl: saved.jellyfinUrl });
+  assert.deepEqual(JSON.parse((await request('start', { jellyfinUrl: saved.jellyfinUrl })).data), { alreadyPaired: true });
+  const nextApproval = new URL(JSON.parse((await request('start', { jellyfinUrl: settings.jellyfinUrl })).data).approvalUrl);
+  assert.notEqual(new URLSearchParams(nextApproval.hash.slice(1)).get('connector'), id);
+  assert.equal(worker.SAMEROW_CONNECTOR_TOKEN, saved.token);
+  worker = null;
   const stopRestored = installConnectorSetup(express(), settings, { SAMEROW_DATA_DIR: dataDir }, dependencies);
   t.after(stopRestored);
-  assert.equal(workerToken, saved.token);
+  assert.equal(worker.SAMEROW_CONNECTOR_TOKEN, saved.token);
 });
 
 test('generated codes are reserved and private rooms require the full invite link', async t => {

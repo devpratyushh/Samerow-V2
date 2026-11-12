@@ -1,5 +1,5 @@
 import { browserId, randomHex } from './browserId';
-import { useState, useEffect, useCallback, useSyncExternalStore } from 'react';
+import { useState, useEffect, useCallback, useRef, useSyncExternalStore } from 'react';
 import io from 'socket.io-client';
 import Lobby from './Lobby';
 import Room from './Room';
@@ -55,7 +55,7 @@ async function connectorRequest(action, body) {
     method: 'POST',
     headers: { 'X-SameRow-Local-Host': '1', 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout(22000),
+    signal: AbortSignal.timeout(action === 'settings' ? 5000 : 75000),
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) throw Object.assign(new Error(data.error || 'Online hosting is unavailable from this address.'), { status: response.status });
@@ -316,47 +316,72 @@ function ConnectorHostApp() {
   const [connection, setConnection] = useState(null);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [settings, setSettings] = useState(null);
   const [jellyfinUrl, setJellyfinUrl] = useState('');
+  const preparedSession = useRef(null);
   useEffect(() => {
     let cancelled = false;
-    async function connect() {
+    async function prepare() {
       const id = new URLSearchParams(window.location.hash.slice(1)).get('approved');
       if (id) {
         await connectorRequest('complete', { id });
         window.history.replaceState(null, '', '/?host=online');
       }
-      return getConnectorSession();
+      const local = await connectorRequest('settings');
+      if (cancelled) return;
+      setSettings(local);
+      setJellyfinUrl(local.jellyfinUrl || '');
+      if (local.paired) {
+        const session = getConnectorSession();
+        preparedSession.current = { started: Date.now(), session };
+        void session.catch(() => {});
+        if (id) {
+          setBusy(true);
+          const hosted = await session;
+          if (!cancelled) setConnection({ hosted, socket: createRoomSocket(hosted.controlOrigin) });
+        }
+      }
     }
-    connect().then(hosted => {
-      if (!cancelled) setConnection({ hosted, socket: createRoomSocket(hosted.controlOrigin) });
-    }).catch(failure => { if (!cancelled) setError(failure); });
+    prepare().catch(failure => {
+      if (!cancelled) { setError(failure); setBusy(false); }
+    });
     return () => { cancelled = true; };
   }, []);
 
   const start = async event => {
     event.preventDefault();
     setBusy(true);
+    setError(null);
+    const selected = jellyfinUrl.trim();
     try {
-      const { approvalUrl } = await connectorRequest('start', { jellyfinUrl: jellyfinUrl.trim() });
-      window.location.assign(approvalUrl);
+      const reconnect = error?.status === 401;
+      if (reconnect || !settings.paired || selected !== settings.jellyfinUrl) {
+        const { approvalUrl } = await connectorRequest('start', { jellyfinUrl: selected, reconnect });
+        if (approvalUrl) { window.location.assign(approvalUrl); return; }
+      }
+      const prepared = preparedSession.current;
+      preparedSession.current = null;
+      const hosted = prepared && Date.now() - prepared.started < 90000
+        ? await prepared.session : await getConnectorSession();
+      setConnection({ hosted, socket: createRoomSocket(hosted.controlOrigin) });
     } catch (failure) {
-      setError(Object.assign(failure, { canStart: true }));
+      setError(failure);
       setBusy(false);
     }
   };
   if (connection) return <RoomApp {...connection} />;
-  const needsApproval = error && ([401, 410, 428].includes(error.status) || error.canStart);
+  const needsApproval = !settings?.paired || jellyfinUrl.trim() !== settings.jellyfinUrl || error?.status === 401;
   return <main className="lobby"><section className="lobby-content">
     <h1>Host for friends online</h1>
-    <p role={error && error.status !== 428 ? 'alert' : 'status'}>{error?.message || 'Connecting your server to SameRow Web…'}</p>
-    {needsApproval && <form className="lobby-form" onSubmit={start}>
-      <button type="submit" className="sr-button sr-button--primary" disabled={busy}>{busy ? 'Connecting…' : 'Connect to SameRow Web'}</button>
-      <details>
-        <summary>Use a different Jellyfin address</summary>
-        <label className="room-field">Jellyfin address<input type="url" value={jellyfinUrl} onChange={event => setJellyfinUrl(event.target.value)} /></label>
-      </details>
+    {error && <p role="alert">{error.message}</p>}
+    {busy && <p role="status">Connecting to SameRow Web. This may take up to a minute if the server was asleep.</p>}
+    {settings && <form className="lobby-form" onSubmit={start}>
+      <label className="room-field">Jellyfin address<input type="url" value={jellyfinUrl} placeholder="http://your-server:8096" required disabled={busy} onChange={event => setJellyfinUrl(event.target.value)} /></label>
+      <button type="submit" className="sr-button sr-button--primary" disabled={busy}>
+        {busy ? 'Connecting…' : needsApproval ? 'Connect to SameRow Web' : 'Continue to room'}
+      </button>
     </form>}
-    {error && !needsApproval && <a href={window.location.href}>Try again</a>}
+    {!settings && (error ? <a href={window.location.href}>Try again</a> : <p role="status">Loading your Jellyfin settings…</p>)}
     <p><a href="/">Back to SameRow Local</a></p>
   </section></main>;
 }

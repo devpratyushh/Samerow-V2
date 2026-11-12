@@ -14,6 +14,40 @@ const cleanPath = value => {
   return decoded;
 };
 const authorization = (connection, viewer) => `MediaBrowser Client="SameRow Jellyfin Web", Device="Watch party", DeviceId="${viewer.deviceId}", Version="1.0.0", Token="${connection.apiToken}"`;
+const playerLoader = `<script type="module">
+  function loadScript(element) {
+    return new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = element.dataset.jellyfinSrc;
+      script.crossOrigin = 'anonymous';
+      script.async = false;
+      script.onload = resolve;
+      script.onerror = () => { script.remove(); reject(new Error('Jellyfin script failed to load')); };
+      document.head.appendChild(script);
+    });
+  }
+  async function load() {
+    const storage = await import('${ROOT}/storage/index.js');
+    for (const [key, value] of Object.entries(storage)) {
+      if (key !== 'default') Object.defineProperty(window, key, { configurable: true, value });
+    }
+    const scripts = [...document.querySelectorAll('script[data-jellyfin-src]')];
+    if (!scripts.length) throw new Error('Jellyfin scripts are missing');
+    const last = scripts.pop();
+    if (scripts.length) await loadScript(scripts.shift());
+    // A Jellyfin page can request dozens of bundles. Keep startup batches
+    // smaller than the connector pool so they can run alongside media requests.
+    for (let index = 0; index < scripts.length; index += 4) {
+      await Promise.all(scripts.slice(index, index + 4).map(element => loadScript(element).catch(() => loadScript(element))));
+    }
+    await loadScript(last);
+  }
+  load().catch(() => {
+    const { channel, parentOrigin } = window.__SAMEROW_JELLYFIN__;
+    window.parent.postMessage({ source: 'samerow-jellyfin', channel, type: 'status', phase: 'error',
+      message: 'Some Jellyfin player files did not load. Reconnect playback to try again.' }, parentOrigin);
+  });
+</script>`;
 
 // Every request is restricted to the selected room item. A viewer never receives
 // the library owner's Jellyfin credential or a general-purpose server proxy.
@@ -121,8 +155,7 @@ function installJellyfinWeb(app, { resolveViewer, accounts, saveViewer = async (
           const config = { parentOrigin: parent, channel, serverAddress: localBase, serverId: connection.serverId, serverName: connection.serverName, userId: connection.userId, userName: connection.userName, accessToken: viewer.token, deviceId: viewer.deviceId, itemId: state.itemId, duration: state.duration };
           html = html.replace(/<script[^>]*src=["'][^"']*serviceworker[^"']*["'][^>]*>\s*<\/script>/gi, '').replace(/<link[^>]*rel=["']manifest["'][^>]*>/gi, '');
           html = html.replace(/<script([^>]*?)src=["']([^"']+)["']([^>]*)><\/script>/gi, (_, before, src) => `<script type="application/samerow-script" data-jellyfin-src="${src}"></script>`);
-          const loader = `<script type="module">import * as storage from '${ROOT}/storage/index.js';for(const [key,value] of Object.entries(storage)){if(key!=='default')Object.defineProperty(window,key,{configurable:true,value});}for(const element of document.querySelectorAll('script[data-jellyfin-src]')){const script=document.createElement('script');script.src=element.dataset.jellyfinSrc;script.async=false;document.head.appendChild(script);}</script>`;
-          html = html.replace('</body>', `${loader}</body>`);
+          html = html.replace('</body>', `${playerLoader}</body>`);
           html = html.replace('<head>', `<head><script>window.__SAMEROW_JELLYFIN__=${safeJson(config)};</script><script src="${ROOT}/bridge.js"></script><style>.headerSyncButton,.headerCastButton,.btnCast,.btnPlaybackRate,.btnNextChapter,.btnPreviousChapter{display:none!important}.mainDrawer,.headerHomeButton,.headerUserButton{display:none!important}body{background:#000!important}</style>`);
           res.type('html').send(html); return;
         }

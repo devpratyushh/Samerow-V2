@@ -19,7 +19,7 @@ function installConnectorSetup(app, settings, env = process.env, { request = fet
       SAMEROW_CONNECTOR_TOKEN: value.token,
       SAMEROW_CONNECTOR_GATEWAY: value.gateway,
       SAMEROW_CONNECTOR_JELLYFIN_URL: value.jellyfinUrl,
-      JELLYFIN_ALLOWED_ORIGINS: settings.upstreamOrigins.join(','),
+      JELLYFIN_ALLOWED_ORIGINS: new URL(value.jellyfinUrl).origin,
     });
     stopWorker();
     stopWorker = stop;
@@ -33,19 +33,29 @@ function installConnectorSetup(app, settings, env = process.env, { request = fet
     if (error.code !== 'ENOENT') console.warn('Could not restore the SameRow connector. Reconnect it from the lobby.');
   }
   if (!pairing && env.SAMEROW_CONNECTOR_TOKEN) {
-    activate({ token: env.SAMEROW_CONNECTOR_TOKEN, gateway: env.SAMEROW_CONNECTOR_GATEWAY, jellyfinUrl: settings.jellyfinUrl });
+    activate({ token: env.SAMEROW_CONNECTOR_TOKEN, gateway: env.SAMEROW_CONNECTOR_GATEWAY, jellyfinUrl: validateServerUrl(settings.jellyfinUrl, policy) });
   }
 
   const call = (step, body) => request(`${settings.controlOrigin}/api/jellyfin-relay/approval/${step}`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-    redirect: 'error', signal: AbortSignal.timeout(20000),
+    redirect: 'error', signal: AbortSignal.timeout(70000),
   });
   const unavailable = res => res.status(503).json({ error: 'SameRow Web could not finish connecting. Try again.' });
   installLocalHostSession(app, { ...settings, getPairing: () => pairing }, request);
+  app.post(`${root}/settings`, localHostOnly, (req, res) => {
+    void request(`${settings.controlOrigin}/health/ready`, {
+      redirect: 'error', signal: AbortSignal.timeout(70000),
+    }).then(response => response.body?.cancel()).catch(() => {});
+    res.json({ paired: Boolean(pairing), jellyfinUrl: pairing?.jellyfinUrl || settings.jellyfinUrl });
+  });
   app.post(`${root}/start`, localHostOnly, async (req, res) => {
     let jellyfinUrl;
-    try { jellyfinUrl = validateServerUrl(req.body?.jellyfinUrl || settings.jellyfinUrl, policy); }
-    catch { return res.status(400).json({ error: 'Enter the Jellyfin address allowed by your Docker settings.' }); }
+    try {
+      // The Docker operator chooses the source here. Each new pairing pins its
+      // worker to that origin and gets its own identity and Jellyfin sessions.
+      jellyfinUrl = validateServerUrl(req.body?.jellyfinUrl || settings.jellyfinUrl);
+    } catch (error) { return res.status(400).json({ error: error.message }); }
+    if (pairing?.jellyfinUrl === jellyfinUrl && req.body?.reconnect !== true) return res.json({ alreadyPaired: true });
     try {
       const secret = randomBytes(32).toString('hex');
       const claim = createHash('sha256').update(secret).digest('hex');
