@@ -131,7 +131,7 @@ function createApplication(options = {}) {
       if (!await store.limit(`generate-room:${socket.data.uid}`, 10, 60)) throw failure(429, 'Wait before generating another room code.');
       const invite = privateRoom === true ? randomBytes(24).toString('hex') : undefined;
       for (let attempt = 0; attempt < 12; attempt++) {
-        const code = randomInt(36 ** 4).toString(36).padStart(4, '0').toUpperCase();
+        const code = Array.from({ length: 4 }, () => String.fromCharCode(65 + randomInt(26))).join('');
         try {
           await store.update(`room:${code}`, current => {
             if (current) throw failure(409, 'Room code is in use.');

@@ -58,7 +58,7 @@ function subscribeToConnection(callback) {
 
 function generateRoom(privateRoom) {
   if (socket.legacyRooms) {
-    const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
     const random = crypto.getRandomValues(new Uint8Array(4));
     return Promise.resolve({ code: Array.from(random, value => alphabet[value % alphabet.length]).join('') });
   }

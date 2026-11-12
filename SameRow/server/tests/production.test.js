@@ -277,8 +277,8 @@ test('generated codes are reserved and private rooms require the full invite lin
   const [host, guest] = await Promise.all([makeSocket('host'), makeSocket('guest')]);
   const privateRoom = await ack(host, 'generate-room', true);
   const publicRoom = await ack(host, 'generate-room', false);
-  assert.match(privateRoom.code, /^[A-Z0-9]{4}$/);
-  assert.match(publicRoom.code, /^[A-Z0-9]{4}$/);
+  assert.match(privateRoom.code, /^[A-Z]{4}$/);
+  assert.match(publicRoom.code, /^[A-Z]{4}$/);
   assert.notEqual(privateRoom.code, publicRoom.code);
   assert.match(privateRoom.invite, /^[a-f0-9]{48}$/);
   assert.equal(publicRoom.invite, undefined);
@@ -364,7 +364,7 @@ test('production control acknowledges a generated room join and the media servic
   t.after(() => socket.disconnect());
   await next(socket, 'connect');
   const { code } = await ack(socket, 'generate-room', false);
-  assert.match(code, /^[A-Z0-9]{4}$/);
+  assert.match(code, /^[A-Z]{4}$/);
   const joined = await ack(socket, 'join-room', code, 'Host');
   assert.equal(joined.ok, true);
   assert.equal(joined.mediaBase, settings.mediaOrigin);

@@ -63,12 +63,19 @@ const Lobby = ({ joinRoom, generateRoom, hostedWebOrigin, serverUrl, initialRoom
   useEffect(() => {
     if (!serverConnected || !generateRoom || initialRoom || roomDraft !== null || generating) return;
     let cancelled = false;
-    generateRoom(false).then(({ code }) => {
-      if (!cancelled) setRoomDraft(current => current ?? code);
-    }).catch(() => {
-      // The user can still type a code or request another from the lobby.
-    });
-    return () => { cancelled = true; };
+    let retryDelay = 2000;
+    async function reserveCode() {
+      try {
+        const { code } = await generateRoom(false);
+        if (!cancelled) setRoomDraft(current => current ?? code);
+      } catch {
+        if (cancelled) return;
+        timer = setTimeout(reserveCode, retryDelay);
+        retryDelay = Math.min(retryDelay * 2, 30000);
+      }
+    }
+    let timer = setTimeout(reserveCode, 0);
+    return () => { cancelled = true; clearTimeout(timer); };
   }, [generateRoom, generating, initialRoom, roomDraft, serverConnected]);
 
   const handleAuth = async () => {
@@ -134,7 +141,7 @@ const Lobby = ({ joinRoom, generateRoom, hostedWebOrigin, serverUrl, initialRoom
         <span className={`lobby-connection ${serverConnected ? 'is-connected' : ''}`} role="status"><span aria-hidden="true" />{serverConnected ? 'Ready to connect' : 'Connecting to server'}</span>
       </header>
       <div className="lobby-content">
-        <section className="lobby-intro" aria-labelledby="lobby-heading"><h1 id="lobby-heading">Join a room</h1><p className="lobby-description">Check your camera, then enter a room code to join or create a room.</p></section>
+        <section className="lobby-intro" aria-labelledby="lobby-heading"><h1 id="lobby-heading">Join a room</h1><p className="lobby-description">Check your camera, then enter your room or join a friend.</p></section>
         <div className="lobby-setup">
           <section className="lobby-preview-section" aria-labelledby="preview-heading">
             <div className="lobby-section-label"><h2 id="preview-heading">Your preview</h2><span>Only you can see this</span></div>
@@ -153,8 +160,7 @@ const Lobby = ({ joinRoom, generateRoom, hostedWebOrigin, serverUrl, initialRoom
             <div className="lobby-join-heading"><h2 id="join-heading">Room details</h2></div>
             <form className="lobby-form" onSubmit={handleSubmit} noValidate>
               <div className="lobby-field"><label htmlFor="lobby-name">Your name</label><input ref={nameRef} id="lobby-name" autoComplete="nickname" placeholder="Your name" maxLength={64} value={userName} onChange={(event) => setNameDraft({ identity, value: event.target.value })} aria-invalid={Boolean(nameError)} aria-describedby={nameError ? 'lobby-name-error' : undefined} required />{nameError && <span className="lobby-field-error" id="lobby-name-error">{nameError}</span>}</div>
-              <div className="lobby-field"><label htmlFor="lobby-room">Room code</label><input id="lobby-room" autoComplete="off" autoCapitalize="none" spellCheck={false} placeholder="e.g. friday-movie" value={roomId} onChange={(event) => setRoomDraft(event.target.value)} aria-invalid={Boolean(roomError)} aria-describedby={roomError ? 'lobby-room-error' : 'lobby-room-hint'} required />{roomError ? <span className="lobby-field-error" id="lobby-room-error">{roomError}</span> : <span className="lobby-field-hint" id="lobby-room-hint">Use the same code as your friends.</span>}</div>
-              {generateRoom && <button className="sr-button" type="button" disabled={!serverConnected || generating} onClick={() => makeRoom(false)}>Generate room code</button>}
+              <div className="lobby-field"><label htmlFor="lobby-room">Room code</label><input id="lobby-room" autoComplete="off" autoCapitalize="none" spellCheck={false} placeholder={roomDraft === null && !initialRoom && generateRoom ? 'Getting your room code…' : 'Enter a room code'} value={roomId} onChange={(event) => setRoomDraft(event.target.value)} aria-invalid={Boolean(roomError)} aria-describedby={roomError ? 'lobby-room-error' : 'lobby-room-hint'} required />{roomError ? <span className="lobby-field-error" id="lobby-room-error">{roomError}</span> : <span className="lobby-field-hint" id="lobby-room-hint">Use the code we give you or enter a friend’s code.</span>}</div>
               <button className="lobby-join-button" type="submit" disabled={!canJoin}>{joining ? 'Joining…' : serverConnected ? 'Enter room' : 'Connecting…'}<FaArrowRight aria-hidden="true" /></button>
               {joinError && <p className="lobby-auth-feedback" role="alert">{joinError}</p>}
               {!serverConnected && <p className="lobby-server-help" role="status">{connectionError || 'Connecting to the room server…'}</p>}
