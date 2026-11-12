@@ -397,6 +397,71 @@ test('the Docker session endpoint only forwards requests from the local app', as
   assert.ok(!JSON.stringify(body).includes(connectorToken));
 });
 
+test('browser approval connects only the requesting Docker instance and survives restart', async t => {
+  const { mkdtempSync, readFileSync, rmSync, statSync } = require('node:fs');
+  const { tmpdir } = require('node:os');
+  const { join } = require('node:path');
+  const { installConnectorSetup } = require('../connectorSetup');
+  const express = require('express');
+  const dataDir = mkdtempSync(join(tmpdir(), 'samerow-pairing-'));
+  t.after(() => rmSync(dataDir, { recursive: true, force: true }));
+  const settings = { controlOrigin: 'https://control.example', webOrigin: 'https://web.example', jellyfinUrl: 'http://jellyfin:8096', upstreamOrigins: ['http://jellyfin:8096'] };
+  const control = await start(t, { config: { jellyfinRelay: true, mediaOrigin: 'https://media.example', encryptionKey: 'a'.repeat(64), serviceRole: 'control', origins: [settings.webOrigin] } });
+  const relay = `${control.url}/api/jellyfin-relay/approval`;
+  const post = (url, body, headers) => fetch(url, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify(body),
+  });
+  let workerToken;
+  const app = express();
+  app.use(express.json());
+  const dependencies = {
+    request: (url, options) => fetch(url.replace(settings.controlOrigin, control.url), options),
+    startWorker: env => { workerToken = env.SAMEROW_CONNECTOR_TOKEN; return () => {}; },
+  };
+  const local = app.listen(0, '127.0.0.1');
+  await new Promise(resolve => local.once('listening', resolve));
+  t.after(() => new Promise(resolve => local.close(resolve)));
+  const localOrigin = `http://127.0.0.1:${local.address().port}`;
+  const request = (action, body) => new Promise((resolve, reject) => {
+    const outgoing = require('node:http').request(`${localOrigin}/api/connector-host/${action}`, {
+      method: 'POST', headers: { Host: 'localhost:8080', Origin: 'http://localhost:8080', 'X-SameRow-Local-Host': '1', 'Content-Type': 'application/json' },
+    }, incoming => {
+      let data = '';
+      incoming.setEncoding('utf8');
+      incoming.on('data', chunk => { data += chunk; });
+      incoming.on('end', () => resolve({ status: incoming.statusCode, data }));
+    });
+    outgoing.on('error', reject);
+    outgoing.end(JSON.stringify(body));
+  });
+  const stop = installConnectorSetup(app, settings, { SAMEROW_DATA_DIR: dataDir }, dependencies);
+  t.after(stop);
+  assert.equal((await request('session', {})).status, 428);
+  assert.equal((await request('start', { jellyfinUrl: 'http://other:8096' })).status, 400);
+  const started = await request('start', {});
+  assert.equal(started.status, 200);
+  const approval = new URL(JSON.parse(started.data).approvalUrl);
+  assert.equal(approval.origin, settings.webOrigin);
+  const params = new URLSearchParams(approval.hash.slice(1)), id = params.get('connector');
+  assert.match(id, /^[a-f0-9]{32}$/);
+  assert.deepEqual([...params.keys()], ['connector', 'return']);
+  assert.equal((await request('complete', { id })).status, 410);
+  assert.equal((await post(`${relay}/approve`, { id })).status, 401);
+  assert.equal((await post(`${relay}/approve`, { id }, { Origin: settings.webOrigin, 'X-SameRow-Token': 'test:owner' })).status, 204);
+  assert.equal((await post(`${relay}/approve`, { id }, { 'X-SameRow-Token': 'test:other' })).status, 409);
+  assert.equal((await post(`${relay}/claim`, { id, secret: 'f'.repeat(64) })).status, 410);
+  assert.equal((await request('complete', { id })).status, 204);
+  assert.equal((await request('complete', { id })).status, 204);
+  const file = join(dataDir, 'connector-pairing.json');
+  assert.equal(statSync(file).mode & 0o777, 0o600);
+  const saved = JSON.parse(readFileSync(file, 'utf8'));
+  assert.equal(workerToken, saved.token);
+  workerToken = null;
+  const stopRestored = installConnectorSetup(express(), settings, { SAMEROW_DATA_DIR: dataDir }, dependencies);
+  t.after(stopRestored);
+  assert.equal(workerToken, saved.token);
+});
+
 test('generated codes are reserved and private rooms require the full invite link', async t => {
   const application = await start(t);
   const makeSocket = async user => {

@@ -8,7 +8,7 @@ const cors = require('cors');
 const { configuration } = require('./config');
 const { MemoryStore } = require('./store');
 const { createIdentity, installIdentity } = require('./auth');
-const { hostOrigins, withConnectorHostIdentity, installLocalHostSession } = require('./connectorHost');
+const { hostOrigins, withConnectorHostIdentity } = require('./connectorHost');
 const { isVideoUrl, isTimestamp, createState, snapshot, updateState } = require('./youtube');
 
 const validRoom = value => typeof value === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(value);
@@ -82,7 +82,7 @@ function createApplication(options = {}) {
   app.use((req, res, next) => {
     if (draining || !infrastructureReady()) return res.status(503).json({ error: 'Server is reconnecting. Try again shortly.' }); next();
   });
-  installLocalHostSession(app, config.connectorHost);
+  const stopConnector = config.connectorHost ? require('./connectorSetup').installConnectorSetup(app, config.connectorHost) : () => {};
   const socketOriginAllowed = origin => originAllowed(origin) || connectorBrowser(origin);
   const io = new Server(server, {
     cors: { origin: (origin, callback) => callback(null, socketOriginAllowed(origin)), methods: ['GET', 'POST'] },
@@ -320,6 +320,7 @@ function createApplication(options = {}) {
     }
   })();
   async function close({ closeStore = true } = {}) {
+    stopConnector();
     if (closed) return; closed = true; draining = true;
     clearInterval(heartbeat); eventLoop.disable(); relay?.close(); jellyfin.close(); accounts.close();
     // io.close() alone sends a namespace disconnect, which disables client

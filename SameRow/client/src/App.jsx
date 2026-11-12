@@ -6,8 +6,8 @@ import Room from './Room';
 import JellyfinPump from './JellyfinPump';
 import './App.css';
 
-import { auth } from './firebase';
-import { onIdTokenChanged, signInAnonymously } from 'firebase/auth';
+import { auth, googleProvider } from './firebase';
+import { onIdTokenChanged, signInAnonymously, signInWithPopup } from 'firebase/auth';
 import { configureSession } from './session';
 import { maintainSession } from './sessionRecovery';
 import { isLegacyRoomServer, joinLegacyRoom, legacyControlOrigin } from './legacyRooms';
@@ -50,16 +50,18 @@ function createRoomSocket(origin) {
 
 const defaultSocket = createRoomSocket(SOCKET_URL);
 
-async function getConnectorSession() {
-  const response = await fetch('/api/connector-host/session', {
+async function connectorRequest(action, body) {
+  const response = await fetch(`/api/connector-host/${action}`, {
     method: 'POST',
-    headers: { 'X-SameRow-Local-Host': '1' },
-    signal: AbortSignal.timeout(15000),
+    headers: { 'X-SameRow-Local-Host': '1', 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(22000),
   });
   const data = await response.json().catch(() => ({}));
-  if (!response.ok || !data.token) throw new Error(data.error || 'Online hosting is unavailable from this address.');
+  if (!response.ok) throw Object.assign(new Error(data.error || 'Online hosting is unavailable from this address.'), { status: response.status });
   return data;
 }
+const getConnectorSession = () => connectorRequest('session');
 
 function subscribeToConnection(socket, callback) {
   socket.on('connect', callback);
@@ -312,26 +314,92 @@ function RoomApp({ socket = defaultSocket, hosted = null }) {
 
 function ConnectorHostApp() {
   const [connection, setConnection] = useState(null);
-  const [error, setError] = useState('');
+  const [error, setError] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [jellyfinUrl, setJellyfinUrl] = useState('');
   useEffect(() => {
     let cancelled = false;
-    getConnectorSession().then(hosted => {
+    async function connect() {
+      const id = new URLSearchParams(window.location.hash.slice(1)).get('approved');
+      if (id) {
+        await connectorRequest('complete', { id });
+        window.history.replaceState(null, '', '/?host=online');
+      }
+      return getConnectorSession();
+    }
+    connect().then(hosted => {
       if (!cancelled) setConnection({ hosted, socket: createRoomSocket(hosted.controlOrigin) });
-    }).catch(failure => { if (!cancelled) setError(failure.message); });
+    }).catch(failure => { if (!cancelled) setError(failure); });
     return () => { cancelled = true; };
   }, []);
 
+  const start = async event => {
+    event.preventDefault();
+    setBusy(true);
+    try {
+      const { approvalUrl } = await connectorRequest('start', { jellyfinUrl: jellyfinUrl.trim() });
+      window.location.assign(approvalUrl);
+    } catch (failure) {
+      setError(Object.assign(failure, { canStart: true }));
+      setBusy(false);
+    }
+  };
   if (connection) return <RoomApp {...connection} />;
+  const needsApproval = error && ([401, 410, 428].includes(error.status) || error.canStart);
   return <main className="lobby"><section className="lobby-content">
     <h1>Host for friends online</h1>
-    <p role={error ? 'alert' : 'status'}>{error || 'Connecting your server to SameRow Web…'}</p>
-    {error && <a href="/?host=online">Try again</a>}
+    <p role={error && error.status !== 428 ? 'alert' : 'status'}>{error?.message || 'Connecting your server to SameRow Web…'}</p>
+    {needsApproval && <form className="lobby-form" onSubmit={start}>
+      <button type="submit" className="sr-button sr-button--primary" disabled={busy}>{busy ? 'Connecting…' : 'Connect to SameRow Web'}</button>
+      <details>
+        <summary>Use a different Jellyfin address</summary>
+        <label className="room-field">Jellyfin address<input type="url" value={jellyfinUrl} onChange={event => setJellyfinUrl(event.target.value)} /></label>
+      </details>
+    </form>}
+    {error && !needsApproval && <a href={window.location.href}>Try again</a>}
     <p><a href="/">Back to SameRow Local</a></p>
   </section></main>;
 }
 
+function ConnectorApproval({ id, returnOrigin }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [account, setAccount] = useState(undefined);
+  useEffect(() => onIdTokenChanged(auth, setAccount), []);
+  const valid = /^[a-f0-9]{32}$/.test(id) && ['http://localhost:8080', 'http://127.0.0.1:8080'].includes(returnOrigin);
+  const approve = async () => {
+    setBusy(true);
+    setError('');
+    try {
+      const user = account && !account.isAnonymous ? account : (await signInWithPopup(auth, googleProvider)).user;
+      const response = await fetch(`${SOCKET_URL}/api/jellyfin-relay/approval/approve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-SameRow-Token': await user.getIdToken() },
+        body: JSON.stringify({ id }),
+        signal: AbortSignal.timeout(20000),
+      });
+      if (!response.ok) throw new Error(response.status === 410 || response.status === 409
+        ? 'This connection request is no longer available. Start again from SameRow Local.'
+        : 'Could not approve this connection. Try again.');
+      window.location.assign(`${returnOrigin}/?host=online#approved=${id}`);
+    } catch (failure) { setError(failure.message); }
+    finally { setBusy(false); }
+  };
+  return <main className="lobby"><section className="lobby-content">
+    <h1>Connect SameRow Local</h1>
+    {valid ? <>
+      <p>Approve this request if you just clicked Connect to SameRow Web in your Docker app.</p>
+      <button type="button" className="sr-button sr-button--primary" disabled={busy || account === undefined} onClick={approve}>
+        {busy ? 'Approving…' : account && !account.isAnonymous ? 'Approve connection' : 'Sign in with Google and approve'}
+      </button>
+    </> : <p role="alert">Open SameRow Local to start a connection.</p>}
+    {error && <p role="alert">{error}</p>}
+  </section></main>;
+}
+
 export default function App() {
-  return localEdition && new URLSearchParams(window.location.search).get('host') === 'online'
-    ? <ConnectorHostApp />
-    : <RoomApp />;
+  if (localEdition && new URLSearchParams(window.location.search).get('host') === 'online') return <ConnectorHostApp />;
+  const hash = new URLSearchParams(window.location.hash.slice(1));
+  if (!localEdition && hash.has('connector')) return <ConnectorApproval id={hash.get('connector')} returnOrigin={hash.get('return')} />;
+  return <RoomApp />;
 }

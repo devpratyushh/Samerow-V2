@@ -99,9 +99,9 @@ screen capture.
 
 ## Host for guests on SameRow Web
 
-If guests are outside your home network, use the hosted pilot. Pair this
-container from SameRow Web once. Then choose **Host for friends online**
-from SameRow Local to start the movie and copy the web invite link. Only
+If guests are outside your home network, choose **Host for friends online**
+in SameRow Local. Approve the connection in your browser the first time.
+Then start the movie and copy the web invite link from the local room. Only
 the host installs Docker, and the container connects outbound. Follow the
 [hosted pilot walkthrough](jellyfin-pilot.md) for pairing and deployment.
 

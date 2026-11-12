@@ -3,6 +3,7 @@ const { PassThrough, Readable } = require('node:stream');
 const { pipeline } = require('node:stream/promises');
 
 const { connectorUid, issueHostSession } = require('./connectorHost');
+const { installConnectorApproval } = require('./connectorApproval');
 
 const ROOT = '/api/jellyfin-relay';
 const suffix = '.samerow-connector.invalid';
@@ -23,12 +24,13 @@ function installJellyfinRelay(app, { config, store, identity }) {
   let queued = 0;
   const onMedia = config.serviceRole !== 'control';
   const internalToken = createHmac('sha256', config.encryptionKey).update('samerow jellyfin relay v1').digest('hex');
+  if (config.serviceRole !== 'media') installConnectorApproval(app, { root: ROOT, config, store, identity });
 
   async function authenticate(req) {
     const token = /^Bearer ([a-f0-9]{32}\.[a-f0-9]{64})$/.exec(req.get('authorization') || '')?.[1];
     if (!token) return null;
     const id = token.split('.')[0], record = await store.get(`connector:${id}`);
-    return record?.digest === hash(token) ? id : null;
+    return record?.digest === hash(token) ? { id, record } : null;
   }
 
   app.post(`${ROOT}/pair`, async (req, res) => {
@@ -67,13 +69,15 @@ function installJellyfinRelay(app, { config, store, identity }) {
 
   if (onMedia) {
     app.post(`${ROOT}/host-session`, async (req, res) => {
-      const id = await authenticate(req);
-      if (!id) return res.sendStatus(401);
+      const authenticated = await authenticate(req);
+      if (!authenticated) return res.sendStatus(401);
+      const { id, record } = authenticated;
       if (!await store.limit(`connector-host-session:${id}`, 12, 60)) return res.sendStatus(429);
+      if (record.claim) await store.touch(`connector:${id}`, 30 * 86400);
       res.set('Cache-Control', 'no-store').json(await issueHostSession(store, id));
     });
     app.get(`${ROOT}/poll`, async (req, res) => {
-      const id = await authenticate(req);
+      const id = (await authenticate(req))?.id;
       if (!id) return res.sendStatus(401);
       if (res.destroyed) return;
       const next = queues.get(id)?.values().next().value;
@@ -92,7 +96,7 @@ function installJellyfinRelay(app, { config, store, identity }) {
 
     app.post(`${ROOT}/response/:job`, async (req, res) => {
       const job = jobs.get(req.params.job);
-      if (!job || job.id !== await authenticate(req) || job.received || !jobs.has(req.params.job)) return res.sendStatus(404);
+      if (!job || job.id !== (await authenticate(req))?.id || job.received || !jobs.has(req.params.job)) return res.sendStatus(404);
       let headers, status;
       try {
         status = Number(req.get('x-relay-status'));

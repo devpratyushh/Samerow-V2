@@ -39,10 +39,10 @@ full, try again once someone leaves.
    browse your Jellyfin library. When you're done, stop sharing from the room.
 
 If your Jellyfin library is at home and your guests will join from the web,
-pair your Docker container once, then choose **Host for friends online** in
-SameRow Local. Start with **Auto** quality and invite one guest
-first. The [connector guide](docs/jellyfin-pilot.md) shows what to copy from the
-website, what to paste on your server, and what to send to friends.
+choose **Host for friends online** in SameRow Local. Approve the connection
+in your browser the first time, then share the full invite from your room.
+Follow the [connector guide](docs/jellyfin-pilot.md) to set up Docker and
+connect your library.
 
 ## Choose how to run SameRow
 

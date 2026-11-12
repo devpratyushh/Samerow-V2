@@ -28,75 +28,47 @@ cd Samerow-V2
 If you already downloaded SameRow, open that folder. Keep using this terminal
 for the commands below.
 
-## 2. Pair the connector
+## 2. Start SameRow on your server
 
-1. On your computer, open [SameRow Web](https://samerow-v2.vercel.app/) and
-   choose **Continue with Google**.
-2. Open **Host from your Jellyfin Docker container** and click **Pair Docker
-   connector** once.
-3. Copy the two lines in **Docker connector settings**. You'll paste both
-   into the settings file in step 3. Keep the token private.
+Already running SameRow Local at `http://localhost:8080`? Rebuild it with
+your existing Compose command and skip to step 3. The connector uses the
+Jellyfin address you already configured.
 
-![Copy the gateway and token from the pairing panel into your server’s .env.pilot file](images/jellyfin-pairing-copy-guide.svg)
-
-## 3. Start the connector on your server
-
-Already running SameRow Local at `http://localhost:8080`? You can add the
-connector settings to `.env.local-docker` and use that filename in the commands
-below. If your existing setup listens on a LAN address or a different port,
-follow the [web hosting option](#host-from-samerow-web) to use the connector
-with that installation.
-
-In the server terminal, make a private settings file and open it:
-
-```sh
-touch .env.pilot
-chmod 600 .env.pilot
-nano .env.pilot
-```
-
-If Jellyfin runs on this server and uses port 8096, put these two lines in the
-file. If Jellyfin runs on a different computer, replace
-`host.docker.internal` on both lines with that computer's local IP address.
+For a new install, create a file named `.env.local-docker` with this line.
+If Jellyfin runs on another machine, use its LAN address and port.
 
 ```dotenv
 JELLYFIN_ALLOWED_ORIGINS=http://host.docker.internal:8096
-SAMEROW_CONNECTOR_JELLYFIN_URL=http://host.docker.internal:8096
-SAMEROW_CONNECTOR_HOST_ENABLED=true
 ```
-
-Below those lines, paste the **two Docker connector settings** lines from
-step 2. A new file should have five lines. In Nano, press **Ctrl+O**, **Enter**,
-then **Ctrl+X** to save and close. If your Jellyfin address uses another port or
-a path such as `/jellyfin`, see [which address to use](local-edition.md#1-choose-your-jellyfin-address).
-Use the full address for `SAMEROW_CONNECTOR_JELLYFIN_URL` and leave the path
-off `JELLYFIN_ALLOWED_ORIGINS`.
 
 Run:
 
 ```sh
-docker compose --env-file .env.pilot -f compose.local.yaml up --build -d
-docker compose --env-file .env.pilot -f compose.local.yaml ps
+docker compose --env-file .env.local-docker -f compose.local.yaml up --build -d
 ```
 
-The first run can take a few minutes. Look for **Up** next to `samerow`.
-If Docker says you don't have permission, use `sudo docker compose` for
-these commands on Linux. Once it's up, you can close the terminal.
+If Docker says you don't have permission, use `sudo docker compose` on Linux.
+For a different port or a Jellyfin base path, see
+[which address to use](local-edition.md#1-choose-your-jellyfin-address).
 
-## 4. Play a movie and invite friends
+## 3. Connect once, then invite friends
 
 1. Open [SameRow Local](http://localhost:8080/) and click **Host for friends
-   online**. SameRow gives you a four-letter private room code.
-2. Enter your name and click **Enter room**.
-3. Click **+ → Your Jellyfin library**. The server address is already filled
-   in. Sign in with your Jellyfin account or use Quick Connect. Pick a movie
-   and start with **Auto** quality.
-4. Click **Invite friends** and send the **whole link**. Your friends open it,
-   enter a name, and click **Enter room**. The short room code alone cannot
-   open a private room.
+   online**.
+2. The first time, click **Connect to SameRow Web** and approve the connection.
+   If prompted, sign in with Google. SameRow returns you to the Docker app and
+   saves the connection automatically.
+3. Enter your name and click **Enter room**. SameRow fills in the private room
+   code for you.
+4. Click **+ → Your Jellyfin library**. Sign in to Jellyfin or use Quick
+   Connect, then choose a movie. If your server uses a path such as
+   `/jellyfin`, enter the full address under **Use a different Jellyfin address**
+   when connecting the Docker app.
+5. Click **Invite friends** and send the **whole link**. Your friends open it,
+   enter a name, and click **Enter room**.
 
-Try it with one friend first, ideally on another network. Check picture,
-sound, and pause. Use **Stop movie for everyone** when you're done.
+Next time, click **Host for friends online** to go straight to the room setup.
+Use **Stop movie for everyone** when you're done.
 
 If Docker runs on another machine, open a terminal **on the computer where you
 watch** and run this command with your server's SSH username and address.
@@ -108,29 +80,21 @@ ssh -N -L 8080:127.0.0.1:8080 your-user@your-server
 
 ### Host from SameRow Web
 
-For an existing LAN installation, add the Jellyfin address and the two pairing
-lines to its settings file and skip `SAMEROW_CONNECTOR_HOST_ENABLED=true`.
-Restart using the Compose command above and the filename for that installation.
-Sign in to SameRow Web with the Google account you used to pair and click
-**Generate private room code → Enter room**. Open **Your Jellyfin library** and
-paste the **Jellyfin address for SameRow Web** from the pairing panel before
-signing in. Share the full invite link.
+A LAN-only installation can still use the older web-hosted workflow. Sign
+in to SameRow Web with Google and click **Pair Docker connector**. Add the
+two settings from the panel and `SAMEROW_CONNECTOR_JELLYFIN_URL` to your
+Compose settings. Restart Docker. On SameRow Web, generate a private room,
+then enter the Jellyfin address shown in the pairing panel.
+
+![Copy both settings for the optional web-hosted workflow](images/jellyfin-pairing-copy-guide.svg)
 
 ## If it doesn't work
 
 | What you see | What to do |
 | --- | --- |
-| The Docker hosting panel is missing | Check that you signed in with Google on SameRow Web. The site also needs the Jellyfin relay enabled. |
-| **Host for friends online** is missing | Rebuild with the command in step 3, check that `SAMEROW_CONNECTOR_HOST_ENABLED=true` is in the settings file, and open `http://localhost:8080`. |
-| The connector is offline or busy | Run the status command from step 3. If the container is up, check its logs and confirm the Jellyfin address, gateway, and token in `.env.pilot`. |
-| The pairing stopped working | Pairings expire after 30 days. Pair again, replace the gateway and token in `.env.pilot`, and rerun the start command. If you shared the token by accident and still have the pairing panel open, use **Revoke this connector**. |
+| **Host for friends online** is missing | Rebuild your Docker app and open `http://localhost:8080`. A LAN-only installation needs the web-hosted option above or a separate local Docker app bound to localhost. |
+| The connection has expired | Open **Host for friends online** and approve a new connection. Saved connections expire after 30 days without online hosting. |
 | The movie buffers | Try **Auto** or a lower quality, or test with fewer guests. Your home upload carries a separate stream for each viewer. |
-
-To read the connector's logs:
-
-```sh
-docker compose --env-file .env.pilot -f compose.local.yaml logs --tail=100 samerow
-```
 
 ## Technical details for SameRow operators
 

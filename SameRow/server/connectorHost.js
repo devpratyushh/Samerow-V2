@@ -5,6 +5,17 @@ const hostSessionSeconds = 600;
 const connectorUid = id => `connector:${id}`;
 const sessionKey = token => `connector-host:${createHash('sha256').update(token).digest('hex')}`;
 const sessionPattern = /^srhost\.[a-f0-9]{64}$/;
+const pairingTokenPattern = /^[a-f0-9]{32}\.[a-f0-9]{64}$/;
+
+function localHostOnly(req, res, next) {
+  res.set('Cache-Control', 'no-store');
+  const origin = req.get('Origin');
+  if (!hostOrigins.includes(origin) || new URL(origin).host !== req.get('Host') ||
+      req.get('X-SameRow-Local-Host') !== '1' || req.get('Sec-Fetch-Site') === 'cross-site') {
+    return res.sendStatus(403);
+  }
+  next();
+}
 
 async function issueHostSession(store, id) {
   const token = `srhost.${randomBytes(32).toString('hex')}`;
@@ -30,21 +41,17 @@ function withConnectorHostIdentity(identity, store) {
 
 function installLocalHostSession(app, settings, request = fetch) {
   if (!settings) return;
-  app.post('/api/connector-host/session', async (req, res) => {
-    res.set('Cache-Control', 'no-store');
-    const origin = req.get('Origin');
-    if (!hostOrigins.includes(origin) || new URL(origin).host !== req.get('Host') ||
-        req.get('X-SameRow-Local-Host') !== '1' || req.get('Sec-Fetch-Site') === 'cross-site') {
-      return res.sendStatus(403);
-    }
+  app.post('/api/connector-host/session', localHostOnly, async (req, res) => {
+    const pairing = settings.getPairing ? settings.getPairing() : settings;
+    if (!pairing) return res.status(428).json({ error: 'Connect this Docker app to SameRow Web.' });
     try {
-      const response = await request(`${settings.gateway}/api/jellyfin-relay/host-session`, {
-        method: 'POST', headers: { Authorization: `Bearer ${settings.token}` },
+      const response = await request(`${pairing.gateway}/api/jellyfin-relay/host-session`, {
+        method: 'POST', headers: { Authorization: `Bearer ${pairing.token}` },
         redirect: 'error', signal: AbortSignal.timeout(12000),
       });
       if (!response.ok) {
         await response.body?.cancel();
-        if (response.status === 401) return res.status(401).json({ error: 'Pair the connector again and update the Docker settings.' });
+        if (response.status === 401) return res.status(401).json({ error: 'This connection has expired. Connect to SameRow Web again.' });
         return res.status(503).json({ error: 'The online host service is unavailable. Try again shortly.' });
       }
       const { token } = await response.json();
@@ -53,7 +60,7 @@ function installLocalHostSession(app, settings, request = fetch) {
         token,
         controlOrigin: settings.controlOrigin,
         webOrigin: settings.webOrigin,
-        jellyfinAddress: `https://${settings.token.split('.')[0]}.samerow-connector.invalid`,
+        jellyfinAddress: `https://${pairing.token.split('.')[0]}.samerow-connector.invalid`,
       });
     } catch {
       res.status(503).json({ error: 'Could not reach SameRow Web. Try again shortly.' });
@@ -61,4 +68,4 @@ function installLocalHostSession(app, settings, request = fetch) {
   });
 }
 
-module.exports = { connectorUid, hostOrigins, issueHostSession, withConnectorHostIdentity, installLocalHostSession };
+module.exports = { connectorUid, hostOrigins, issueHostSession, withConnectorHostIdentity, installLocalHostSession, localHostOnly, pairingTokenPattern };

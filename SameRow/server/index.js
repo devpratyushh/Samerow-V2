@@ -5,7 +5,7 @@ if (require.main === module) {
   (async () => {
     const config = require('./config').configuration();
     startupStage = 'Jellyfin connector configuration';
-    const stopConnector = config.localEdition ? require('./jellyfinConnector').startJellyfinConnector() : () => {};
+    const stopConnector = config.localEdition && !config.connectorHost ? require('./jellyfinConnector').startJellyfinConnector() : () => {};
     startupStage = 'Redis connection';
     const store = config.localEdition ? undefined : await require('./store').createStore(config);
     startupStage = 'Firebase, LiveKit and Redis adapter initialization';

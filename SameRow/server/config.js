@@ -50,26 +50,24 @@ function configuration(env = process.env) {
     }
     config.hostedWebOrigin = origin.origin;
   }
-  if (localEdition && env.SAMEROW_CONNECTOR_HOST_ENABLED === 'true') {
+  if (localEdition) {
     const { hostOrigins } = require('./connectorHost');
-    if (!/^[a-f0-9]{32}\.[a-f0-9]{64}$/.test(env.SAMEROW_CONNECTOR_TOKEN || '') || !env.SAMEROW_CONNECTOR_GATEWAY) {
-      throw new Error('Online hosting requires the gateway and token from the Docker pairing panel.');
-    }
-    if ((env.SAMEROW_BIND_IP || '127.0.0.1') !== '127.0.0.1' ||
-        (env.SAMEROW_PORT || '8080') !== '8080' || !origins.every(origin => hostOrigins.includes(origin))) {
+    const loopback = (env.SAMEROW_BIND_IP || '127.0.0.1') === '127.0.0.1' &&
+      (env.SAMEROW_PORT || '8080') === '8080' && origins.every(origin => hostOrigins.includes(origin));
+    if (!loopback && env.SAMEROW_CONNECTOR_HOST_ENABLED === 'true') {
       throw new Error('Online hosting requires SameRow to bind to 127.0.0.1:8080 with localhost origins only.');
     }
-    const exactHttpsOrigin = value => {
+    if (loopback && env.SAMEROW_CONNECTOR_HOST_ENABLED !== 'false') {
+      const value = env.SAMEROW_HOSTED_CONTROL_URL || 'https://samerow-v2.onrender.com';
       const parsed = new URL(value);
       if (parsed.protocol !== 'https:' || parsed.origin !== value) throw new Error('Online hosting URLs must be exact HTTPS origins.');
-      return value;
-    };
-    config.connectorHost = {
-      token: env.SAMEROW_CONNECTOR_TOKEN,
-      gateway: exactHttpsOrigin(env.SAMEROW_CONNECTOR_GATEWAY),
-      controlOrigin: exactHttpsOrigin(env.SAMEROW_HOSTED_CONTROL_URL || 'https://samerow-v2.onrender.com'),
-      webOrigin: config.hostedWebOrigin || 'https://samerow-v2.vercel.app',
-    };
+      config.connectorHost = {
+        controlOrigin: value,
+        webOrigin: config.hostedWebOrigin || 'https://samerow-v2.vercel.app',
+        jellyfinUrl: env.SAMEROW_CONNECTOR_JELLYFIN_URL || config.upstreamOrigins[0],
+        upstreamOrigins: config.upstreamOrigins,
+      };
+    }
   }
   return config;
 }
