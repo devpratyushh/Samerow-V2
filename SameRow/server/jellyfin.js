@@ -193,7 +193,7 @@ function installJellyfin(app, io, accounts, options = {}) {
       const parsed = new URL(url);
       const basePath = new URL(state.base).pathname.replace(/\/$/, '');
       const response = await request({ base: state.base, apiToken: state.apiToken, deviceId: viewer.deviceId }, parsed.pathname.slice(basePath.length) + parsed.search, { headers, signal: controller.signal });
-      if (!response.ok) { res.status(response.status).send('Jellyfin could not deliver this media.'); return; }
+      if (!response.ok) { await response.body?.cancel(); res.status(response.status).send('Jellyfin could not deliver this media.'); return; }
       res.set('Cache-Control', 'private, no-store');
       if (manifest || /mpegurl/i.test(response.headers.get('content-type') || '') || new URL(url).pathname.endsWith('.m3u8')) {
         const body = await readText(response);
@@ -224,12 +224,12 @@ function installJellyfin(app, io, accounts, options = {}) {
     req.jellyfin = resolved; next();
   });
   app.get('/api/jellyfin/:accessToken/quality', async (req, res) => {
-    res.set('Cache-Control', 'no-store').json(await quality.describe(req.jellyfin.viewer, req.jellyfin.state));
+    res.set('Cache-Control', 'no-store').json(await quality.describe(req.jellyfin.viewer, req.jellyfin.state, 'original'));
   });
   app.post('/api/jellyfin/:accessToken/quality', async (req, res) => {
     if (!['auto', 'original'].includes(req.body?.mode)) { res.status(400).json({ error: 'Choose Auto or Original.' }); return; }
     await saveViewer(req.jellyfin.viewer, { qualityMode: req.body.mode, qualityRevision: (req.jellyfin.viewer.qualityRevision || 0) + 1 });
-    res.set('Cache-Control', 'no-store').json(await quality.describe(req.jellyfin.viewer, req.jellyfin.state));
+    res.set('Cache-Control', 'no-store').json(await quality.describe(req.jellyfin.viewer, req.jellyfin.state, 'original'));
   });
   app.get('/api/jellyfin/:accessToken/stream.m3u8', async (req, res) => {
     const { viewer, state } = req.jellyfin;
@@ -237,15 +237,29 @@ function installJellyfin(app, io, accounts, options = {}) {
     if (audio === -1 && !state.audioTracks.length) audio = undefined;
     const subtitle = Number(req.query.subtitle ?? -1);
     if ((audio !== undefined && !state.audioTracks.some(track => track.index === audio)) || (subtitle !== -1 && !state.subtitleTracks.some(track => track.index === subtitle && !track.text))) { res.status(400).send('Unknown track'); return; }
-    viewer.requests.forEach(controller => controller.abort());
-    stopEncoding(viewer, state); viewer.assets.clear(); await saveViewer(viewer, { playSessionId: randomUUID() });
+    const original = req.query.original === '1';
     const policy = await quality.describe(viewer, state);
+    const source = state.item.MediaSources.find(source => source.Id === state.sourceId);
+    const streams = source?.MediaStreams || state.item.MediaStreams || [];
+    const video = streams.find(stream => stream.Type === 'Video');
+    if (original && (subtitle !== -1 || policy.capacityLimited || !['h264', 'hevc', 'h265', 'av1', 'vp9'].includes(video?.Codec?.toLowerCase()))) {
+      res.status(409).send('Original video is unavailable for these playback settings.');
+      return;
+    }
+    stopEncoding(viewer, state); viewer.assets.clear(); await saveViewer(viewer, { playSessionId: randomUUID() });
     const requested = Number(req.query.bitrate);
-    const bitrate = Math.min(policy.maxBitrate, policy.mode === 'auto' && Number.isFinite(requested) && requested > 0 ? requested : policy.maxBitrate);
+    const bitrate = Math.min(policy.maxBitrate, Number.isFinite(requested) && requested > 0 ? requested : policy.maxBitrate);
     const query = new URLSearchParams({ MediaSourceId: state.sourceId, DeviceId: viewer.deviceId, PlaySessionId: viewer.playSessionId, VideoCodec: 'h264', AudioCodec: 'aac', MaxAudioChannels: '2', VideoBitrate: String(Math.max(1, Math.floor(bitrate - 192000))), AudioBitrate: '192000', SegmentContainer: 'ts', MinSegments: '1', SegmentLength: '4', BreakOnNonKeyFrames: 'true', EnableAutoStreamCopy: 'true', AllowVideoStreamCopy: 'true', AllowAudioStreamCopy: 'true', SubtitleStreamIndex: String(subtitle) });
     if (audio !== undefined) query.set('AudioStreamIndex', String(audio));
+    if (original) {
+      // Use the media playlist directly so Jellyfin cannot advertise a re-encoded variant.
+      query.set('VideoCodec', 'copy');
+      query.set('SegmentContainer', 'mp4');
+      query.set('BreakOnNonKeyFrames', 'false');
+      query.delete('VideoBitrate');
+    }
     if (subtitle !== -1) { query.set('SubtitleMethod', 'Encode'); query.set('AllowVideoStreamCopy', 'false'); }
-    forward(req, res, viewer, state, `${state.base}/Videos/${state.itemId}/master.m3u8?${query}`, true);
+    await forward(req, res, viewer, state, `${state.base}/Videos/${state.itemId}/${original ? 'main' : 'master'}.m3u8?${query}`, true);
   });
   app.get('/api/jellyfin/:accessToken/subtitle/:index', async (req, res) => {
     const { viewer, state } = req.jellyfin;

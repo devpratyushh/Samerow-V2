@@ -167,6 +167,15 @@ async function startJellyfinFixture(t) {
     if (url.pathname === '/Users/user/Items/movie') return res.end(JSON.stringify(item));
     if (url.pathname === '/web/config.json') return res.end('{"plugins":[]}');
     if (url.pathname === '/Users/Me') return res.end('{"Id":"user","Name":"Owner"}');
+    if (url.pathname === '/Videos/movie/main.m3u8') {
+      if (url.searchParams.get('VideoCodec') !== 'copy' || url.searchParams.get('SegmentContainer') !== 'mp4') return res.writeHead(400).end();
+      res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
+      return res.end('#EXTM3U\n#EXT-X-MAP:URI="init.mp4"\n#EXTINF:4,\nsegment.m4s\n#EXT-X-ENDLIST\n');
+    }
+    if (['/Videos/movie/init.mp4', '/Videos/movie/segment.m4s'].includes(url.pathname)) {
+      res.setHeader('Content-Type', 'video/mp4');
+      return res.end(Buffer.from(url.pathname.endsWith('.mp4') ? [1, 2] : [3, 4]));
+    }
     if (url.pathname === '/Videos/movie/stream.mp4') { res.setHeader('Content-Type', 'video/mp4'); return res.end(Buffer.from([1, 2, 3, 4])); }
     if (url.pathname === '/Sessions/Logout') return res.writeHead(204).end();
     return res.writeHead(404).end('{}');
@@ -320,7 +329,7 @@ test('a paired Docker host can open a private web room and relay Jellyfin to a g
   const signal = AbortSignal.timeout(4000);
   // Use the connector's actual relay endpoints to deliver the fixture responses.
   const connector = async () => {
-    for (let index = 0; index < 5; index++) {
+    for (let index = 0; index < 8; index++) {
       const headers = { Authorization: `Bearer ${pairing.token}` };
       const request = await fetch(`${relay}/poll`, { headers, signal });
       assert.equal(request.status, 200);
@@ -352,6 +361,19 @@ test('a paired Docker host can open a private web room and relay Jellyfin to a g
     const stream = await fetch(`${media.url}/api/jellyfin-native/${guestState.accessToken}/Videos/movie/stream.mp4`, { signal });
     assert.equal(stream.status, 200);
     assert.deepEqual(new Uint8Array(await stream.arrayBuffer()), Uint8Array.of(1, 2, 3, 4));
+    const invalid = await fetch(`${media.url}/api/jellyfin/${'0'.repeat(48)}/stream.m3u8?original=1`, { signal, headers: { Origin: web } });
+    assert.equal(invalid.status, 403);
+    const original = await fetch(`${media.url}/api/jellyfin/${guestState.accessToken}/stream.m3u8?original=1&audio=1`, { signal, headers: { Origin: web } });
+    assert.equal(original.status, 200);
+    assert.equal(original.headers.get('access-control-allow-origin'), web);
+    const playlist = await original.text();
+    const init = playlist.match(/#EXT-X-MAP:URI="([^"]+)"/)[1];
+    const segment = playlist.split('\n').find(line => line.startsWith('/api/'));
+    for (const [path, bytes] of [[init, [1, 2]], [segment, [3, 4]]]) {
+      const fragment = await fetch(media.url + path, { signal });
+      assert.equal(fragment.status, 200);
+      assert.deepEqual(new Uint8Array(await fragment.arrayBuffer()), Uint8Array.from(bytes));
+    }
   })()]);
   assert.equal((await fetch(pairUrl, { method: 'POST', headers: { 'X-SameRow-Token': token } })).status, 403);
   assert.equal((await fetch(`${pairUrl}/${pairing.token.split('.')[0]}`, { method: 'DELETE', headers: { 'X-SameRow-Token': 'test:owner' } })).status, 204);

@@ -66,6 +66,10 @@ const shareDialog = async page => {
   return page.getByRole('dialog', { name: 'Your Jellyfin library', exact: true });
 };
 const nativeFrame = async page => {
+  if (!await frameElement(page).count()) {
+    await page.getByLabel('Audio and subtitles', { exact: true }).click();
+    await page.getByRole('button', { name: 'Open Jellyfin Web player', exact: true }).click();
+  }
   await frameElement(page).waitFor({ timeout: 30000 });
   const frame = await (await frameElement(page).elementHandle()).contentFrame();
   assert.ok(frame, 'The embedded Jellyfin player is attached.');
@@ -120,6 +124,14 @@ try {
   assert.equal(await dialog.getByLabel('Password', { exact: true }).count(), 0, 'A remembered connection opens the library after reload.');
   await dialog.getByLabel('Search your library', { exact: true }).fill('Multitrack Test');
   await dialog.getByRole('button', { name: /^Watch Multitrack Test/ }).click();
+  if (process.env.JELLYFIN_TEST_AUTOPLAY !== 'blocked') {
+    await host.waitForFunction(() => {
+      const player = document.querySelector('.jellyfin-player[data-delivery="original"]');
+      const video = player?.querySelector('video');
+      return video?.currentTime > 0 && video.getVideoPlaybackQuality().totalVideoFrames > 0;
+    }, null, { timeout: 30000 });
+    console.log('PASS real Jellyfin delivers original video to the SameRow player');
+  }
   console.log('Started native open');
   const hostFrame = await nativeFrame(host), guestFrame = await nativeFrame(guest);
   await Promise.all([waitPlaying(hostFrame), waitPlaying(guestFrame)]);

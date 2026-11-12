@@ -40,6 +40,8 @@ function installIdentity(io, app, identity, connectorBrowser = () => false) {
   });
   // Jellyfin account capabilities use Authorization; Firebase identity is separate.
   app.use('/api/jellyfin', async (req, res, next) => {
+    // Playback URLs authenticate separately against the active room membership.
+    if (/^\/[a-f0-9]{48}\/(?:quality|stream\.m3u8|release|asset\/[a-f0-9]{64}|subtitle\/\d+)$/.test(req.path)) return next();
     try {
       req.identity = await identity.verify(req.get('X-SameRow-Token'));
       if (connectorBrowser(req.get('Origin')) && !req.identity.connectorId) throw new Error('Use a connector session.');

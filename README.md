@@ -95,8 +95,11 @@ flowchart LR
 - **YouTube.** The server tracks the shared timeline. Clients estimate their
   offset using acknowledged server timestamps and correct drift locally.
 - **Jellyfin.** The owner signs in with a Jellyfin account or Quick Connect.
-  The room embeds Jellyfin Web through the media gateway. Play, pause, and
-  seek are shared. Audio tracks, subtitles, volume, and quality are personal.
+  SameRow tries to play the original video through the media gateway and switches
+  to compatible playback when needed. The track menu also opens Jellyfin Web.
+  Play, pause, and seek are shared. Audio tracks, subtitles, volume, and quality
+  are personal. Text subtitles preserve the original picture. Image subtitles
+  that need to be burned in use compatible playback.
   Viewers receive scoped playback access, and the owner's upstream credential
   stays server-side.
 - **Reconnection.** Room admission must succeed before media starts. Clients

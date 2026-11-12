@@ -15,7 +15,7 @@ function createQualityPolicy(store, { originMbps = 0, gatewayMbps = 0 } = {}) {
   return {
     renew,
     release: async (viewer, state) => Promise.all(scopes(state).map(scope => store.releaseLease(scope, viewer.token))),
-    async describe(viewer, state) {
+    async describe(viewer, state, defaultMode = 'auto') {
       const [gatewayViewers, originViewers] = await renew(viewer, state);
       // Reserve 20% for bitrate peaks and HTTP overhead. Both limits are shared
       // across rooms and replicas using the same Redis namespace.
@@ -23,7 +23,7 @@ function createQualityPolicy(store, { originMbps = 0, gatewayMbps = 0 } = {}) {
         originMbps ? originMbps * 800000 / originViewers : MAX_BITRATE);
       const source = sourceInfo(state);
       const originalBitrate = Math.min(MAX_BITRATE, source.bitrate ? Math.ceil(source.bitrate * 1.25) : MAX_BITRATE);
-      return { mode: viewer.qualityMode || 'auto', revision: viewer.qualityRevision || 0, source, originalBitrate,
+      return { mode: viewer.qualityMode || defaultMode, revision: viewer.qualityRevision || 0, source, originalBitrate,
         maxBitrate: Math.max(1, Math.floor(Math.min(capacity, originalBitrate))),
         capacityLimited: capacity < originalBitrate };
     },

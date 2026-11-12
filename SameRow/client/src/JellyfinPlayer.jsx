@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useEffectEvent, useRef, useState } from 'react';
-import { FaCog, FaStop } from 'react-icons/fa';
+import { FaCog, FaFilm, FaStop } from 'react-icons/fa';
 import PlaybackControls from './components/PlaybackControls';
 import { jellyfinTime } from './jellyfinRoom';
 import { createDriftController } from './playbackSync';
@@ -7,7 +7,7 @@ import './JellyfinPlayer.css';
 import { useJellyfinQuality } from './useJellyfinQuality';
 import JellyfinQuality from './JellyfinQuality';
 
-export default function JellyfinPlayer({ state, base, command, connected, focused }) {
+export default function JellyfinPlayer({ state, base, command, connected, focused, onBrowse, onOpenNative }) {
   const videoRef = useRef(null);
   const [audio, setAudio] = useState(() => state.audioTracks.find(track => track.default)?.index ?? state.audioTracks[0]?.index ?? -1);
   const [subtitle, setSubtitle] = useState(-1);
@@ -25,10 +25,19 @@ export default function JellyfinPlayer({ state, base, command, connected, focuse
   const burnSubtitle = selectedSubtitle && !selectedSubtitle.text ? subtitle : -1;
   const root = `${base}/api/jellyfin/${state.accessToken}`;
   const quality = useJellyfinQuality(`${root}/quality`);
-  const qualityMode = quality.policy?.mode || 'auto';
+  const qualityMode = quality.policy?.mode;
   const maxBitrate = quality.policy?.maxBitrate;
   const [networkBitrate, setNetworkBitrate] = useState(null);
-  const playbackBitrate = qualityMode === 'original' ? maxBitrate : Math.min(maxBitrate || 1000000000, networkBitrate || 1000000000);
+  const [fallback, setFallback] = useState(null);
+  const streamKey = `${root}:${audio}:${attempt}:${quality.policy?.revision}`;
+  const fallbackReason = qualityMode === 'original' && (
+    burnSubtitle !== -1 ? 'These subtitles need to be embedded in the video.' :
+    quality.policy.capacityLimited ? 'The shared bandwidth limit is too low for original video.' :
+    fallback?.key === streamKey ? fallback.reason : ''
+  );
+  const original = qualityMode === 'original' && !fallbackReason;
+  const playbackBitrate = original ? 0 : Math.min(maxBitrate || 0, networkBitrate || Infinity);
+  const policyReady = Boolean(quality.policy);
   const play = useCallback(() => {
     const video = videoRef.current;
     if (!video || playPending.current || blocked.current) return;
@@ -58,14 +67,22 @@ export default function JellyfinPlayer({ state, base, command, connected, focuse
   const initialTime = useEffectEvent(() => jellyfinTime(state));
   useEffect(() => {
     const video = videoRef.current;
-    if (!maxBitrate) return;
+    if (!policyReady) return;
     let disposed = false;
     let hls;
     let ready = false;
     let bufferingSince = 0;
+    const switchToCompatibleStream = reason => {
+      if (!disposed) setFallback({ key: streamKey, reason });
+    };
     const adaptiveTimer = setInterval(() => {
-      if (qualityMode !== 'auto' || !bufferingSince || performance.now() - bufferingSince < 8000 || !ready) return;
+      if (!bufferingSince || performance.now() - bufferingSince < 8000 || !ready || video.paused || video.seeking) return;
       const estimate = hls?.bandwidthEstimate;
+      if (original) {
+        if (Number.isFinite(estimate) && estimate > 0) setNetworkBitrate(Math.max(250000, Math.floor(estimate * 0.7)));
+        switchToCompatibleStream('Original video could not keep up with this connection.');
+        return;
+      }
       if (Number.isFinite(estimate) && estimate > 0 && estimate * 0.7 < playbackBitrate * 0.8) {
         setNetworkBitrate(Math.max(250000, Math.floor(estimate * 0.7)));
         bufferingSince = 0;
@@ -74,41 +91,52 @@ export default function JellyfinPlayer({ state, base, command, connected, focuse
     loading.current = true; blocked.current = false; drift.reset();
     const reportLoading = () => { setPhase('loading'); setError(''); };
     reportLoading();
-    const url = `${root}/stream.m3u8?audio=${audio}&subtitle=${burnSubtitle}&bitrate=${playbackBitrate}`;
+    const url = `${root}/stream.m3u8?audio=${audio}&subtitle=${burnSubtitle}&${original ? 'original=1' : `bitrate=${playbackBitrate}`}`;
     const load = async () => {
-      if (video.canPlayType('application/vnd.apple.mpegurl')) {
+      if (!original && video.canPlayType('application/vnd.apple.mpegurl')) {
         video.src = url; video.load();
       } else {
         const { default: Hls } = await import('hls.js');
         if (disposed) return;
-        if (!Hls.isSupported()) { setPhase('error'); setError('This browser cannot play this video. Try a current browser with HLS support.'); return; }
+        if (!Hls.isSupported()) {
+          if (original) switchToCompatibleStream('This browser cannot use the original video player.');
+          else { setPhase('error'); setError('This browser cannot play this video. Try a current browser with HLS support.'); }
+          return;
+        }
         hls = new Hls({ maxBufferLength: 20, maxMaxBufferLength: 40, backBufferLength: 20, maxBufferSize: 40 * 1000 * 1000, startPosition: initialTime(), enableWorker: true });
         let recovered = false;
         hls.on(Hls.Events.ERROR, (_, data) => {
           if (!data.fatal || disposed) return;
+          if (original) { switchToCompatibleStream('Original video could not play on this device.'); return; }
           if (data.type === Hls.ErrorTypes.MEDIA_ERROR && !recovered) { recovered = true; hls.recoverMediaError(); }
           else { loading.current = true; setPhase('error'); setError('The video connection stopped. Reconnect playback to try again.'); hls.stopLoad(); }
         });
         hls.loadSource(url); hls.attachMedia(video);
       }
     };
-    const onReady = () => { ready = true; loading.current = false; synchronize(true); };
+    const onReady = () => { ready = true; bufferingSince = 0; loading.current = false; setPhase(video.paused ? 'paused' : 'playing'); synchronize(true); };
     const onPlaying = () => { bufferingSince = 0; loading.current = false; setPhase('playing'); };
     const onWaiting = () => { bufferingSince ||= performance.now(); loading.current = true; if (!blocked.current) setPhase('buffering'); };
-    const onError = () => { setPhase('error'); setError('This stream could not be played. Reconnect playback or choose another track.'); };
+    const onError = () => {
+      if (original) switchToCompatibleStream('Original video could not play on this device.');
+      else { setPhase('error'); setError('This stream could not be played. Reconnect playback or choose another track.'); }
+    };
     const onPause = () => { if (!loading.current && !blocked.current) setPhase(video.ended ? 'ended' : 'paused'); };
     video.addEventListener('canplay', onReady); video.addEventListener('playing', onPlaying);
     video.addEventListener('waiting', onWaiting); video.addEventListener('error', onError); video.addEventListener('pause', onPause);
-    load().catch(() => { if (!disposed) { setPhase('error'); setError('The video player could not load. Try reconnecting playback.'); } });
-    const timeout = setTimeout(() => { if (!ready && !disposed) { setPhase('error'); setError('Jellyfin is taking too long to start. Check the server and reconnect playback.'); } }, 30000);
+    load().catch(() => { if (!disposed) onError(); });
+    const timeout = setTimeout(() => {
+      if (ready || disposed) return;
+      if (original) switchToCompatibleStream('Original video took too long to start.');
+      else { setPhase('error'); setError('Jellyfin is taking too long to start. Check the server and reconnect playback.'); }
+    }, 30000);
     return () => {
       disposed = true; clearInterval(adaptiveTimer); clearTimeout(timeout); hls?.destroy();
       video.removeEventListener('canplay', onReady); video.removeEventListener('playing', onPlaying); video.removeEventListener('waiting', onWaiting); video.removeEventListener('error', onError); video.removeEventListener('pause', onPause);
       video.pause(); video.removeAttribute('src'); video.load();
       // The next manifest stops its previous encoding. Release only on full unmount below.
     };
-  }, [root, audio, burnSubtitle, attempt, drift, playbackBitrate, qualityMode, maxBitrate]);
-  useEffect(() => () => { fetch(`${root}/release`, { method: 'POST', keepalive: true }).catch(() => {}); }, [root]);
+  }, [root, audio, burnSubtitle, attempt, drift, playbackBitrate, original, policyReady, streamKey]);
   useEffect(() => { videoRef.current.volume = volume; }, [volume]);
   const togglePlay = () => {
     if (blocked.current) { blocked.current = false; play(); return; }
@@ -118,7 +146,7 @@ export default function JellyfinPlayer({ state, base, command, connected, focuse
   };
   const seek = value => { if (videoRef.current) videoRef.current.currentTime = value; setTime(value); command('seek', value); };
   const subtitleUrl = selectedSubtitle?.text ? `${root}/subtitle/${subtitle}` : null;
-  return <div className="jellyfin-player" data-phase={phase}>
+  return <div className="jellyfin-player" data-phase={phase} data-delivery={original ? 'original' : 'compatible'}>
     <video ref={videoRef} playsInline muted={!focused || muted} aria-label="Shared Jellyfin video" crossOrigin="anonymous">
       {subtitleUrl && <track key={subtitleUrl} kind="subtitles" src={subtitleUrl} srcLang={selectedSubtitle.language || 'und'} label={selectedSubtitle.title} default onLoad={event => { event.target.track.mode = 'showing'; }} />}
     </video>
@@ -127,6 +155,7 @@ export default function JellyfinPlayer({ state, base, command, connected, focuse
       {phase === 'blocked' && <button className="sr-button" onClick={() => { blocked.current = false; play(); }}>Play on this device</button>}
       {phase === 'error' && <button className="sr-button" onClick={() => setAttempt(value => value + 1)}>Reconnect playback</button>}
     </div>}
+    {fallbackReason && <p className="jellyfin-fallback-note" role="status">Using compatible playback. {fallbackReason}</p>}
     <PlaybackControls label="for everyone" playing={state.playing && phase !== 'blocked' && time < state.duration - 0.1} currentTime={time} duration={state.duration} onTogglePlay={togglePlay} onSeek={seek} disabled={!connected || ['loading', 'error'].includes(phase)} volume={volume} muted={muted} onMute={() => setMuted(value => !value)} onVolumeChange={value => { setVolume(value); setMuted(value === 0); }} note={connected ? 'Everyone can control playback' : 'Reconnecting to room…'}>
       <details className="player-track-menu" onKeyDown={event => { if (event.key === 'Escape') { event.currentTarget.open = false; event.currentTarget.querySelector('summary').focus(); event.stopPropagation(); } }}>
         <summary className="player-control" aria-label="Audio and subtitles" title="Audio and subtitles"><FaCog /></summary>
@@ -135,9 +164,11 @@ export default function JellyfinPlayer({ state, base, command, connected, focuse
           <strong>Audio &amp; subtitles</strong><p>Only changes your playback.</p>
           <label>Audio track<select aria-label="Audio track" value={audio} onChange={event => setAudio(Number(event.target.value))} disabled={!state.audioTracks.length}>{!state.audioTracks.length && <option value="-1">No audio</option>}{state.audioTracks.map(track => <option key={track.index} value={track.index}>{track.title}</option>)}</select></label>
           <label>Subtitles<select aria-label="Subtitles" value={subtitle} onChange={event => setSubtitle(Number(event.target.value))}><option value="-1">Off</option>{state.subtitleTracks.map(track => <option key={track.index} value={track.index}>{track.title}{!track.text ? ' (video subtitles)' : ''}</option>)}</select></label>
+          {onOpenNative && <button className="sr-button" onClick={onOpenNative}>Open Jellyfin Web player</button>}
           <button className="sr-button" onClick={event => { event.currentTarget.closest('details').open = false; }}>Done</button>
         </div>
       </details>
+      {onBrowse && <button className="player-control" onClick={onBrowse} title="Browse Jellyfin library" aria-label="Browse Jellyfin library"><FaFilm /></button>}
       <button className="player-control" aria-label="Stop movie for everyone" title="Stop movie for everyone" onClick={() => command('stop')} disabled={!connected}><FaStop /></button>
     </PlaybackControls>
   </div>;

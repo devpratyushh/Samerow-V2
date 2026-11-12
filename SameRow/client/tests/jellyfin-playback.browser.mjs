@@ -26,6 +26,11 @@ const add=async name=>{
 const playing=page=>page.waitForFunction(()=>{const v=document.querySelector('.jellyfin-player video');return v&&v.readyState>=3&&!v.paused&&v.currentTime>0.1;},null,{timeout:30000});
 try{
  const host=await add('Host');const guest=await add('Guest');
+ if (process.env.JELLYFIN_THROTTLE === '1') {
+  const network = await context.newCDPSession(guest);
+  await network.send('Network.enable');
+  await network.send('Network.emulateNetworkConditions', {offline:false, latency:120, downloadThroughput:312500, uploadThroughput:125000});
+ }
  const openLegacy = apiToken => host.evaluate(({serverUrl,apiToken})=>new Promise(resolve=>window.fixtureSocket.emit('jellyfin-open',{roomId:'room-ui-test',serverUrl,apiToken,itemId:'fixture-video'},resolve)),{serverUrl:fixture.url,apiToken});
  assert.ok((await openLegacy('wrong-token')).error);assert.equal(await video(host).count(),0);
  fixture.controls.delay=800;
@@ -33,7 +38,9 @@ try{
  await host.waitForTimeout(100);assert.equal(await video(host).count(),0);assert.equal(await host.getByText('Preparing the stream…',{exact:true}).count(),0);
  assert.equal((await pending).ok,true);
  await playing(host);await playing(guest);
- console.log('PASS actual HLS decode on two viewers; invalid/pending details do not activate the player');
+ assert.equal(await host.locator('.jellyfin-player').getAttribute('data-delivery'),'original');
+ assert.equal(await guest.locator('.jellyfin-player').getAttribute('data-delivery'),'original');
+ console.log('PASS copied video in fragmented MP4 decodes on two viewers');
  await guest.getByRole('button',{name:'Pause for everyone',exact:true}).click();
  await host.waitForFunction(()=>document.querySelector('.jellyfin-player video').paused);
  const paused=await video(host).evaluate(v=>v.currentTime);
@@ -42,10 +49,15 @@ try{
  assert.ok(paused<20);assert.ok(await video(host).evaluate(v=>v.paused));
  await guest.getByRole('button',{name:'Play for everyone',exact:true}).click();await playing(host);await playing(guest);
  console.log('PASS guest play/pause and seek control both players while preserving pause state');
- const hostLoads=fixture.requests.filter(r=>r.path.endsWith('master.m3u8')).length;
+ const originalLoads=fixture.requests.filter(r=>r.path==='/Videos/fixture-video/main.m3u8').length;
  await guest.getByLabel('Audio and subtitles',{exact:true}).click();
  await guest.getByLabel('Audio track',{exact:true}).selectOption('2');await playing(guest);
- assert.equal(fixture.requests.filter(r=>r.path.endsWith('master.m3u8')).length,hostLoads+1,'Only one viewer reloads after choosing audio');
+ assert.equal(fixture.requests.filter(r=>r.path==='/Videos/fixture-video/main.m3u8').length,originalLoads+1,'Only one viewer reloads after choosing audio');
+ await guest.getByLabel('Subtitles',{exact:true}).selectOption('5');
+ await guest.getByText(/Using compatible playback/).waitFor();
+ await playing(guest);
+ assert.equal(await guest.locator('.jellyfin-player').getAttribute('data-delivery'),'compatible');
+ assert.equal(await host.locator('.jellyfin-player').getAttribute('data-delivery'),'original');
  await guest.getByLabel('Subtitles',{exact:true}).selectOption('4');
  await guest.waitForFunction(()=>{const t=document.querySelector('.jellyfin-player video').textTracks[0];return t?.mode==='showing'&&t.cues?.length>0;});
  assert.equal(await video(host).evaluate(v=>v.textTracks.length),0);
@@ -60,7 +72,14 @@ try{
  await host.waitForFunction(()=>window.rtcConnections.filter(c=>c.connectionState==='connected').every(c=>c.getSenders().filter(s=>s.track?.kind==='video').every(s=>s.getParameters().encodings.every(e=>e.maxBitrate<=300000))),null,{timeout:12000});
  const clocks=await Promise.all(pages.map(page=>video(page).evaluate(v=>v.currentTime)));
  assert.ok(Math.max(...clocks)-Math.min(...clocks)<1.5,`Five viewer drift ${clocks}`);
+ await video(guest).evaluate(v=>{ window.sample = {start:v.currentTime, waits:0}; v.addEventListener('waiting',()=>window.sample.waits++); });
  await host.waitForTimeout(10000);
+ const sample=await video(guest).evaluate(v=>({...window.sample,elapsed:v.currentTime-window.sample.start}));
+ console.log('Guest playback over 10 seconds',JSON.stringify(sample));
+ if (process.env.JELLYFIN_THROTTLE === '1') {
+  assert.equal(sample.waits,0);
+  assert.ok(sample.elapsed>9, 'The throttled guest keeps playing in real time');
+ }
  const decoded=await Promise.all(pages.map(page=>video(page).evaluate(v=>({frames:v.getVideoPlaybackQuality().totalVideoFrames,drops:v.getVideoPlaybackQuality().droppedVideoFrames,time:v.currentTime}))));
  assert.ok(decoded.every(value=>value.frames>0));
  console.log('PASS five real WebRTC peers + five decoded HLS players, bounded camera bitrates, no restart on join',JSON.stringify(decoded));
