@@ -2,6 +2,23 @@
 
 This plugin connects a Jellyfin server to SameRow using outbound HTTPS. The server administrator approves pairing on SameRow Web, then selects the connected server in the SameRow library dialog. Media passes through the relay as binary data. Playback quality and audio/subtitle choices use SameRow's existing player.
 
+## Install from the Jellyfin catalog
+
+**Version 1.0.1.0 is a public beta for Jellyfin 12.3 and .NET 10.** It is distributed through SameRow's third-party repository. Inclusion in Jellyfin's default repository or community directory requires separate maintainer acceptance.
+
+1. Open Jellyfin **Dashboard → Plugins → Repositories** and add a repository.
+2. Name it **SameRow Connect** and paste this URL:
+
+   ```text
+   https://raw.githubusercontent.com/devpratyushh/Samerow-V2/main/jellyfin-plugin-samerow/manifest.json
+   ```
+
+3. Save, open **Catalog**, and select **SameRow Connect**. Refresh the catalog if needed.
+4. Install **1.0.1.0** and restart Jellyfin.
+5. Open **Dashboard → Plugins → SameRow Connect** and follow the pairing steps below.
+
+[Release downloads and corresponding source](https://github.com/devpratyushh/Samerow-V2/releases/tag/samerow-connect-v1.0.1.0). If the plugin does not appear, check your Jellyfin version: this package has been built and tested against 12.3. It has not been validated on other versions. Older releases such as 10.x need a separate compatible build.
+
 ## Compatibility and build
 
 This package targets Jellyfin 12.3 and .NET 10. Build against your Jellyfin server assemblies:
@@ -13,10 +30,10 @@ python3 jellyfin-plugin-samerow/package.py
 
 The default assembly path is the workspace's sibling jellyfin-sandbox/jellyfin directory. Other Jellyfin versions require a compatible build and validation.
 
-## Install and connect
+## Manual installation and pairing
 
 1. Stop Jellyfin.
-2. Extract the ZIP from dist into Jellyfin's plugins/SameRow_1.0.1.0 directory.
+2. Download `SameRow-Connect-1.0.1.0.zip` from the [release](https://github.com/devpratyushh/Samerow-V2/releases/tag/samerow-connect-v1.0.1.0), or build it locally. Extract it into Jellyfin's `plugins/SameRow_1.0.1.0` directory, with `SameRow.Plugin.dll` directly inside that directory.
 3. Start Jellyfin and open Dashboard → Plugins → SameRow Connect.
 4. Select Connect, sign in to SameRow Web, and approve the connection.
 5. Return to the plugin page and wait for Connected. Open SameRow Web and select the connected server in the Jellyfin library dialog.
@@ -24,7 +41,7 @@ The default assembly path is the workspace's sibling jellyfin-sandbox/jellyfin d
 
 Disconnect stops relay workers and revokes the connector credential. Library access follows the Jellyfin account's permissions. Custom library allowlists are unsupported and rejected.
 
-The hosted SameRow frontend and backend must include the connector discovery and self-revocation endpoints from this change before production use.
+The hosted SameRow frontend and backend include connector discovery and self-revocation. Self-hosted deployments must run the matching application/backend version.
 
 ## Credential protection and recovery
 
@@ -53,4 +70,12 @@ The supported hosted topology uses one media replica, as configured in render.ya
 
 Run the plugin test executable with JELLYFIN_SERVER_PATH pointing at the server assemblies. Run SameRow/client/tests/jellyfin-plugin.browser.mjs against the disposable workspace Jellyfin sandbox and Vite on port 5175 to exercise a real C# worker, Jellyfin media, the gateway and four browser viewers. It uses loopback HTTP and development identities inside its test harness. It does not establish production HTTPS, Firebase, separate-network or installed-plugin acceptance.
 
-The GitHub Actions plugin workflow builds, tests and packages against official Jellyfin 12.3 assemblies. A workflow run on GitHub is still required. The checked-in manifest.json is an empty catalog. After a genuine compatible release is published, run package.py --source-url HTTPS_ZIP_URL to verify the published bytes and generate dist/manifest.json for hosting. Public publication also requires resolving the licensing decision described in LICENSING.md.
+The GitHub Actions plugin workflow builds, tests and packages against official Jellyfin 12.3 assemblies. The release ZIP contains only the plugin DLL, Jellyfin metadata, license, and source information. It excludes credentials and Jellyfin server DLLs. SHA-256 sidecars accompany downloadable archives; the catalog uses Jellyfin's expected MD5 checksum.
+
+The release is marked beta because full hosted HTTPS/Google approval and playback across separate networks with three guests still need acceptance testing. Local integration results are recorded in [test-results/README.md](test-results/README.md).
+
+For a new release, update the assembly and metadata version together, build and test, tag the exact source, publish the ZIP and corresponding source archive, then run `python3 jellyfin-plugin-samerow/package.py --source-url HTTPS_ZIP_URL`. This downloads the public ZIP and requires exact byte equality before generating `dist/manifest.json`. Copy the generated manifest to `jellyfin-plugin-samerow/manifest.json`, commit and push it, then verify its public URL. Never replace the bytes for an already-published version.
+
+## License
+
+The plugin and its build/test files are [GPL-3.0-or-later](LICENSE). [LICENSING.md](LICENSING.md) describes the scope and corresponding source. SameRow's web application and backend retain their existing license.

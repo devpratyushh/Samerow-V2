@@ -26,9 +26,13 @@ Your friends join from their browsers.
 3. Sign in to SameRow Web with Google and approve the connection.
 4. Return to Jellyfin's plugin settings and wait for **Connected**.
 
-The current plugin build targets **Jellyfin 12.3 and .NET 10**. Installation is
-currently manual using a local build or a CI artifact. A public catalog release
-has not been published. Follow the [plugin installation and compatibility guide](jellyfin-plugin-samerow/README.md).
+The public beta targets **Jellyfin 12.3 and .NET 10**. Add this third-party repository in **Dashboard → Plugins → Repositories**, install **SameRow Connect** from **Catalog**, and restart Jellyfin:
+
+```text
+https://raw.githubusercontent.com/devpratyushh/Samerow-V2/main/jellyfin-plugin-samerow/manifest.json
+```
+
+[Download the plugin and source](https://github.com/devpratyushh/Samerow-V2/releases/tag/samerow-connect-v1.0.1.0) or follow the [installation and compatibility guide](jellyfin-plugin-samerow/README.md). This is SameRow's repository; acceptance into Jellyfin's default catalog or community directory is separate.
 
 ### Start a watch party
 
@@ -283,8 +287,6 @@ and uploads the plugin artifact.
 
 ## License and release status
 
-SameRow currently uses an [All Rights Reserved license](LICENSE).
-The plugin's [licensing review](jellyfin-plugin-samerow/LICENSING.md) records
-the Jellyfin/GPL questions that need a copyright-owner decision before a public
-plugin release. The checked-in plugin catalog is empty until a release is
-published and its artifact is verified.
+The SameRow web application and backend use an [All Rights Reserved license](LICENSE). **SameRow Connect and its build/test files are GPL-3.0-or-later**; see the [plugin license](jellyfin-plugin-samerow/LICENSE) and [scope](jellyfin-plugin-samerow/LICENSING.md).
+
+The plugin is a public beta for Jellyfin 12.3. Local and CI verification passed; full hosted approval and playback across separate networks with three guests still require acceptance testing. The published catalog points to a verified GitHub Release ZIP and its matching source.

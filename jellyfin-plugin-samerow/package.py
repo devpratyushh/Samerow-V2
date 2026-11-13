@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Build a deterministic manual-install ZIP and optionally a catalog manifest."""
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""Build a deterministic install ZIP and optionally a verified catalog manifest."""
 import argparse
 import datetime
 import hashlib
@@ -27,8 +28,15 @@ timestamp = datetime.datetime.fromisoformat(meta["timestamp"].replace("Z", "+00:
 output = root / "dist"
 output.mkdir(exist_ok=True)
 archive = output / f"SameRow-Connect-{meta['version']}.zip"
+tag = f"samerow-connect-v{meta['version']}"
+source = (
+    "SameRow Connect — GPL-3.0-or-later\n"
+    f"Source and build/test instructions: https://github.com/devpratyushh/Samerow-V2/tree/{tag}/jellyfin-plugin-samerow\n"
+    f"Corresponding source archive: https://github.com/devpratyushh/Samerow-V2/releases/download/{tag}/SameRow-Connect-{meta['version']}-source.tar.gz\n"
+    "See LICENSE and LICENSING.md for terms and scope. Jellyfin server assemblies are not bundled.\n"
+).encode()
 with zipfile.ZipFile(archive, "w") as package:
-    for filename, data in [("SameRow.Plugin.dll", assembly.read_bytes()), ("meta.json", metadata.read_bytes())]:
+    for filename, data in [("SameRow.Plugin.dll", assembly.read_bytes()), ("meta.json", metadata.read_bytes()), ("LICENSE", (root / "LICENSE").read_bytes()), ("LICENSING.md", (root / "LICENSING.md").read_bytes()), ("SOURCE.txt", source)]:
         info = zipfile.ZipInfo(filename, timestamp.timetuple()[:6])
         info.compress_type = zipfile.ZIP_DEFLATED
         info.external_attr = 0o644 << 16

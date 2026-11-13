@@ -1,3 +1,6 @@
+// Copyright (c) 2026 devpratyushh
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.Plugins;
 using Microsoft.Extensions.DependencyInjection;

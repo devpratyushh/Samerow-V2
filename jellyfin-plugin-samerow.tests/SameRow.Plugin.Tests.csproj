@@ -5,6 +5,7 @@
     <TargetFramework>net10.0</TargetFramework>
     <JellyfinServerPath Condition="'$(JellyfinServerPath)' == ''">$(MSBuildThisFileDirectory)../../jellyfin-sandbox/jellyfin</JellyfinServerPath>
     <Nullable>enable</Nullable>
+    <PackageLicenseExpression>GPL-3.0-or-later</PackageLicenseExpression>
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>SameRow.Plugin.Tests</AssemblyName>
     <RootNamespace>SameRow.Plugin.Tests</RootNamespace>

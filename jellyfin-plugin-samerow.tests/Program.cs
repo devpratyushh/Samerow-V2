@@ -1,3 +1,6 @@
+// Copyright (c) 2026 devpratyushh
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 using System;
 using System.Collections.Generic;
 using System.IO;
