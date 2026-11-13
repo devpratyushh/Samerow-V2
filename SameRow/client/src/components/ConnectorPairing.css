@@ -1,0 +1,10 @@
+.connector-pairing { min-width: 0; }
+.connector-pairing summary { cursor: pointer; }
+.connector-pairing-section { margin: 14px 0; padding: 12px; border: 1px solid var(--border); border-radius: 8px; }
+.connector-pairing-section h4 { margin: 0 0 10px; }
+.connector-pairing-section p { font-size: 13px; line-height: 1.5; }
+.connector-pairing-section textarea, .connector-pairing-section input { width: 100%; box-sizing: border-box; }
+.connector-pairing-section label { display: grid; gap: 6px; margin: 12px 0; }
+.connector-pairing-server { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin: 12px 0; }
+.connector-pairing-server > div { min-width: 0; overflow-wrap: anywhere; }
+.connector-pairing-server small { display: block; margin-top: 4px; color: var(--muted); }

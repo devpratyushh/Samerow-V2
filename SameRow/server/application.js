@@ -58,7 +58,13 @@ function createApplication(options = {}) {
     // headers only on the capability-protected native gateway.
     allowedHeaders: sandboxOrigin(req) ? undefined : ['Content-Type', 'Authorization', 'X-SameRow-Token', 'Range', 'If-Range'],
     exposedHeaders: ['Content-Range', 'Accept-Ranges', 'X-Request-Id'] })));
-  app.use(express.json({ limit: '64kb', strict: true }));
+  const parseJson = express.json({ limit: '64kb', strict: true });
+  app.use((req, res, next) => {
+    // Relay responses carry arbitrary upstream bytes, including JSON. Leave
+    // their request stream intact for the authenticated streaming handler.
+    if (/^\/api\/jellyfin-relay\/response\/[a-f0-9]{32}$/.test(req.path)) return next();
+    parseJson(req, res, next);
+  });
   app.get('/health/live', (req, res) => res.json({ status: 'ok' }));
   app.get(['/health/ready', '/api/status'], async (req, res) => {
     try { if (draining || !infrastructureReady() || !await store.ping()) throw Error(); res.json({ status: 'ready' }); }
@@ -297,7 +303,7 @@ function createApplication(options = {}) {
     } finally { heartbeatRunning = false; }
   }
   const heartbeat = setInterval(() => { renewMemberships().catch(() => { stats.errors++; }); }, 20000); heartbeat.unref();
-  const relay = require('./jellyfinRelay').installJellyfinRelay(app, { config, store, identity });
+  const relay = require('./jellyfinRelay').installJellyfinRelay(app, { config, store, identity, io });
   const networkPolicy = { production: config.production, allowPrivate: config.allowPrivateJellyfin, origins: config.upstreamOrigins };
   const accounts = require('./jellyfinAccounts').installJellyfinAccounts(app, { ...(options.accountOptions || {}), relay, ...(options.store ? { store } : {}), networkPolicy });
   const jellyfin = require('./jellyfin').installJellyfin(app, io, accounts, { store, canControl, production: config.production, networkPolicy, roomTtl: config.roomTtl, allowedOrigins: config.jellyfinRelay ? [...config.origins, ...hostOrigins] : config.origins, publicOrigin: config.mediaOrigin, quality: config.jellyfinQuality });

@@ -30,9 +30,14 @@ function installConnectorApproval(app, { root, config, store, identity }) {
     try {
       const now = Date.now();
       await store.update(`connector:${id}`, current => {
-        if (!current?.claim || current.until <= now) throw Object.assign(new Error(), { status: 410 });
+        if (!current?.claim || current.claimed || current.until <= now) throw Object.assign(new Error(), { status: 410 });
         if (current.ownerUid && current.ownerUid !== user.uid) throw Object.assign(new Error(), { status: 409 });
         return { ...current, ownerUid: user.uid, digest: hash(tokenFor(id, current.claim)) };
+      }, pairingSeconds);
+      await store.update(`user-connectors:${user.uid}`, current => {
+        const list = Array.isArray(current) ? current.filter(x => x.id !== id) : [];
+        list.unshift({ id, address: `https://${id}.samerow-connector.invalid`, createdAt: now });
+        return list.slice(0, 20);
       }, pairingSeconds);
     } catch (error) {
       if (error.status === 409 || error.status === 410) return res.sendStatus(error.status);
@@ -43,11 +48,21 @@ function installConnectorApproval(app, { root, config, store, identity }) {
   router.post('/claim', async (req, res) => {
     const { id, secret } = req.body || {};
     if (typeof id !== 'string' || !idPattern.test(id) || typeof secret !== 'string' || !secretPattern.test(secret)) return res.sendStatus(400);
-    const record = await store.get(`connector:${id}`);
-    if (!record?.claim || record.until <= Date.now() ||
-        !timingSafeEqual(Buffer.from(record.claim, 'hex'), Buffer.from(hash(secret), 'hex'))) return res.sendStatus(410);
+    const claim = hash(secret);
+    let record;
+    try {
+      record = await store.update(`connector:${id}`, current => {
+        if (!current?.claim || current.claimed || current.until <= Date.now() ||
+            !timingSafeEqual(Buffer.from(current.claim, 'hex'), Buffer.from(claim, 'hex')))
+          throw Object.assign(new Error(), { status: 410 });
+        return current.digest ? { ...current, claimed: true } : current;
+      }, pairingSeconds);
+    } catch (error) {
+      if (error.status === 410) return res.sendStatus(410);
+      throw error;
+    }
     if (!record.digest) return res.sendStatus(202);
-    res.json({ token: tokenFor(id, record.claim), gateway: config.mediaOrigin });
+    res.json({ token: tokenFor(id, claim), gateway: config.mediaOrigin });
   });
   app.use(`${root}/approval`, router);
 }

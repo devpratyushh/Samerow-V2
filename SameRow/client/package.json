@@ -13,6 +13,7 @@
     "test:ui": "node tests/room-ui.browser.mjs && node tests/chat-ui.browser.mjs && node tests/media-ui.browser.mjs && node tests/room-integration.browser.mjs && node tests/playback-ui.browser.mjs && node tests/youtube-drift.browser.mjs && node tests/jellyfin-playback.browser.mjs",
     "test:sync": "node tests/youtube-drift.browser.mjs",
     "test:jellyfin": "node tests/jellyfin-native.browser.mjs",
+    "test:jellyfin:plugin": "node tests/jellyfin-plugin.browser.mjs",
     "test:jellyfin:legacy": "node tests/jellyfin-playback.browser.mjs",
     "test:call": "node tests/group-call.browser.mjs"
   },

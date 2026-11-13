@@ -172,6 +172,10 @@ function installJellyfinAccounts(app, options = {}) {
     if (typeof token !== 'string' || !tokenPattern.test(token)) return null;
     const connection = shared ? await shared.get(`account:${token}`) : connections.get(token);
     if (!connection) return null;
+    if (options.relay && connectorId(connection.base)) {
+      try { await options.relay.authorize(connection.base, connection.ownerUid); }
+      catch { await forget(connection); return null; }
+    }
     if (connection.lastUsed <= Date.now() - idleLifetime) { await forget(connection); return null; }
     if (Date.now() - connection.lastUsed >= 60000) {
       connection.lastUsed = Date.now();

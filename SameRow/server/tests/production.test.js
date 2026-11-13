@@ -294,6 +294,10 @@ test('a paired Docker host can open a private web room and relay Jellyfin to a g
   };
   const pairing = await pair();
   const otherPairing = await pair();
+  const listed = await fetch(`${application.url}/api/jellyfin-relay/connectors`, { headers: { 'X-SameRow-Token': 'test:owner' } });
+  assert.ok((await listed.json()).connectors.some(entry => entry.address === pairing.address));
+  const strangerList = await fetch(`${application.url}/api/jellyfin-relay/connectors`, { headers: { 'X-SameRow-Token': 'test:stranger' } });
+  assert.deepEqual((await strangerList.json()).connectors, []);
   const sessionUrl = `${media.url}/api/jellyfin-relay/host-session`;
   assert.equal((await fetch(sessionUrl, { method: 'POST' })).status, 401);
   const sessionResponse = await fetch(sessionUrl, { method: 'POST', headers: { Authorization: `Bearer ${pairing.token}` } });
@@ -340,7 +344,7 @@ test('a paired Docker host can open a private web room and relay Jellyfin to a g
       );
       const uploaded = await fetch(`${relay}/response/${job.job}`, {
         method: 'POST', body: await response.arrayBuffer(), signal,
-        headers: { ...headers, 'X-Relay-Status': response.status, 'X-Relay-Headers': JSON.stringify(Object.fromEntries(response.headers)) },
+        headers: { ...headers, 'Content-Type': response.headers.get('content-type') || 'application/octet-stream', 'X-Relay-Status': response.status, 'X-Relay-Headers': JSON.stringify(Object.fromEntries(response.headers)) },
       });
       assert.equal(uploaded.status, 204);
     }
@@ -376,6 +380,10 @@ test('a paired Docker host can open a private web room and relay Jellyfin to a g
     }
   })()]);
   assert.equal((await fetch(pairUrl, { method: 'POST', headers: { 'X-SameRow-Token': token } })).status, 403);
+  const onlineList = await fetch(`${application.url}/api/jellyfin-relay/connectors`, { headers: { 'X-SameRow-Token': 'test:owner' } });
+  assert.equal((await onlineList.json()).connectors.find(entry => entry.address === pairing.address).online, true);
+  assert.equal((await fetch(`${media.url}/api/jellyfin-relay/pair/${pairing.token.split('.')[0]}`, { method: 'DELETE', headers: { Authorization: `Bearer ${otherPairing.token}` } })).status, 401);
+  assert.equal((await fetch(`${media.url}/api/jellyfin-relay/pair/${otherPairing.token.split('.')[0]}`, { method: 'DELETE', headers: { Authorization: `Bearer ${otherPairing.token}` } })).status, 204);
   assert.equal((await fetch(`${pairUrl}/${pairing.token.split('.')[0]}`, { method: 'DELETE', headers: { 'X-SameRow-Token': 'test:owner' } })).status, 204);
   await assert.rejects(application.identity.verify(token), /revoked/);
 });
@@ -598,4 +606,32 @@ test('production control acknowledges a generated room join and the media servic
   assert.equal(token.mode, 'livekit');
   assert.match(token.token, /^[^.]+\.[^.]+\.[^.]+$/);
   assert.equal(createdRooms[0].maxParticipants, 4);
+});
+
+test('pairing claims are single-use under concurrency, expire, and tokens rotate with retry recovery', async t => {
+  const { createHash } = require('node:crypto');
+  const store = new MemoryStore();
+  const app = await start(t, { store, config: { jellyfinRelay: true, mediaOrigin: 'https://media.example', encryptionKey: 'a'.repeat(64) } });
+  const root = app.url + '/api/jellyfin-relay';
+  const post = (path, body, headers = {}) => fetch(root + path, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify(body),
+  });
+  const secret = 'b'.repeat(64);
+  const { id } = await (await post('/approval/start', { claim: createHash('sha256').update(secret).digest('hex') })).json();
+  assert.equal((await post('/approval/claim', { id, secret })).status, 202);
+  assert.equal((await post('/approval/approve', { id }, { 'X-SameRow-Token': 'test:owner' })).status, 204);
+  const claims = await Promise.all([post('/approval/claim', { id, secret }), post('/approval/claim', { id, secret })]);
+  assert.deepEqual(claims.map(reply => reply.status).sort(), [200, 410]);
+  const { token } = await claims.find(reply => reply.status === 200).json();
+  assert.equal((await post('/approval/approve', { id }, { 'X-SameRow-Token': 'test:owner' })).status, 410);
+  const next = id + '.' + 'c'.repeat(64);
+  const rotate = () => post('/rotate', { token: next }, { Authorization: 'Bearer ' + token });
+  assert.equal((await rotate()).status, 204);
+  assert.equal((await rotate()).status, 204);
+  assert.equal((await post('/host-session', {}, { Authorization: 'Bearer ' + token })).status, 401);
+  assert.equal((await post('/host-session', {}, { Authorization: 'Bearer ' + next })).status, 200);
+  assert.equal((await post('/rotate', { token: id + '.' + 'd'.repeat(64) }, { Authorization: 'Bearer ' + token })).status, 401);
+  const expiring = await (await post('/approval/start', { claim: createHash('sha256').update(secret).digest('hex') })).json();
+  await store.update('connector:' + expiring.id, current => ({ ...current, until: Date.now() - 1 }));
+  assert.equal((await post('/approval/claim', { id: expiring.id, secret })).status, 410);
 });

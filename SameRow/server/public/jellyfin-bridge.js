@@ -186,6 +186,13 @@
     // The room may already have revoked this player's access when it closes.
     try { await suppress(() => manager?.stop()); } catch { /* The player is closing. */ }
   }
+  // Jellyfin reports its final session update asynchronously after stop().
+  // Its capability may already be revoked by the room closing.
+  window.addEventListener('unhandledrejection', event => {
+    if (disposed && event.reason instanceof Response && [401, 403, 410].includes(event.reason.status)) {
+      event.preventDefault();
+    }
+  });
   function clamp(time) {
     const duration = Number(latest?.duration || config.duration);
     return Math.max(0, Math.min(Number.isFinite(duration) && duration > 0 ? duration : Infinity, time));
@@ -374,7 +381,7 @@
       synchronize();
     } else if (message.type === 'quality') {
       const policy = message.policy;
-      if (!policy || !['auto', 'original'].includes(policy.mode) || !Number.isFinite(policy.maxBitrate) || policy.maxBitrate <= 0 || policy.maxBitrate > 1000000000) return;
+      if (!policy || !['auto', 'original', '4mbps', '8mbps', '20mbps'].includes(policy.mode) || !Number.isFinite(policy.maxBitrate) || policy.maxBitrate <= 0 || policy.maxBitrate > 1000000000) return;
       quality = policy;
       qualityKey = `${policy.mode}:${policy.maxBitrate}:${policy.revision || 0}`;
       applyQuality();

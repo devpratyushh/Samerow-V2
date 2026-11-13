@@ -7,6 +7,16 @@ const { configuration } = require('../config');
 
 const movie = base => ({ base, sourceId: 'source', item: { MediaSources: [{ Id: 'source', Bitrate: 40000000, MediaStreams: [{ Type: 'Video', Width: 3840, Height: 2160 }] }] } });
 
+test('manual quality caps apply per viewer and obey shared capacity', async () => {
+  const policy = createQualityPolicy(new MemoryStore(), { gatewayMbps: 10 });
+  const state = movie('https://movies.example');
+  const first = { token: 'manual', qualityMode: '4mbps' };
+  const second = { token: 'original', qualityMode: 'original' };
+  assert.equal((await policy.describe(first, state)).maxBitrate, 4000000);
+  assert.equal((await policy.describe(second, state)).mode, 'original');
+  assert.equal((await policy.describe(first, state)).maxBitrate, 4000000);
+});
+
 test('quality respects the narrower shared budget and releases capacity when viewers leave', async () => {
   const store = new MemoryStore(), policy = createQualityPolicy(store, { gatewayMbps: 1000, originMbps: 100 });
   const state = movie('https://movies.example/library');

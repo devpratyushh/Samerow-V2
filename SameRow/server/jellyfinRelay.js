@@ -18,13 +18,20 @@ function connectorId(base) {
   return match?.[1];
 }
 
-function installJellyfinRelay(app, { config, store, identity }) {
+function installJellyfinRelay(app, { config, store, identity, io }) {
   if (!config.jellyfinRelay) return null;
   const polls = new Map(), queues = new Map(), jobs = new Map(), active = new Map();
   let queued = 0;
   const onMedia = config.serviceRole !== 'control';
   const internalToken = createHmac('sha256', config.encryptionKey).update('samerow jellyfin relay v1').digest('hex');
   if (config.serviceRole !== 'media') installConnectorApproval(app, { root: ROOT, config, store, identity });
+  const abortConnector = id => {
+    for (const response of polls.get(id) || []) response.sendStatus(401);
+    for (const entry of queues.get(id) || []) entry.cancel();
+    for (const job of jobs.values()) if (job.id === id) job.cancel();
+    for (const [stream, details] of active) if (details.connector === id) stream.destroy();
+  };
+  io?.on('connector-revoked', abortConnector);
 
   async function authenticate(req) {
     const token = /^Bearer ([a-f0-9]{32}\.[a-f0-9]{64})$/.exec(req.get('authorization') || '')?.[1];
@@ -40,20 +47,72 @@ function installJellyfinRelay(app, { config, store, identity }) {
     if (user.connectorId || user.firebase?.sign_in_provider === 'anonymous') return res.sendStatus(403);
     if (!await store.limit(`connector-pair:${user.uid}`, 5, 3600)) return res.sendStatus(429);
     const id = random(16), token = `${id}.${random(32)}`;
-    await store.set(`connector:${id}`, { ownerUid: user.uid, digest: hash(token) }, 30 * 86400);
+    await store.set(`connector:${id}`, { ownerUid: user.uid, digest: hash(token), createdAt: Date.now() }, 30 * 86400);
+    await store.update(`user-connectors:${user.uid}`, current => {
+      const list = Array.isArray(current) ? current.filter(x => x.id !== id) : [];
+      list.unshift({ id, address: `https://${id}${suffix}`, createdAt: Date.now() });
+      return list.slice(0, 20);
+    }, 30 * 86400);
     res.set('Cache-Control', 'no-store').json({ token, address: `https://${id}${suffix}`, gateway: config.mediaOrigin });
   });
 
   app.delete(`${ROOT}/pair/:id`, async (req, res) => {
     let user;
-    try { user = await identity.verify(req.get('X-SameRow-Token')); }
+    const connector = await authenticate(req);
+    try { user = connector?.id === req.params.id ? { uid: connector.record.ownerUid } : await identity.verify(req.get('X-SameRow-Token')); }
     catch { return res.sendStatus(401); }
     const id = req.params.id;
     if (!/^[a-f0-9]{32}$/.test(id)) return res.sendStatus(404);
     const record = await store.get(`connector:${id}`);
     if (record?.ownerUid !== user.uid) return res.sendStatus(404);
     await store.set(`connector:${id}`, null);
+    await store.set(`connector-online:${id}`, null);
+    abortConnector(id);
+    if (store.client) io?.serverSideEmit('connector-revoked', id);
+    await store.update(`user-connectors:${user.uid}`, current => {
+      return Array.isArray(current) ? current.filter(x => x.id !== id) : [];
+    }, 30 * 86400);
     res.sendStatus(204);
+  });
+
+  app.get(`${ROOT}/connectors`, async (req, res) => {
+    let user;
+    try { user = await identity.verify(req.get('X-SameRow-Token')); }
+    catch { return res.sendStatus(401); }
+    const list = await store.get(`user-connectors:${user.uid}`);
+    const result = [];
+    if (Array.isArray(list)) {
+      for (const entry of list) {
+        const record = await store.get(`connector:${entry.id}`);
+        if (record && record.ownerUid === user.uid) {
+          const online = Boolean(await store.get(`connector-online:${entry.id}`));
+          result.push({ ...entry, online });
+        }
+      }
+    }
+    res.set('Cache-Control', 'no-store').json({ connectors: result });
+  });
+
+  app.post(`${ROOT}/rotate`, async (req, res) => {
+    const oldToken = /^Bearer ([a-f0-9]{32}\.[a-f0-9]{64})$/.exec(req.get('authorization') || '')?.[1];
+    const nextToken = req.body?.token;
+    if (!oldToken || typeof nextToken !== 'string' || !/^[a-f0-9]{32}\.[a-f0-9]{64}$/.test(nextToken) ||
+        oldToken.split('.')[0] !== nextToken.split('.')[0]) return res.sendStatus(400);
+    const id = oldToken.split('.')[0];
+    try {
+      await store.update(`connector:${id}`, current => {
+        if (!current?.ownerUid || ![hash(oldToken), hash(nextToken)].includes(current.digest)) {
+          throw Object.assign(new Error(), { status: 401 });
+        }
+        // The proposed token is generated and saved by the connector first.
+        // Retrying a lost response therefore cannot strand its credential.
+        return { ...current, digest: hash(nextToken), rotatedAt: Date.now() };
+      }, 30 * 86400);
+    } catch (error) {
+      if (error.status === 401) return res.sendStatus(401);
+      throw error;
+    }
+    res.set('Cache-Control', 'no-store').sendStatus(204);
   });
 
   async function authorize(base, uid) {
@@ -77,8 +136,12 @@ function installJellyfinRelay(app, { config, store, identity }) {
       res.set('Cache-Control', 'no-store').json(await issueHostSession(store, id));
     });
     app.get(`${ROOT}/poll`, async (req, res) => {
-      const id = (await authenticate(req))?.id;
+      const authenticated = await authenticate(req);
+      const id = authenticated?.id;
       if (!id) return res.sendStatus(401);
+      await store.set(`connector-online:${id}`, true, 60);
+      await store.touch(`connector:${id}`, 30 * 86400);
+      if (authenticated.record.ownerUid) await store.touch(`user-connectors:${authenticated.record.ownerUid}`, 30 * 86400);
       if (res.destroyed) return;
       const next = queues.get(id)?.values().next().value;
       if (next) return next.send(res);
@@ -145,6 +208,9 @@ function installJellyfinRelay(app, { config, store, identity }) {
   }
 
   async function dispatch(payload, signal) {
+    if (payload?.protocolVersion !== undefined && payload.protocolVersion !== 1) {
+      throw Object.assign(new Error('Unsupported connector protocol.'), { status: 400 });
+    }
     const id = connectorId(payload?.base);
     if (!id || !await store.get(`connector:${id}`) || signal.aborted || jobs.size >= 2000) throw unavailable();
     const available = polls.get(id);
@@ -170,7 +236,7 @@ function installJellyfinRelay(app, { config, store, identity }) {
         send(response) {
           unqueue();
           jobs.set(key, { id, signal, method: payload.method, resolve(value) { cleanup(); resolve(value); }, cancel });
-          response.json({ ...payload, job: key });
+          response.json({ ...payload, protocolVersion: 1, job: key });
         },
       };
       signal.addEventListener('abort', cancel, { once: true });
@@ -207,6 +273,7 @@ function installJellyfinRelay(app, { config, store, identity }) {
   }
 
   return { authorize, request, close() {
+    io?.off('connector-revoked', abortConnector);
     for (const available of polls.values()) for (const response of available) response.sendStatus(503);
     for (const queue of queues.values()) for (const entry of queue) entry.cancel();
     for (const job of jobs.values()) job.cancel();

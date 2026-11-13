@@ -1,5 +1,6 @@
 // Quality belongs to a viewer, never the synchronized room timeline.
 const MAX_BITRATE = 1000000000;
+const qualityModes = { auto: MAX_BITRATE, original: MAX_BITRATE, '4mbps': 4000000, '8mbps': 8000000, '20mbps': 20000000 };
 const positive = value => Number.isFinite(Number(value)) && Number(value) > 0 ? Number(value) : null;
 function sourceInfo(state) {
   const source = state.item?.MediaSources?.find(source => source.Id === state.sourceId) || {};
@@ -23,8 +24,9 @@ function createQualityPolicy(store, { originMbps = 0, gatewayMbps = 0 } = {}) {
         originMbps ? originMbps * 800000 / originViewers : MAX_BITRATE);
       const source = sourceInfo(state);
       const originalBitrate = Math.min(MAX_BITRATE, source.bitrate ? Math.ceil(source.bitrate * 1.25) : MAX_BITRATE);
-      return { mode: viewer.qualityMode || defaultMode, revision: viewer.qualityRevision || 0, source, originalBitrate,
-        maxBitrate: Math.max(1, Math.floor(Math.min(capacity, originalBitrate))),
+      const mode = Object.hasOwn(qualityModes, viewer.qualityMode) ? viewer.qualityMode : defaultMode;
+      return { mode, revision: viewer.qualityRevision || 0, source, originalBitrate,
+        maxBitrate: Math.max(1, Math.floor(Math.min(capacity, originalBitrate, qualityModes[mode]))),
         capacityLimited: capacity < originalBitrate };
     },
   };
@@ -36,4 +38,4 @@ function negotiateQuality(body, policy) {
     ...(body.DeviceProfile ? { DeviceProfile: { ...body.DeviceProfile, MaxStreamingBitrate: bitrate, MaxStaticBitrate: bitrate } } : {}),
   };
 }
-module.exports = { createQualityPolicy, sourceInfo, negotiateQuality };
+module.exports = { createQualityPolicy, sourceInfo, negotiateQuality, qualityModes };

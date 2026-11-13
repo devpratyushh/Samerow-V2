@@ -389,9 +389,11 @@ function ConnectorHostApp() {
 function ConnectorApproval({ id, returnOrigin }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [approved, setApproved] = useState(false);
   const [account, setAccount] = useState(undefined);
   useEffect(() => onIdTokenChanged(auth, setAccount), []);
-  const valid = /^[a-f0-9]{32}$/.test(id) && ['http://localhost:8080', 'http://127.0.0.1:8080'].includes(returnOrigin);
+  const isLocal = returnOrigin && ['http://localhost:8080', 'http://127.0.0.1:8080'].includes(returnOrigin);
+  const valid = /^[a-f0-9]{32}$/.test(id) && (!returnOrigin || isLocal);
   const approve = async () => {
     setBusy(true);
     setError('');
@@ -404,20 +406,28 @@ function ConnectorApproval({ id, returnOrigin }) {
         signal: AbortSignal.timeout(20000),
       });
       if (!response.ok) throw new Error(response.status === 410 || response.status === 409
-        ? 'This connection request is no longer available. Start again from SameRow Local.'
+        ? 'This connection request is no longer available. Start again from your Jellyfin server or SameRow Local.'
         : 'Could not approve this connection. Try again.');
-      window.location.assign(`${returnOrigin}/?host=online#approved=${id}`);
+      if (isLocal) {
+        window.location.assign(`${returnOrigin}/?host=online#approved=${id}`);
+      } else {
+        setApproved(true);
+      }
     } catch (failure) { setError(failure.message); }
     finally { setBusy(false); }
   };
   return <main className="lobby"><section className="lobby-content">
-    <h1>Connect SameRow Local</h1>
-    {valid ? <>
-      <p>Approve this request if you just clicked Connect to SameRow Web in your Docker app.</p>
+    <h1>Connect SameRow</h1>
+    {approved ? <>
+      <p role="status">Connection approved.</p>
+      <p>Return to the SameRow Connect settings in Jellyfin and wait for Connected. Then open the SameRow lobby to create a private room.</p>
+      <a href="/" className="sr-button sr-button--primary">Go to SameRow Lobby</a>
+    </> : valid ? <>
+      <p>Approve this request to connect your Jellyfin server to your SameRow account.</p>
       <button type="button" className="sr-button sr-button--primary" disabled={busy || account === undefined} onClick={approve}>
         {busy ? 'Approving…' : account && !account.isAnonymous ? 'Approve connection' : 'Sign in with Google and approve'}
       </button>
-    </> : <p role="alert">Open SameRow Local to start a connection.</p>}
+    </> : <p role="alert">Invalid connection approval link.</p>}
     {error && <p role="alert">{error}</p>}
   </section></main>;
 }

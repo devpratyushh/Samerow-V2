@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>SameRow Connect</title>
+</head>
+<body>
+<div id="samerowConfigurationPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-button,emby-input,emby-select">
+    <div data-role="content">
+        <div class="content-primary">
+            <div class="verticalSection">
+                <div class="sectionTitleContainer flex align-items-center">
+                    <h2 class="sectionTitle">SameRow Connect</h2>
+                </div>
+                <p class="fieldDescription">
+                    Connect your Jellyfin server directly to SameRow so you and up to three friends can watch movies and shows together in real time.
+                    No Docker container, reverse proxy, or exposed ports are required.
+                </p>
+            </div>
+
+            <!-- Connection Status Box -->
+            <div class="verticalSection">
+                <div id="statusContainer" class="paperList" style="padding: 1.5em; border-radius: 8px; margin-bottom: 2em; background: rgba(0,0,0,0.2);">
+                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1em;">
+                        <h3 style="margin: 0;">Connection Status</h3>
+                        <span id="connectionBadge" style="padding: 4px 12px; border-radius: 12px; font-weight: bold; background: #666; color: #fff;">Checking...</span>
+                    </div>
+
+                    <div id="statusDetails" style="display: none; line-height: 1.8;">
+                        <div><strong>Connector ID:</strong> <span id="displayConnectorId" style="font-family: monospace;">-</span></div>
+                        <div><strong>Gateway:</strong> <span id="displayGateway">-</span></div>
+                        <div><strong>Active Streams:</strong> <span id="displayActiveJobs">0</span></div>
+                        <div><strong>Total Data Relayed:</strong> <span id="displayTotalBytes">0 MB</span></div>
+                        <div id="errorContainer" style="display: none; color: #ff5252; margin-top: 0.5em;">
+                            <strong>Error:</strong> <span id="displayError"></span>
+                        </div>
+                    </div>
+
+                    <div id="pairingActionContainer" style="margin-top: 1.5em;">
+                        <button is="emby-button" type="button" class="raised button-submit" id="btnConnect" style="background: #00a4dc; color: #fff; font-weight: bold;">
+                            <span>Connect SameRow</span>
+                        </button>
+                        <button is="emby-button" type="button" class="raised" id="btnDisconnect" style="background: #e53935; color: #fff; display: none;">
+                            <span>Disconnect Server</span>
+                        </button>
+                        <button is="emby-button" type="button" class="raised" id="btnRotate" style="display: none;">Rotate credential</button>
+                        <a id="btnOpenSameRow" href="https://samerow-v2.vercel.app" target="_blank" rel="noopener noreferrer" is="emby-button" class="raised" style="margin-left: 1em; display: none;">
+                            <span>Open SameRow Web &rarr;</span>
+                        </a>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Pairing Modal / Steps -->
+            <div id="pairingModal" class="paperList" style="display: none; padding: 1.5em; border-radius: 8px; margin-bottom: 2em; border: 2px solid #00a4dc; background: rgba(0, 164, 220, 0.08);">
+                <h3 style="margin-top: 0;">Approve Connection on SameRow</h3>
+                <p>Follow these two simple steps to authorize your Jellyfin server:</p>
+                <ol style="line-height: 2;">
+                    <li>Click the link below to open the approval page in a new tab:</li>
+                    <div style="margin: 0.5em 0 1em 1em;">
+                        <a id="linkApproval" href="#" target="_blank" rel="noopener noreferrer" is="emby-button" class="raised button-submit" style="background: #2e7d32; color: #fff; display: inline-block;">
+                            <span>Click here to Approve on SameRow Web &rarr;</span>
+                        </a>
+                    </div>
+                    <li>Sign into your SameRow account and click <strong>Approve</strong>. This page will automatically detect approval.</li>
+                </ol>
+                <div style="display: flex; align-items: center; gap: 8px; margin-top: 1em; color: #aaa;">
+                    <div class="mdl-spinner mdl-js-spinner is-active" style="width: 20px; height: 20px;"></div>
+                    <span id="pairingMessage" role="status">Waiting for approval on SameRow Web…</span>
+                    <button is="emby-button" type="button" id="btnCancelPairing" class="button-flat" style="margin-left: auto;">Cancel</button>
+                </div>
+            </div>
+
+            <!-- Plugin Settings Form -->
+            <form id="samerowSettingsForm" class="verticalSection">
+                <div class="sectionTitleContainer">
+                    <h3 class="sectionTitle">Server Settings</h3>
+                </div>
+
+                <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused" for="txtServerName">Server Name on SameRow</label>
+                    <input is="emby-input" type="text" id="txtServerName" class="emby-input" placeholder="e.g. Home Cinema" />
+                    <div class="fieldDescription">A name to identify this connection in the plugin settings.</div>
+                </div>
+
+                <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused" for="txtWebUrl">SameRow Web Client URL</label>
+                    <input is="emby-input" type="url" id="txtWebUrl" class="emby-input" value="https://samerow-v2.vercel.app" />
+                    <div class="fieldDescription">Hosted web app endpoint for watch rooms.</div>
+                </div>
+
+                <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused" for="numWorkers">Relay Worker Loops</label>
+                    <input is="emby-input" type="number" id="numWorkers" class="emby-input" min="1" max="16" value="8" />
+                    <div class="fieldDescription">Number of parallel outbound long-polling streams (default: 8).</div>
+                </div>
+
+                <div style="margin-top: 1.5em;">
+                    <button is="emby-button" type="submit" class="raised button-submit">
+                        <span>Save Settings</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script type="text/javascript">
+        (function() {
+            var page = document.getElementById('samerowConfigurationPage');
+            var timer;
+            var active = false;
+            var busy = false;
+            var refreshing = false;
+            var currentPairingId = null;
+            var settingsLoaded = false;
+            var get = function(id) { return page.querySelector('#' + id); };
+
+            async function request(path, body) {
+                var headers = { 'Accept': 'application/json', 'X-Emby-Token': ApiClient.accessToken() };
+                var options = { headers: headers };
+                if (body !== undefined) {
+                    options.method = 'POST';
+                    headers['Content-Type'] = 'application/json';
+                    options.body = JSON.stringify(body);
+                }
+                var response = await fetch(ApiClient.getUrl('SameRow/' + path), options);
+                var data = await response.json().catch(function() { return {}; });
+                if (!response.ok && response.status !== 410) throw new Error(data.error || 'The request failed. Please try again.');
+                return data;
+            }
+
+            function renderStatus(data) {
+                var paired = data.isPaired;
+                var badge = get('connectionBadge');
+                badge.textContent = paired ? data.connectionState || 'Connecting' : 'Not connected';
+                badge.style.background = data.connectionState === 'Connected' ? '#2e7d32' : '#666';
+                get('statusDetails').style.display = paired ? 'block' : 'none';
+                get('btnConnect').style.display = paired ? 'none' : 'inline-block';
+                get('btnDisconnect').style.display = paired ? 'inline-block' : 'none';
+                get('btnRotate').style.display = paired ? 'inline-block' : 'none';
+                get('btnRotate').textContent = data.rotationPending ? 'Retry credential rotation' : 'Rotate credential';
+                get('btnOpenSameRow').style.display = paired ? 'inline-block' : 'none';
+                get('btnOpenSameRow').href = data.sameRowWebUrl || 'https://samerow-v2.vercel.app';
+                get('displayConnectorId').textContent = data.connectorId || '-';
+                get('displayGateway').textContent = data.gatewayUrl || '-';
+                get('displayActiveJobs').textContent = data.activeJobs || 0;
+                get('displayTotalBytes').textContent = ((data.totalBytes || 0) / 1048576).toFixed(1) + ' MB';
+                get('errorContainer').style.display = data.lastError ? 'block' : 'none';
+                get('displayError').textContent = data.lastError || '';
+                currentPairingId = data.pendingPairing && data.pendingPairing.id;
+                get('pairingModal').style.display = currentPairingId ? 'block' : 'none';
+                if (currentPairingId) get('linkApproval').href = data.pendingPairing.approvalUrl;
+                get('btnConnect').disabled = busy || !!currentPairingId;
+                if (!settingsLoaded) {
+                    get('txtServerName').value = data.serverFriendlyName || '';
+                    get('txtWebUrl').value = data.sameRowWebUrl || 'https://samerow-v2.vercel.app';
+                    get('numWorkers').value = data.workerCount || 8;
+                    settingsLoaded = true;
+                }
+            }
+
+            async function refresh() {
+                if (!active || busy || refreshing) return;
+                refreshing = true;
+                try {
+                    if (currentPairingId) {
+                        var claim = await request('Pair/Claim', { id: currentPairingId });
+                        if (!active) return;
+                        get('pairingMessage').textContent = claim.status === 'expired' ? claim.error : 'Waiting for approval on SameRow Web…';
+                        if (claim.status === 'expired' || claim.status === 'paired') currentPairingId = null;
+                    }
+                    var status = await request('Status');
+                    if (active) renderStatus(status);
+                } catch (error) {
+                    if (active) {
+                        get('connectionBadge').textContent = 'Connection check failed';
+                        get('connectionBadge').style.background = '#d32f2f';
+                        get('pairingMessage').textContent = error.message;
+                    }
+                } finally { refreshing = false; }
+            }
+
+            async function action(path, body) {
+                if (busy) return;
+                busy = true;
+                page.querySelectorAll('button').forEach(function(button) { button.disabled = true; });
+                try {
+                    var result = await request(path, body);
+                    if (path === 'Pair/Start') currentPairingId = result.id;
+                    if (path === 'Pair/Cancel' || path === 'Disconnect') currentPairingId = null;
+                    if (path === 'Settings') Dashboard.alert({ title: 'Settings saved', message: 'SameRow settings were saved.' });
+                } catch (error) {
+                    Dashboard.alert({ title: 'SameRow', message: error.message });
+                } finally {
+                    busy = false;
+                    page.querySelectorAll('button').forEach(function(button) { button.disabled = false; });
+                    await refresh();
+                }
+            }
+
+            get('btnConnect').addEventListener('click', function() {
+                void action('Pair/Start', { webUrl: get('txtWebUrl').value.trim() });
+            });
+            get('btnCancelPairing').addEventListener('click', function() { void action('Pair/Cancel', {}); });
+            get('btnRotate').addEventListener('click', function() { void action('Rotate', {}); });
+            get('btnDisconnect').addEventListener('click', function() {
+                Dashboard.confirm('Disconnect this Jellyfin server from SameRow?', 'Disconnect SameRow', function(confirmed) {
+                    if (confirmed) void action('Disconnect', {});
+                });
+            });
+            get('samerowSettingsForm').addEventListener('submit', function(event) {
+                event.preventDefault();
+                void action('Settings', {
+                    serverFriendlyName: get('txtServerName').value.trim(),
+                    sameRowWebUrl: get('txtWebUrl').value.trim(),
+                    workerCount: Number(get('numWorkers').value)
+                });
+            });
+            page.addEventListener('pageshow', function() {
+                active = true;
+                settingsLoaded = false;
+                clearInterval(timer);
+                void refresh();
+                timer = setInterval(refresh, 3000);
+            });
+            page.addEventListener('pagehide', function() {
+                active = false;
+                clearInterval(timer);
+            });
+        })();
+    </script>
+</div>
+</body>
+</html>

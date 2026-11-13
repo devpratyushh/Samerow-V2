@@ -52,7 +52,7 @@ const addViewer = async name => {
   contexts.push(context);
   context.on('response', response => { if (response.status() >= 400 && response.url().includes('jellyfin')) failedRequests.push(redact(`${response.status()} ${response.url()}`)); });
   const page = await context.newPage(); pages.push(page);
-  page.on('pageerror', error => errors.push(error.message.replace(/[a-f0-9]{48,64}/gi, '[redacted]')));
+  page.on('pageerror', error => errors.push((error.stack || error.message).replace(/[a-f0-9]{48,64}/gi, '[redacted]')));
   page.on('console', message => { if (message.type() === 'error' || message.text().includes('SameRowBridge')) consoleErrors.push(redact(message.text()).slice(0, 500)); });
   page.on('response', response => { if (response.url().includes('/web/config.json')) response.json().then(value => playerConfigs.push(value.plugins)).catch(() => {}); });
   await page.goto(`${base}/tests/room-integration.html?server=${encodeURIComponent(server)}&name=${encodeURIComponent(name)}&motion=1`);
@@ -259,6 +259,19 @@ try {
   assert.deepEqual(errors, [], 'No browser page errors.');
   console.log('PASS shared stop removes every native player and revokes its gateway');
 } catch (error) {
+  for (const page of pages) {
+    console.error('SameRow playback state', await page.evaluate(() => {
+      const video = document.querySelector('.jellyfin-player video');
+      return {
+        phase: document.querySelector('.jellyfin-player')?.dataset.phase,
+        delivery: document.querySelector('.jellyfin-player')?.dataset.delivery,
+        status: document.querySelector('.jellyfin-player-status')?.textContent,
+        dialogError: document.querySelector('[role="dialog"] [role="alert"]')?.textContent,
+        readyState: video?.readyState, currentTime: video?.currentTime,
+        openCommands: window.socketEmissions?.filter(event => event.name === 'jellyfin-open').length,
+      };
+    }));
+  }
   // Keep failures reviewable without leaking room gateway or account tokens.
   for (const [index, page] of pages.entries()) {
     const frame = await frameElement(page).elementHandle({timeout:1000}).then(handle => handle?.contentFrame()).catch(() => null);

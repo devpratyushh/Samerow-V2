@@ -43,6 +43,6 @@ export function RoomFixture() {
     Object.defineProperty(navigator.mediaDevices,'getDisplayMedia',{configurable:true,value:async()=>testStream()});
     return ()=>{socket.disconnect?.();};
   },[]);
-  return <Room socket={socket} roomId="room-ui-test" userName={params.get('name')||'Alex Morgan'} initialMuted={false} initialVideoOff={false} userStream={stream} leaveRoom={()=>{window.leftRoom=true;}}/>;
+  return <Room socket={socket} roomId={params.get('room') || 'room-ui-test'} roomInvite={params.get('invite') || undefined} userName={params.get('name')||'Alex Morgan'} initialMuted={false} initialVideoOff={false} userStream={stream} leaveRoom={()=>{window.leftRoom=true;}}/>;
 }
 createRoot(document.getElementById('root')).render(<RoomFixture/>);

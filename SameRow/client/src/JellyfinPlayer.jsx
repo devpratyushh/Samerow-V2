@@ -36,6 +36,9 @@ export default function JellyfinPlayer({ state, base, command, connected, focuse
     fallback?.key === streamKey ? fallback.reason : ''
   );
   const original = qualityMode === 'original' && !fallbackReason;
+  const audioCodec = state.audioTracks.find(track => track.index === audio)?.codec?.toLowerCase();
+  const audioCodecString = { aac: 'mp4a.40.2', mp3: 'mp4a.6B', ac3: 'ac-3', eac3: 'ec-3', opus: 'opus', flac: 'flac' }[audioCodec];
+  const audioCopy = Boolean(audioCodecString && globalThis.MediaSource?.isTypeSupported(`audio/mp4; codecs="${audioCodecString}"`));
   const playbackBitrate = original ? 0 : Math.min(maxBitrate || 0, networkBitrate || Infinity);
   const policyReady = Boolean(quality.policy);
   const play = useCallback(() => {
@@ -91,7 +94,7 @@ export default function JellyfinPlayer({ state, base, command, connected, focuse
     loading.current = true; blocked.current = false; drift.reset();
     const reportLoading = () => { setPhase('loading'); setError(''); };
     reportLoading();
-    const url = `${root}/stream.m3u8?audio=${audio}&subtitle=${burnSubtitle}&${original ? 'original=1' : `bitrate=${playbackBitrate}`}`;
+    const url = `${root}/stream.m3u8?audio=${audio}&subtitle=${burnSubtitle}&${original ? `original=1&audioCopy=${audioCopy ? 1 : 0}` : `bitrate=${playbackBitrate}`}`;
     const load = async () => {
       if (!original && video.canPlayType('application/vnd.apple.mpegurl')) {
         video.src = url; video.load();
@@ -136,7 +139,7 @@ export default function JellyfinPlayer({ state, base, command, connected, focuse
       video.pause(); video.removeAttribute('src'); video.load();
       // The next manifest stops its previous encoding. Release only on full unmount below.
     };
-  }, [root, audio, burnSubtitle, attempt, drift, playbackBitrate, original, policyReady, streamKey]);
+  }, [root, audio, audioCopy, burnSubtitle, attempt, drift, playbackBitrate, original, policyReady, streamKey]);
   useEffect(() => { videoRef.current.volume = volume; }, [volume]);
   const togglePlay = () => {
     if (blocked.current) { blocked.current = false; play(); return; }

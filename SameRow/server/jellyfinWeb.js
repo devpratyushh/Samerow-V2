@@ -3,7 +3,7 @@ const { pipeline } = require('node:stream/promises');
 const path = require('node:path');
 const { readText, readJson } = require('./upstreamBody');
 
-const { negotiateQuality } = require('./jellyfinQuality');
+const { negotiateQuality, qualityModes } = require('./jellyfinQuality');
 
 const ROOT = '/api/jellyfin-native';
 const safeJson = value => JSON.stringify(value).replace(/</g, '\\u003c');
@@ -195,7 +195,7 @@ function installJellyfinWeb(app, { resolveViewer, accounts, saveViewer = async (
     try {
       if (resource === '/samerow/quality' && ['GET', 'POST'].includes(req.method)) {
         if (req.method === 'POST') {
-          if (!['auto', 'original'].includes(requestBody.mode)) { failure(400, 'Choose Auto or Original.'); return; }
+          if (!Object.hasOwn(qualityModes, requestBody.mode)) { failure(400, 'Choose a supported quality setting.'); return; }
           await saveViewer(viewer, { qualityMode: requestBody.mode, qualityRevision: (viewer.qualityRevision || 0) + 1 });
         }
         res.json(await quality.describe(viewer, state)); return;

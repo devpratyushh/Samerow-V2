@@ -1,0 +1,39 @@
+name: Jellyfin plugin
+on:
+  push:
+    paths: ['jellyfin-plugin-samerow/**', 'jellyfin-plugin-samerow.tests/**', '.github/workflows/jellyfin-plugin.yml']
+  pull_request:
+    paths: ['jellyfin-plugin-samerow/**', 'jellyfin-plugin-samerow.tests/**', '.github/workflows/jellyfin-plugin.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  plugin:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Download official Jellyfin reference assemblies
+        run: |
+          curl --fail --location --retry 3 https://repo.jellyfin.org/files/server/portable/stable/v12.3/any/jellyfin_12.3.tar.xz --output "$RUNNER_TEMP/jellyfin.tar.xz"
+          mkdir -p "$RUNNER_TEMP/jellyfin"
+          tar -xf "$RUNNER_TEMP/jellyfin.tar.xz" -C "$RUNNER_TEMP/jellyfin"
+          reference=$(find "$RUNNER_TEMP/jellyfin" -name MediaBrowser.Controller.dll -print -quit)
+          test -n "$reference"
+          echo "JELLYFIN_SERVER_PATH=$(dirname "$reference")" >> "$GITHUB_ENV"
+      - name: Build plugin and tests
+        run: dotnet build jellyfin-plugin-samerow.tests -c Release -p:JellyfinServerPath="$JELLYFIN_SERVER_PATH" -warnaserror
+      - name: Test plugin
+        run: dotnet run --project jellyfin-plugin-samerow.tests -c Release --no-build
+      - name: Package and validate
+        run: |
+          python3 jellyfin-plugin-samerow/package.py
+          python3 -m zipfile --test jellyfin-plugin-samerow/dist/SameRow-Connect-1.0.1.0.zip
+          cd jellyfin-plugin-samerow/dist
+          sha256sum -c SameRow-Connect-1.0.1.0.zip.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SameRow-Connect
+          path: jellyfin-plugin-samerow/dist/*

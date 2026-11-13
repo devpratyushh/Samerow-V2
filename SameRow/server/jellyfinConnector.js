@@ -19,6 +19,8 @@ function startJellyfinConnector(env = process.env) {
   });
 
   async function upload(job) {
+    // Missing version is the original Docker relay protocol.
+    if (job.protocolVersion !== undefined && job.protocolVersion !== 1) return;
     if (!/^[a-f0-9]{32}$/.test(job.job) || !['GET', 'HEAD', 'POST', 'DELETE'].includes(job.method)) return;
     let response;
     try {
