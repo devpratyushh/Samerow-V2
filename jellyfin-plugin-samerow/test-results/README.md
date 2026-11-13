@@ -70,3 +70,8 @@ The test Redis container was stopped after validation. Docker was started to run
 - [Third-party directory submission](https://github.com/jellyfin/jellyfin.org/pull/2089) adds the plugin and repository to Jellyfin's community listing. Its TypeScript repository data loads with unique repository IDs and the correct SameRow entry. This submission is awaiting maintainer review; inclusion in Jellyfin's official repository is not claimed.
 
 These publication and installation checks do not complete the hosted Google approval / separate-network playback acceptance scenario described above.
+
+
+## Dashboard authentication fix — 2026-11-13
+
+The published 1.0.1.0 plugin page sent its Jellyfin access token in `X-Emby-Token`. The tested Jellyfin 12.3 server rejected those page requests, so the dashboard displayed “Connection check failed” even though the plugin loaded and its controller was available. The controller authentication now uses Jellyfin's accepted `Authorization: MediaBrowser Token="…"` header. The fix is packaged in 1.0.2.0; 1.0.1.0 remains unchanged. Build with warnings as errors and all 10 plugin tests pass for the fix.

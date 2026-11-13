@@ -120,7 +120,7 @@
             var get = function(id) { return page.querySelector('#' + id); };
 
             async function request(path, body) {
-                var headers = { 'Accept': 'application/json', 'X-Emby-Token': ApiClient.accessToken() };
+                var headers = { 'Accept': 'application/json', 'Authorization': 'MediaBrowser Token="' + ApiClient.accessToken() + '"' };
                 var options = { headers: headers };
                 if (body !== undefined) {
                     options.method = 'POST';

@@ -31,9 +31,9 @@ jobs:
       - name: Package and validate
         run: |
           python3 jellyfin-plugin-samerow/package.py
-          python3 -m zipfile --test jellyfin-plugin-samerow/dist/SameRow-Connect-1.0.1.0.zip
+          python3 -m zipfile --test jellyfin-plugin-samerow/dist/SameRow-Connect-1.0.2.0.zip
           cd jellyfin-plugin-samerow/dist
-          sha256sum -c SameRow-Connect-1.0.1.0.zip.sha256
+          sha256sum -c SameRow-Connect-1.0.2.0.zip.sha256
       - uses: actions/upload-artifact@v4
         with:
           name: SameRow-Connect

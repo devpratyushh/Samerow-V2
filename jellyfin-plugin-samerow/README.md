@@ -4,7 +4,7 @@ This plugin connects a Jellyfin server to SameRow using outbound HTTPS. The serv
 
 ## Install from the Jellyfin catalog
 
-**Version 1.0.1.0 is a public beta for Jellyfin 12.3 and .NET 10.** It is distributed through SameRow's third-party repository. A [third-party directory submission](https://github.com/jellyfin/jellyfin.org/pull/2089) is awaiting maintainer review. Inclusion in Jellyfin's default repository requires separate acceptance.
+**Version 1.0.2.0 is a public beta for Jellyfin 12.3 and .NET 10.** It is distributed through SameRow's third-party repository. A [third-party directory submission](https://github.com/jellyfin/jellyfin.org/pull/2089) is awaiting maintainer review. Inclusion in Jellyfin's default repository requires separate acceptance.
 
 1. Open Jellyfin **Dashboard → Plugins → Repositories** and add a repository.
 2. Name it **SameRow Connect** and paste this URL:
@@ -14,10 +14,10 @@ This plugin connects a Jellyfin server to SameRow using outbound HTTPS. The serv
    ```
 
 3. Save, open **Catalog**, and select **SameRow Connect**. Refresh the catalog if needed.
-4. Install **1.0.1.0** and restart Jellyfin.
+4. Install **1.0.2.0** and restart Jellyfin.
 5. Open **Dashboard → Plugins → SameRow Connect** and follow the pairing steps below.
 
-[Release downloads and corresponding source](https://github.com/devpratyushh/Samerow-V2/releases/tag/samerow-connect-v1.0.1.0). If the plugin does not appear, check your Jellyfin version: this package has been built and tested against 12.3. It has not been validated on other versions. Older releases such as 10.x need a separate compatible build.
+[Release downloads and corresponding source](https://github.com/devpratyushh/Samerow-V2/releases/tag/samerow-connect-v1.0.2.0). If the plugin does not appear, check your Jellyfin version: this package has been built and tested against 12.3. It has not been validated on other versions. Older releases such as 10.x need a separate compatible build.
 
 ## Compatibility and build
 
@@ -33,7 +33,7 @@ The default assembly path is the workspace's sibling jellyfin-sandbox/jellyfin d
 ## Manual installation and pairing
 
 1. Stop Jellyfin.
-2. Download `SameRow-Connect-1.0.1.0.zip` from the [release](https://github.com/devpratyushh/Samerow-V2/releases/tag/samerow-connect-v1.0.1.0), or build it locally. Extract it into Jellyfin's `plugins/SameRow_1.0.1.0` directory, with `SameRow.Plugin.dll` directly inside that directory.
+2. Download `SameRow-Connect-1.0.2.0.zip` from the [release](https://github.com/devpratyushh/Samerow-V2/releases/tag/samerow-connect-v1.0.2.0), or build it locally. Extract it into Jellyfin's `plugins/SameRow_1.0.2.0` directory, with `SameRow.Plugin.dll` directly inside that directory.
 3. Start Jellyfin and open Dashboard → Plugins → SameRow Connect.
 4. Select Connect, sign in to SameRow Web, and approve the connection.
 5. Return to the plugin page and wait for Connected. Open SameRow Web and select the connected server in the Jellyfin library dialog.
@@ -69,6 +69,8 @@ The supported hosted topology uses one media replica, as configured in render.ya
 ## Verification and distribution
 
 Run the plugin test executable with JELLYFIN_SERVER_PATH pointing at the server assemblies. Run SameRow/client/tests/jellyfin-plugin.browser.mjs against the disposable workspace Jellyfin sandbox and Vite on port 5175 to exercise a real C# worker, Jellyfin media, the gateway and four browser viewers. It uses loopback HTTP and development identities inside its test harness. It does not establish production HTTPS, Firebase, separate-network or installed-plugin acceptance.
+
+The plugin settings page sends authenticated API requests using Jellyfin 12.3’s `Authorization: MediaBrowser Token="…"` header. This is required for status polling, pairing, and saving plugin settings.
 
 The GitHub Actions plugin workflow builds, tests and packages against official Jellyfin 12.3 assemblies. The release ZIP contains only the plugin DLL, Jellyfin metadata, license, and source information. It excludes credentials and Jellyfin server DLLs. SHA-256 sidecars accompany downloadable archives; the catalog uses Jellyfin's expected MD5 checksum.
 
