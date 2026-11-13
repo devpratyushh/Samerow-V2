@@ -1,1 +1,20 @@
-[]
+[
+  {
+    "guid": "a14b5c7e-8d90-4123-b567-9876543210ab",
+    "name": "SameRow Connect",
+    "description": "Connect your Jellyfin server directly to SameRow for watch parties without port forwarding.",
+    "overview": "Watch movies and shows together in real time on SameRow. No Docker or port forwarding required.",
+    "owner": "SameRow",
+    "category": "General",
+    "versions": [
+      {
+        "version": "1.0.1.0",
+        "targetAbi": "12.3.0.0",
+        "changelog": "Protect saved credentials, restrict relay APIs, prevent pairing replay, support credential rotation and recover playback startup.",
+        "timestamp": "2026-11-13T00:00:00Z",
+        "sourceUrl": "https://github.com/devpratyushh/Samerow-V2/releases/download/samerow-connect-v1.0.1.0/SameRow-Connect-1.0.1.0.zip",
+        "checksum": "1c404bf8b99f726099798e4abea893b4"
+      }
+    ]
+  }
+]
