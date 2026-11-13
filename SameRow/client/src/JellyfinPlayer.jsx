@@ -7,6 +7,7 @@ import './JellyfinPlayer.css';
 import { useJellyfinQuality } from './useJellyfinQuality';
 import JellyfinQuality from './JellyfinQuality';
 import { playbackStats } from './playbackStats';
+import { hlsFailure, mediaFailure, mediaReadiness } from './playbackDiagnostics';
 
 export default function JellyfinPlayer({ state, base, command, connected, focused, onBrowse, onOpenNative, onPlaybackStats }) {
   const videoRef = useRef(null);
@@ -16,6 +17,9 @@ export default function JellyfinPlayer({ state, base, command, connected, focuse
   const [muted, setMuted] = useState(false);
   const [phase, setPhase] = useState('loading');
   const [error, setError] = useState('');
+  const [diagnostics, setDiagnostics] = useState({ stage: 'Requesting playback settings…', lastError: '' });
+  const [telemetry, setTelemetry] = useState({ elapsed: 0, buffer: 0, readyState: 0 });
+  const startedAt = useRef(performance.now());
   const [time, setTime] = useState(state.timestamp);
   const [attempt, setAttempt] = useState(0);
   const [drift] = useState(createDriftController);
@@ -42,6 +46,18 @@ export default function JellyfinPlayer({ state, base, command, connected, focuse
   const audioCopy = Boolean(audioCodecString && globalThis.MediaSource?.isTypeSupported(`audio/mp4; codecs="${audioCodecString}"`));
   const playbackBitrate = original ? 0 : Math.min(maxBitrate || 0, networkBitrate || Infinity);
   const policyReady = Boolean(quality.policy);
+  const policyFailed = !policyReady && Boolean(quality.error);
+  const retry = () => {
+    startedAt.current = performance.now();
+    if (!policyReady) quality.retry();
+    setAttempt(value => value + 1);
+  };
+  useEffect(() => {
+    const update = () => setTelemetry({ ...playbackStats(videoRef.current), elapsed: Math.floor((performance.now() - startedAt.current) / 1000) });
+    update();
+    const timer = setInterval(update, 1000);
+    return () => clearInterval(timer);
+  }, []);
   const play = useCallback(() => {
     const video = videoRef.current;
     if (!video || playPending.current || blocked.current) return;
@@ -98,11 +114,12 @@ export default function JellyfinPlayer({ state, base, command, connected, focuse
       }
     }, 2000);
     loading.current = true; blocked.current = false; drift.reset();
-    const reportLoading = () => { setPhase('loading'); setError(''); };
+    const reportLoading = () => { startedAt.current = performance.now(); setPhase('loading'); setError(''); setDiagnostics(previous => ({ stage: 'Loading browser player…', lastError: previous.lastError })); };
     reportLoading();
     const url = `${root}/stream.m3u8?audio=${audio}&subtitle=${burnSubtitle}&${original ? `original=1&audioCopy=${audioCopy ? 1 : 0}` : `bitrate=${playbackBitrate}`}`;
     const load = async () => {
       if (!original && video.canPlayType('application/vnd.apple.mpegurl')) {
+        setDiagnostics(previous => ({ ...previous, stage: 'Requesting stream playlist…' }));
         video.src = url; video.load();
       } else {
         const { default: Hls } = await import('hls.js');
@@ -113,11 +130,20 @@ export default function JellyfinPlayer({ state, base, command, connected, focuse
           return;
         }
         hls = new Hls({ maxBufferLength: 20, maxMaxBufferLength: 40, backBufferLength: 20, maxBufferSize: 40 * 1000 * 1000, startPosition: initialTime(), enableWorker: true });
+        const stage = text => { if (!disposed) setDiagnostics(previous => ({ ...previous, stage: text })); };
+        hls.on(Hls.Events.MANIFEST_LOADING, () => stage('Requesting stream playlist…'));
+        hls.on(Hls.Events.MANIFEST_LOADED, () => stage('Reading stream playlist…'));
+        hls.on(Hls.Events.LEVEL_LOADING, () => stage('Requesting media playlist…'));
+        hls.on(Hls.Events.FRAG_LOADING, () => stage('Downloading media segment…'));
+        hls.on(Hls.Events.FRAG_LOADED, () => stage('Appending media segment…'));
+        hls.on(Hls.Events.FRAG_BUFFERED, () => stage('Waiting for browser decoder…'));
         let recovered = false;
         hls.on(Hls.Events.ERROR, (_, data) => {
-          if (!data.fatal || disposed) return;
+          if (disposed) return;
+          setDiagnostics(previous => ({ ...previous, lastError: hlsFailure(data) }));
+          if (!data.fatal) return;
           if (original) { switchToCompatibleStream('Original video could not play on this device.'); return; }
-          if (data.type === Hls.ErrorTypes.MEDIA_ERROR && !recovered) { recovered = true; hls.recoverMediaError(); }
+          if (data.type === Hls.ErrorTypes.MEDIA_ERROR && !recovered) { recovered = true; stage('Recovering browser decoder…'); hls.recoverMediaError(); }
           else { loading.current = true; setPhase('error'); setError('The video connection stopped. Reconnect playback to try again.'); hls.stopLoad(); }
         });
         hls.loadSource(url); hls.attachMedia(video);
@@ -127,10 +153,13 @@ export default function JellyfinPlayer({ state, base, command, connected, focuse
     const onPlaying = () => { bufferingSince = 0; loading.current = false; setPhase('playing'); };
     const onWaiting = () => { bufferingSince ||= performance.now(); loading.current = true; if (!blocked.current) setPhase('buffering'); };
     const onError = () => {
+      if (video.error) setDiagnostics(previous => ({ ...previous, lastError: mediaFailure(video.error.code) }));
       if (original) switchToCompatibleStream('Original video could not play on this device.');
       else { setPhase('error'); setError('This stream could not be played. Reconnect playback or choose another track.'); }
     };
+    const onMetadata = () => setDiagnostics(previous => ({ ...previous, stage: 'Waiting for playable video frames…' }));
     const onPause = () => { if (!loading.current && !blocked.current) setPhase(video.ended ? 'ended' : 'paused'); };
+    video.addEventListener('loadedmetadata', onMetadata);
     video.addEventListener('canplay', onReady); video.addEventListener('playing', onPlaying);
     video.addEventListener('waiting', onWaiting); video.addEventListener('error', onError); video.addEventListener('pause', onPause);
     load().catch(() => { if (!disposed) onError(); });
@@ -141,6 +170,7 @@ export default function JellyfinPlayer({ state, base, command, connected, focuse
     }, 30000);
     return () => {
       disposed = true; clearInterval(adaptiveTimer); clearTimeout(timeout); hls?.destroy();
+      video.removeEventListener('loadedmetadata', onMetadata);
       video.removeEventListener('canplay', onReady); video.removeEventListener('playing', onPlaying); video.removeEventListener('waiting', onWaiting); video.removeEventListener('error', onError); video.removeEventListener('pause', onPause);
       video.pause(); video.removeAttribute('src'); video.load();
       // The next manifest stops its previous encoding. Release only on full unmount below.
@@ -159,10 +189,21 @@ export default function JellyfinPlayer({ state, base, command, connected, focuse
     <video ref={videoRef} playsInline muted={!focused || muted} aria-label="Shared Jellyfin video" crossOrigin="anonymous">
       {subtitleUrl && <track key={subtitleUrl} kind="subtitles" src={subtitleUrl} srcLang={selectedSubtitle.language || 'und'} label={selectedSubtitle.title} default onLoad={event => { event.target.track.mode = 'showing'; }} />}
     </video>
-    {['loading', 'buffering', 'blocked', 'error'].includes(phase) && <div className={`jellyfin-player-status ${phase === 'buffering' ? 'is-buffering' : ''}`} role="status">
-      <p>{phase === 'loading' ? 'Preparing the stream…' : phase === 'buffering' ? 'Buffering…' : phase === 'blocked' ? 'Press Play to watch with the room.' : error}</p>
+    {(policyFailed || ['loading', 'buffering', 'blocked', 'error'].includes(phase)) && <div className={`jellyfin-player-status ${phase === 'buffering' ? 'is-buffering' : ''}`} >
+      <p role="status">{policyFailed ? quality.error : phase === 'loading' ? !policyReady ? 'Requesting playback settings…' : diagnostics.stage : phase === 'buffering' ? `Buffering · ${diagnostics.stage}` : phase === 'blocked' ? 'Press Play to watch with the room.' : error}</p>
+      {phase !== 'blocked' && <>
+        <small>{telemetry.elapsed}s elapsed · {Number(telemetry.buffer || 0).toFixed(1)}s buffered</small>
+        <details className="jellyfin-playback-details"><summary>Playback details</summary><dl>
+          <dt>Last stage</dt><dd>{policyReady ? diagnostics.stage : 'Playback settings request'}</dd>
+          <dt>Browser</dt><dd>{mediaReadiness(telemetry.readyState)}</dd>
+          <dt>Delivery requested</dt><dd>{!policyReady ? 'Waiting for settings' : original ? 'Original video · fragmented MP4' : 'Compatible HLS'}</dd>
+          <dt>Source</dt><dd>{quality.policy?.source?.height ? `${quality.policy.source.height}p` : 'Not reported'}</dd>
+          <dt>Audio</dt><dd>{audioCodec || 'Not reported'}</dd>
+          <dt>Last error</dt><dd>{policyFailed ? quality.error : diagnostics.lastError || 'None reported'}</dd>
+        </dl></details>
+      </>}
       {phase === 'blocked' && <button className="sr-button" onClick={() => { blocked.current = false; play(); }}>Play on this device</button>}
-      {phase === 'error' && <button className="sr-button" onClick={() => setAttempt(value => value + 1)}>Reconnect playback</button>}
+      {(policyFailed || phase === 'error') && <button className="sr-button" onClick={retry}>{policyFailed ? 'Retry playback settings' : 'Reconnect playback'}</button>}
     </div>}
     {fallbackReason && <p className="jellyfin-fallback-note" role="status">Using compatible playback. {fallbackReason}</p>}
     <PlaybackControls label="for everyone" playing={state.playing && phase !== 'blocked' && time < state.duration - 0.1} currentTime={time} duration={state.duration} onTogglePlay={togglePlay} onSeek={seek} disabled={!connected || ['loading', 'error'].includes(phase)} volume={volume} muted={muted} onMute={() => setMuted(value => !value)} onVolumeChange={value => { setVolume(value); setMuted(value === 0); }} note={connected ? 'Everyone can control playback' : 'Reconnecting to room…'}>
