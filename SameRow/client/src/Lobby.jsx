@@ -137,7 +137,7 @@ const Lobby = ({ joinRoom, generateRoom, hostedWebOrigin, connectorHosting, host
           <section className="lobby-preview-section" aria-labelledby="preview-heading">
             <div className="lobby-section-label"><h2 id="preview-heading">Your preview</h2><span>Only you can see this</span></div>
             <div className={`lobby-preview ${showVideo ? 'has-video' : ''}`}>
-              <video ref={videoRef} className="lobby-preview-video" autoPlay playsInline muted aria-label="Your camera preview" hidden={!showVideo} />
+              <video ref={videoRef} className="lobby-preview-video" autoPlay playsInline disablePictureInPicture muted aria-label="Your camera preview" hidden={!showVideo} />
               {!showVideo && <div className="lobby-preview-placeholder"><div className="lobby-avatar" aria-hidden="true">{initials}</div><span>{hasVideo ? 'Camera is off' : streamError ? 'Join with your camera off' : 'Getting your camera ready…'}</span></div>}
               <div className="lobby-preview-topline"><span className="lobby-preview-tag">{trimmedName || 'You'}</span><span className="lobby-preview-tag">Preview</span></div>
               <div className="lobby-device-controls" aria-label="Preview controls">

@@ -17,7 +17,7 @@ export default function MediaTile({ participant, screen = false, focused = false
   }, [stream, sfuTracks]);
   return (
     <article className={`media-tile ${screen ? 'media-tile--screen' : ''} ${focused ? 'is-pinned' : ''}`} data-participant={id} data-self={isSelf || undefined} hidden={hidden}>
-      <video ref={videoRef} autoPlay playsInline muted={isSelf || (screen && hidden)} className={videoOff ? 'camera-off' : ''} aria-label={`${name}${screen ? ' screen share' : ' camera'}`} />
+      <video ref={videoRef} autoPlay playsInline disablePictureInPicture muted={isSelf || (screen && hidden)} className={videoOff ? 'camera-off' : ''} aria-label={`${name}${screen ? ' screen share' : ' camera'}`} />
       {(!stream || videoOff) && <div className="tile-avatar" aria-hidden="true"><span>{initials(name)}</span><i /></div>}
       <div className="tile-caption"><span>{name}{isSelf ? ' (You)' : ''}</span>{muted && !screen && <FaMicrophoneSlash aria-label="Microphone muted" />}</div>
       {onPin && <button className="tile-pin" onClick={onPin} aria-label={`${focused ? 'Unpin' : 'Pin'} ${name}`} aria-pressed={focused} title={`${focused ? 'Unpin' : 'Pin'} participant`}><FaThumbtack /></button>}
