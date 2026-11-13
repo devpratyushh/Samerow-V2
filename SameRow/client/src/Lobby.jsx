@@ -46,6 +46,7 @@ const Lobby = ({ joinRoom, generateRoom, serverUrl, initialRoom, userStream, tog
   const [authBusy, setAuthBusy] = useState(false);
   const [linkedProviders, setLinkedProviders] = useState(null);
   const connections = useAccountConnectors(serverUrl, identity);
+  const connectedServers = connections.connectors;
   const needsJellyfinSignIn = connections.connectors.some(server => server.status === 'sign_in_required');
   const linkedAccounts = connections.accounts || [];
   useEffect(() => {
