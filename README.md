@@ -141,12 +141,14 @@ revisions; rebuild the local Docker image to include the panel. No plugin binary
 or connector protocol update is required. Redis shares counters when the control
 service and media gateway run separately.
 
-SameRow Local uses a peer mesh. Its **Balanced upload** policy divides a 1.2 Mbps
-camera budget among receivers and lowers camera capture to 320×180 from four
+Camera capture requests 1920×1080 at 30 FPS, subject to device support, and stays
+independent of outgoing limits. SameRow Local uses a peer mesh. Its optional
+**Balanced upload** policy divides a 1.2 Mbps
+camera budget among receivers and lowers outgoing camera video to 320×180 from four
 participants, regardless of LAN speed. Screen sharing similarly divides a
 2.4 Mbps budget. This can cause blur even when all devices are on the same Wi-Fi.
-Choose **Call quality on this device → High quality / LAN** in the stats panel
-to allow 1280×720 cameras at up to 2.5 Mbps per receiver and 1920×1080 screen
+High quality is the default. Choose **Call quality on this device → High quality** in the stats panel
+to allow 1920×1080 cameras at up to 4 Mbps per receiver and 1920×1080 screen
 sharing at up to 6 Mbps per receiver, up to 30 FPS. Each sender chooses its own
 policy. The browser can still adapt under CPU or network pressure. With several
 peers, these per-receiver uploads add up.

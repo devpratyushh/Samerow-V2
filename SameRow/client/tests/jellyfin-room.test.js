@@ -88,7 +88,7 @@ test('mesh budgets reduce per-peer camera upload and resolution as rooms grow',a
   const applied=[];
   const peer={_pc:{getStats:async()=>new Map([['out',{type:'outbound-rtp',kind:'video',qualityLimitationReason:'bandwidth'}]]),getSenders:()=>[{track:{kind:'video',getSettings:()=>({width:1280})},getParameters:()=>({encodings:[{}]}),setParameters:async value=>applied.push(value)}]}};
   tunePeer(peer,6);await new Promise(resolve=>setTimeout(resolve,0));
-  assert.equal(applied[0].encodings[0].maxBitrate,168000);
+  assert.equal(applied[0].encodings[0].maxBitrate,240000);
   assert.equal(applied[0].encodings[0].scaleResolutionDownBy,4);
-  assert.equal(applied[0].encodings[0].maxFramerate,12);
+  assert.equal(applied[0].encodings[0].maxFramerate,15);
 });

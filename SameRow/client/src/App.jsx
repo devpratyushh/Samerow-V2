@@ -205,9 +205,9 @@ function RoomApp({ socket = defaultSocket, hosted = null }) {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
           video: {
-            width: { ideal: 640 },
-            height: { ideal: 360 },
-            frameRate: { ideal: 20, max: 24 }
+            width: { ideal: 1920 },
+            height: { ideal: 1080 },
+            frameRate: { ideal: 30, max: 30 }
           },
           audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
         });

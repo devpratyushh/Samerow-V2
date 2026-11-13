@@ -27,14 +27,14 @@ test('RTP reports isolate peers, deduplicate SDK reports and use interval packet
 });
 test('high quality keeps LAN resolution across mesh sizes while balanced still bounds upload', async () => {
   assert.equal(mediaBudget(4).height, 180);
-  assert.equal(mediaBudget(6, false, 'high').height, 720);
+  assert.equal(mediaBudget(6, false, 'high').height, 1080);
   assert.equal(mediaBudget(6, true, 'high').height, 1080);
   let applied;
   const peer = { _pc: { getStats: async () => new Map(), getSenders: () => [{ track: { kind: 'video', getSettings: () => ({ width: 1920 }) }, getParameters: () => ({ encodings: [{}] }), setParameters: async parameters => { applied = parameters; } }] } };
   tunePeer(peer, 5, false, 'high');
   await new Promise(resolve => setTimeout(resolve, 0));
-  assert.equal(applied.encodings[0].maxBitrate, 2500000);
-  assert.equal(applied.encodings[0].scaleResolutionDownBy, 1.5);
+  assert.equal(applied.encodings[0].maxBitrate, 4000000);
+  assert.equal(applied.encodings[0].scaleResolutionDownBy, 1);
 });
 test('playback stats report the current buffered range and preserve unsupported frame counts', () => {
   const stats = playbackStats({ videoWidth: 1920, videoHeight: 1080, currentTime: 25, paused: false, readyState: 4,

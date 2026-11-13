@@ -141,9 +141,15 @@ are separate from Jellyfin movie delivery.
 
 ## Why local pictures can blur
 
-For calls, Balanced mesh mode divides a fixed upload budget among receivers
+Camera capture requests 1080p at 30 FPS and is never reduced by room size.
+High quality is the default, allowing up to 4 Mbps per camera receiver and
+6 Mbps per screen receiver. LiveKit uses the same top-layer ceilings with
+simulcast and adaptive subscriptions. Actual resolution depends on hardware
+and browser congestion control.
+
+For calls, optional Balanced mesh mode divides a fixed upload budget among receivers
 and lowers cameras to 320×180 at four participants, even on fast Wi-Fi. Select
-High quality / LAN in Stats for nerds on each sending device to allow 720p
+High quality in Stats for nerds on each sending device to allow 1080p
 cameras and 1080p screen sharing. CPU and congestion can still reduce quality.
 
 That camera policy does not affect Jellyfin movies. Movie blur can result from

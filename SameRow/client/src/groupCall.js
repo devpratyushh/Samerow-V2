@@ -13,7 +13,7 @@ async function openGroupCall({ socket, roomId, stream, onPeers, onError, signal,
   if (signal.aborted) return null;
   if (credentials?.mode !== 'livekit') throw new Error('The room media configuration changed. Rejoin the room.');
   const room = new Room({ adaptiveStream: true, dynacast: true, disconnectOnPageLeave: true, stopLocalTrackOnUnpublish: false,
-    publishDefaults: { simulcast: true, videoEncoding: { maxBitrate: 1200000, maxFramerate: 24 } } });
+    publishDefaults: { simulcast: true, videoEncoding: { maxBitrate: 4000000, maxFramerate: 30 }, screenShareEncoding: { maxBitrate: 6000000, maxFramerate: 30 } } });
   // Capture belongs to App/Room, so a transport reconnect must not stop it.
   const disconnect = () => { room.disconnect(false).catch(() => {}); };
   signal.addEventListener('abort', disconnect, { once: true });
