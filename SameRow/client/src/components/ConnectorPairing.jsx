@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { sessionHeaders } from '../session';
+import { discoverAccountConnectors } from '../connectorDiscovery';
 import './ConnectorPairing.css';
 
 export default function ConnectorPairing({ serverUrl, onPrivateRoom, disabled }) {
@@ -18,11 +19,8 @@ export default function ConnectorPairing({ serverUrl, onPrivateRoom, disabled })
       if (running || !relayEnabled) return;
       running = true;
       try {
-        const headers = await sessionHeaders();
-        const response = await fetch(`${serverUrl}/api/jellyfin-relay/connectors`, { headers, signal: controller.signal });
-        if (!response.ok) throw new Error('Could not refresh your connected servers.');
-        const data = await response.json();
-        if (!controller.signal.aborted) setConnectors(data.connectors || []);
+        const connectors = await discoverAccountConnectors(serverUrl, { signal: controller.signal });
+        if (!controller.signal.aborted) setConnectors(connectors);
       } catch {
         // A transient refresh failure keeps the last known list available.
       } finally { running = false; }

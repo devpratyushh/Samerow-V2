@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { sessionHeaders } from './session';
+import { discoverAccountConnectors } from './connectorDiscovery';
 
 export function useAccountConnectors(serverUrl, uid) {
   const [result, setResult] = useState(null);
@@ -19,12 +20,12 @@ export function useAccountConnectors(serverUrl, uid) {
           if (!response.ok) throw new Error();
           return response.json();
         };
-        const [servers, links] = await Promise.allSettled([get('/api/jellyfin-relay/connectors'), get('/api/jellyfin/connections')]);
+        const [servers, links] = await Promise.allSettled([discoverAccountConnectors(serverUrl, { signal: AbortSignal.any([controller.signal, AbortSignal.timeout(12000)]) }), get('/api/jellyfin/connections')]);
         if (controller.signal.aborted) return;
         setResult(previous => {
           const old = previous?.uid === uid && previous.serverUrl === serverUrl ? previous : {};
           return { uid, serverUrl,
-            connectors: servers.status === 'fulfilled' ? servers.value.connectors || [] : old.connectors || [],
+            connectors: servers.status === 'fulfilled' ? servers.value : old.connectors || [],
             accounts: links.status === 'fulfilled' ? (links.value.connections || []).map(value => value.account) : old.accounts || [],
             accountsKnown: links.status === 'fulfilled',
             error: servers.status === 'rejected' || links.status === 'rejected' ? 'Could not check all connections. Open Manage connections to retry.' : '',

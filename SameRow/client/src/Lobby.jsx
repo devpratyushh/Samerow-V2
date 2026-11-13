@@ -235,7 +235,7 @@ const Lobby = ({ joinRoom, generateRoom, hostedWebOrigin, connectorHosting, host
           {feedback && <p role="status">{feedback}</p>}
         </div>
       </Dialog>
-      {authUser && !localEdition && serverUrl != null && <JellyfinDialog key={identity} open={linkOpen} onClose={() => { promptedAccount.current = identity; setLinkOpen(false); }} base={serverUrl} connectOnly sameRowAccount={authUser.email || authUser.displayName} />}
+      {authUser && !localEdition && serverUrl != null && <JellyfinDialog key={identity} open={linkOpen} onClose={() => { promptedAccount.current = identity; setLinkOpen(false); }} base={serverUrl} connectOnly onPairServer={() => { setLinkOpen(false); setJellyfinOpen(true); }} sameRowAccount={authUser.email || authUser.displayName} />}
     </main>
   );
 };

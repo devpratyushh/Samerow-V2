@@ -13,6 +13,8 @@ const upstream=http.createServer(async(req,res)=>{
  const body=chunks.length?JSON.parse(Buffer.concat(chunks)):{};
  const path=new URL(req.url,'http://fixture').pathname;
  const json=(value,status=200)=>{res.writeHead(status,{'Content-Type':'application/json'});res.end(JSON.stringify(value));};
+ if(path==='/QuickConnect/Initiate') {json({Secret:'fixture-quick-secret',Code:'654321'});return;}
+ if(path==='/QuickConnect/Connect') {json({Authenticated:false});return;}
  if(path==='/Users/AuthenticateByName') { json(body.Username==='Viewer'&&body.Pw==='password'?{AccessToken:'fixture-jellyfin-token',User:{Id:'viewer',Name:'Viewer'},ServerId:'server'}:{},body.Pw==='password'?200:401);return; }
  if(path==='/System/Info/Public') {json({Id:'server',ServerName:'My Jellyfin'});return;}
  if(!req.headers.authorization?.includes('Token="fixture-jellyfin-token"')) {json({},401);return;}
@@ -27,7 +29,13 @@ const errors=[];
 async function dashboard(uid) {
  const context=await browser.newContext({viewport:{width:1280,height:900}});
  const page=await context.newPage(); page.on('pageerror',e=>errors.push(e.message));
- await page.route('**/api/jellyfin-relay/connectors',route=>route.fulfill({json:{connectors:uid==='owner'?[{id:'a'.repeat(32),address:fixture.url,name:'My Jellyfin',online:true}]:[]}}));
+ await page.route('**/api/config',route=>route.fulfill({json:{jellyfinRelay:true,mediaOrigin:'https://media.fixture.invalid'}}));
+ await page.route('**/api/jellyfin-relay/connectors',route=>{
+  if(route.request().url().startsWith(base))return route.fulfill({status:404,body:'Cannot GET /api/jellyfin-relay/connectors'});
+  assert.equal(route.request().url(),'https://media.fixture.invalid/api/jellyfin-relay/connectors');
+  assert.equal(route.request().headers()['x-samerow-token'],`dev:${uid}`);
+  return route.fulfill({json:{connectors:uid==='owner'?[{id:'a'.repeat(32),address:fixture.url,name:'My Jellyfin',online:true}]:[]}});
+ });
  await page.goto(`${process.env.UI_BASE_URL||'http://127.0.0.1:5175'}/ui-preview?scene=lobby`);
  await page.evaluate(async ({base,uid})=>{
   const {default:React}=await import('/node_modules/.vite/deps/react.js');
@@ -45,6 +53,11 @@ try {
  const dialog=page.getByRole('dialog',{name:'Connect your Jellyfin account',exact:true});
  await dialog.waitFor();
  assert.match(await dialog.innerText(),/alex@example.com/);
+ await dialog.getByRole('button',{name:'Use Quick Connect',exact:true}).click();
+ await dialog.getByLabel('Quick Connect code').waitFor();
+ assert.equal(await dialog.getByLabel('Quick Connect code').innerText(),'654321');
+ await dialog.getByRole('button',{name:'Cancel Quick Connect',exact:true}).click();
+ await dialog.getByRole('button',{name:'Use Jellyfin username and password',exact:true}).click();
  await dialog.getByLabel('Username',{exact:true}).fill('Viewer');
  await dialog.getByLabel('Password',{exact:true}).fill('wrong');
  await dialog.getByRole('button',{name:'Connect accounts',exact:true}).click();
@@ -78,5 +91,5 @@ try {
  await fresh.page.getByRole('button',{name:'Watch Multitrack fixture',exact:true}).waitFor();
  assert.deepEqual(errors,[]);
  await fresh.context.close(); await other.context.close();
- console.log('PASS paired-server popup, bad password, explicit account link, mobile confirmation, new-browser restore, room library restore and owner isolation');
+ console.log('PASS control-404/media discovery, account-bound popup, Quick Connect, bad password, explicit account link, mobile confirmation, new-browser restore, room library restore and owner isolation');
 } catch(error) { for(const context of browser.contexts()) for(const page of context.pages()) console.log((await page.locator('body').innerText()).slice(-4000)); throw error; } finally {await browser.close();await backend.close();await fixture.close();}
