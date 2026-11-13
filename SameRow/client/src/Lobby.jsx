@@ -6,6 +6,7 @@ import { useAccountConnectors } from './useAccountConnectors';
 import './Lobby.css';
 import ConnectorPairing from './components/ConnectorPairing';
 import Dialog from './components/Dialog';
+import JellyfinDialog from './components/JellyfinDialog';
 
 const validRoomCode = (value) => /^[a-zA-Z0-9_-]{1,64}$/.test(value);
 
@@ -30,6 +31,8 @@ function timeAgo(timestamp, now) {
 const Lobby = ({ joinRoom, generateRoom, hostedWebOrigin, connectorHosting, hostedRoom, serverUrl, initialRoom, userStream, toggleMute, toggleVideo, isMuted, isVideoOff, streamError, connectionError, authUser, localEdition, serverConnected }) => {
   const identity = authUser?.uid || null;
   const [jellyfinOpen, setJellyfinOpen] = useState(false);
+  const [linkOpen, setLinkOpen] = useState(false);
+  const promptedAccount = useRef('');
   const [generated, setGenerated] = useState(null);
   const [generating, setGenerating] = useState(false);
   const [joining, setJoining] = useState(false);
@@ -41,6 +44,12 @@ const Lobby = ({ joinRoom, generateRoom, hostedWebOrigin, connectorHosting, host
   const [linkedProviders, setLinkedProviders] = useState(null);
   const connections = useAccountConnectors(serverUrl, !localEdition ? identity : null);
   const connectedServers = connections.connectors;
+  const linkedAccounts = connections.accounts || [];
+  useEffect(() => {
+    if (!identity || localEdition || connections.loading || !connections.accountsKnown || !connectedServers.length || linkedAccounts.length || promptedAccount.current === identity) return;
+    const timer = setTimeout(() => { promptedAccount.current = identity; setLinkOpen(true); }, 0);
+    return () => clearTimeout(timer);
+  }, [identity, localEdition, connections.loading, connections.accountsKnown, connectedServers.length, linkedAccounts.length]);
   const providerIds = linkedProviders?.uid === identity ? linkedProviders.ids : (authUser?.providerData || []).map(provider => provider.providerId);
   const [feedback, setFeedback] = useState('');
   const [attempted, setAttempted] = useState(false);
@@ -73,13 +82,14 @@ const Lobby = ({ joinRoom, generateRoom, hostedWebOrigin, connectorHosting, host
     try {
       const { user } = await accountActions.signIn(providerId, { link });
       setLinkedProviders({ uid: user.uid, ids: user.providerData.map(provider => provider.providerId) });
+      if (!link && jellyfinOpen) { setJellyfinOpen(false); setLinkOpen(true); }
       if (link) setFeedback('Sign-in method linked. Both methods now use this SameRow account and its Jellyfin connections.');
     } catch (error) { setFeedback(accountAuthError(error)); }
     finally { setAuthBusy(false); }
   };
   const handleSignOut = async () => {
     setAuthBusy(true); setFeedback('');
-    try { await accountActions.signOut(); setJellyfinOpen(false); }
+    try { await accountActions.signOut(); setJellyfinOpen(false); setLinkOpen(false); }
     catch { setFeedback('Could not sign out. Please try again.'); }
     finally { setAuthBusy(false); }
   };
@@ -173,18 +183,23 @@ const Lobby = ({ joinRoom, generateRoom, hostedWebOrigin, connectorHosting, host
 
           </section>
           <aside className="lobby-sidebar" aria-label="Jellyfin and account">
-            <section className={`lobby-integration ${connectedServers.length ? 'is-linked' : ''}`}>
+            <section className={`lobby-integration ${connectedServers.length || linkedAccounts.length ? 'is-linked' : ''}`}>
               <span className="lobby-integration-icon"><FaFilm aria-hidden="true" /></span>
-              {connectedServers.length ? <>
+              {linkedAccounts.length ? <>
                 <span className="lobby-eyebrow">YOUR JELLYFIN</span>
-                <h2>{connectedServers.length === 1 ? 'Library connected' : `${connectedServers.length} servers connected`}</h2>
-                <p>{connectedServers.filter(server => server.online).length} online · Linked to your SameRow account</p>
+                <h2>Library connected</h2>
+                <p>{linkedAccounts.map(account => `${account.userName} · ${account.serverName}`).join(', ')}</p>
                 <button className="lobby-jellyfin-button" type="button" onClick={() => setJellyfinOpen(true)}><FaFilm aria-hidden="true" /><span>Manage connections</span><FaArrowRight aria-hidden="true" /></button>
+              </> : connectedServers.length ? <>
+                <span className="lobby-eyebrow">YOUR JELLYFIN</span>
+                <h2>{connectedServers.length === 1 ? 'Server paired' : `${connectedServers.length} servers paired`}</h2>
+                <p>{connectedServers.filter(server => server.online).length} online · Connect your Jellyfin user to finish setup</p>
+                <button className="lobby-jellyfin-button" type="button" onClick={() => setLinkOpen(true)}><FaFilm aria-hidden="true" /><span>Connect Jellyfin account</span><FaArrowRight aria-hidden="true" /></button>
               </> : connections.loading ? <p role="status">Checking your Jellyfin connections…</p> : <>
                 <span className="lobby-eyebrow">BRING YOUR LIBRARY</span>
                 <h2>Better together.</h2>
                 <p>{connections.error || 'Connect Jellyfin once to your SameRow account, then find your paired server wherever you sign in.'}</p>
-                <button className="lobby-jellyfin-button" type="button" onClick={() => setJellyfinOpen(true)}><FaFilm aria-hidden="true" /><span>{connections.error ? 'Manage connections' : 'Connect Jellyfin'}</span><FaArrowRight aria-hidden="true" /></button>
+                <button className="lobby-jellyfin-button" type="button" onClick={() => authUser && !localEdition && serverUrl != null ? setLinkOpen(true) : setJellyfinOpen(true)}><FaFilm aria-hidden="true" /><span>{connections.error ? 'Manage connections' : 'Connect Jellyfin'}</span><FaArrowRight aria-hidden="true" /></button>
                 <small>Plugin, Docker, or your server address</small>
               </>}
 
@@ -204,6 +219,10 @@ const Lobby = ({ joinRoom, generateRoom, hostedWebOrigin, connectorHosting, host
             {[['google.com', 'Google'], ['github.com', 'GitHub']].map(([id, name]) => <button key={id} className="lobby-google-button" type="button" disabled={authBusy || providerIds.includes(id)} onClick={() => handleAuth(id, true)}>{id === 'google.com' ? <FaGoogle aria-hidden="true" /> : <FaGithub aria-hidden="true" />}{providerIds.includes(id) ? `${name} linked` : `Link ${name}`}</button>)}
           </section>}
 
+          {authUser && !localEdition && <section aria-label="Linked Jellyfin accounts"><h3>Jellyfin accounts</h3>
+            {linkedAccounts.length ? linkedAccounts.map(account => <p key={`${account.serverUrl}:${account.userId}`}><strong>{account.serverName}</strong> · {account.userName}</p>) : <p>A paired server still needs your Jellyfin user sign-in.</p>}
+            <button className="sr-button" onClick={() => { setJellyfinOpen(false); setLinkOpen(true); }}>Connect Jellyfin account</button>
+          </section>}
           <p>Start a room, then choose <strong>Share something → Your Jellyfin library</strong> to sign in with your server address.</p>
           {!localEdition && !authUser && <><p>For a paired plugin or Docker connector, sign in to your SameRow account first.</p><button className="sr-button" onClick={() => handleAuth('google.com')} disabled={authBusy}><FaGoogle /> Continue with Google</button><button className="sr-button" onClick={() => handleAuth('github.com')} disabled={authBusy}><FaGithub /> Continue with GitHub</button></>}
           {!localEdition && authUser && serverUrl != null && <ConnectorPairing key={identity} serverUrl={serverUrl} onPrivateRoom={async () => { if (await makeRoom(true)) setJellyfinOpen(false); }} disabled={!serverConnected || generating} />}
@@ -216,6 +235,7 @@ const Lobby = ({ joinRoom, generateRoom, hostedWebOrigin, connectorHosting, host
           {feedback && <p role="status">{feedback}</p>}
         </div>
       </Dialog>
+      {authUser && !localEdition && serverUrl != null && <JellyfinDialog key={identity} open={linkOpen} onClose={() => { promptedAccount.current = identity; setLinkOpen(false); }} base={serverUrl} connectOnly sameRowAccount={authUser.email || authUser.displayName} />}
     </main>
   );
 };

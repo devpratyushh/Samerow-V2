@@ -190,3 +190,18 @@ The client implements provider sign-in, linking and connector approval with eith
 provider. Enabling a provider requires the console setup above. See the official
 [Firebase GitHub setup](https://firebase.google.com/docs/auth/web/github-auth) and
 [account linking guide](https://firebase.google.com/docs/auth/web/account-linking).
+
+### Link a Jellyfin user from the dashboard
+
+The dashboard distinguishes **Server paired** from **Library connected**. After
+signing into SameRow with a paired server, a popup asks for the Jellyfin username
+and password or Quick Connect approval. **Connect accounts** explicitly saves the
+Jellyfin user connection under the verified SameRow UID. Passwords are not stored.
+The encrypted remembered connection can be discovered on another browser signed
+into the same SameRow account and restored by the room's library picker.
+
+Anonymous guests and plugin connector host sessions cannot create or discover
+these user links. Disconnecting the Jellyfin login removes the link; revoking the
+plugin connection invalidates links through that connector. Deploy the matching
+server and client for this flow. The client requires a server acknowledgement of
+the link before showing success.

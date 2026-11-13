@@ -10,6 +10,7 @@ try {
   const page = await browser.newPage({viewport:{width:1440,height:900}});
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
+  await page.route('**/api/jellyfin/connections', route => route.fulfill({ json: { connections: route.request().headers()['x-samerow-token'] === 'owner-a' ? [{ account: { serverUrl: 'https://paired.example', serverName: 'Home cinema', userName: 'Alex', userId: 'viewer' } }] : [] } }));
   await page.route('**/api/config', route => route.fulfill({ json: { jellyfinRelay: true } }));
   await page.route('**/api/jellyfin-relay/connectors', async route => {
     const owner = route.request().headers()['x-samerow-token'];

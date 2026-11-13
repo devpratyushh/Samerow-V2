@@ -17,8 +17,8 @@ function Poster({ base, token, item }) {
   return <div className="jellyfin-poster">{src ? <img src={src} alt="" loading="lazy" /> : <FaFilm aria-hidden="true" />}</div>;
 }
 
-export default function JellyfinDialog({ open, onClose, onShare, onCancel, base = '', initialServerUrl = '', onCreatePrivateRoom }) {
-  const [token, setToken] = useState(() => savedConnection(initialServerUrl));
+export default function JellyfinDialog({ open, onClose, onShare, onCancel, base = '', initialServerUrl = '', onCreatePrivateRoom, connectOnly = false, sameRowAccount, onConnected }) {
+  const [token, setToken] = useState(() => connectOnly ? '' : savedConnection(initialServerUrl));
   const [account, setAccount] = useState(null);
   const [serverUrl, setServerUrl] = useState(initialServerUrl);
   const [username, setUsername] = useState('');
@@ -42,7 +42,10 @@ export default function JellyfinDialog({ open, onClose, onShare, onCancel, base 
   const generation = useRef(0);
   const parentId = trail.at(-1)?.id || '';
   const authenticated = reply => {
+    if (connectOnly && reply.accountLinked !== true) throw new Error('This SameRow server needs an update before it can save account links. Please try again after the server update.');
     rememberConnection(reply.token, remember, initialServerUrl); setToken(reply.token); setAccount(reply.account);
+    onConnected?.(reply.account);
+    window.dispatchEvent(new Event('samerow:connections-changed'));
     setPassword(''); setQuick(null); setPending(''); setError(''); setTrail([]); setPage(0); setSearch(''); setQuery('');
   };
   useEffect(() => {
@@ -75,6 +78,16 @@ export default function JellyfinDialog({ open, onClose, onShare, onCancel, base 
     return () => { controller.abort(); clearTimeout(timer); };
   }, [open, base, initialServerUrl, manualServer]);
   useEffect(() => {
+    if (!open || token || connectOnly) return;
+    const controller = new AbortController();
+    jellyfinRequest(base, '/connections', { signal: controller.signal }).then(reply => {
+      if (controller.signal.aborted) return;
+      const connection = reply.connections?.find(value => !initialServerUrl || value.account.serverUrl === initialServerUrl);
+      if (connection) { rememberConnection(connection.token, true, initialServerUrl); setToken(connection.token); }
+    }).catch(() => { /* Guests and older servers continue to use manual sign-in. */ });
+    return () => controller.abort();
+  }, [open, token, connectOnly, base, initialServerUrl]);
+  useEffect(() => {
     if (!open || !token) return;
     const controller = new AbortController();
     jellyfinRequest(base, '/account', { token, signal: controller.signal }).then(reply => { setAccount(reply.account); setServerUrl(reply.account.serverUrl); }).catch(err => {
@@ -89,7 +102,7 @@ export default function JellyfinDialog({ open, onClose, onShare, onCancel, base 
     return () => clearTimeout(timer);
   }, [search]);
   useEffect(() => {
-    if (!open || !account || !token) return;
+    if (!open || !account || !token || connectOnly) return;
     const controller = new AbortController();
     const timer = setTimeout(() => {
       setPending(previous => previous === 'share' ? previous : 'library'); setError('');
@@ -101,7 +114,7 @@ export default function JellyfinDialog({ open, onClose, onShare, onCancel, base 
       }).catch(err => { if (!controller.signal.aborted) { setError(err.message); setPending(previous => previous === 'library' ? '' : previous); } });
     }, 0);
     return () => { clearTimeout(timer); controller.abort(); };
-  }, [open, account, token, base, page, parentId, query, refresh]);
+  }, [open, account, token, base, page, parentId, query, refresh, connectOnly]);
   useEffect(() => {
     if (!open || !quick) return;
     const controller = new AbortController(); let timer;
@@ -119,12 +132,12 @@ export default function JellyfinDialog({ open, onClose, onShare, onCancel, base 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, quick, base]);
   useEffect(() => () => { generation.current += 1; }, []);
-  const close = () => { generation.current += 1; if (pending === 'share') onCancel(); setPending(''); setQuick(null); setPassword(''); onClose(); };
+  const close = () => { generation.current += 1; if (pending === 'share') onCancel?.(); setPending(''); setQuick(null); setPassword(''); onClose(); };
   const signIn = async (event, quickConnect = false) => {
     event.preventDefault(); const request = ++generation.current;
     setPending('login'); setError('');
     try {
-      const reply = await jellyfinRequest(base, quickConnect ? '/quick-connect' : '/login', { body: { serverUrl: serverUrl.trim(), username: username.trim(), password, remember } });
+      const reply = await jellyfinRequest(base, quickConnect ? '/quick-connect' : '/login', { body: { serverUrl: serverUrl.trim(), username: username.trim(), password, remember, ...(connectOnly ? { linkAccount: true } : {}) } });
       if (generation.current !== request) return;
       if (quickConnect) { setQuick(reply); setPending('quick'); } else authenticated(reply);
     } catch (err) { if (generation.current === request) { setError(err.message); setPending(''); } }
@@ -133,7 +146,7 @@ export default function JellyfinDialog({ open, onClose, onShare, onCancel, base 
     setPending('logout'); setError('');
     try { await jellyfinRequest(base, '/logout', { token, method: 'POST' }); }
     catch (err) { setError(err.message); setPending(''); return; }
-    rememberConnection('', false, initialServerUrl); setToken(''); setAccount(null); setItems([]); setPending(''); setPassword('');
+    rememberConnection('', false, initialServerUrl); window.dispatchEvent(new Event('samerow:connections-changed')); setToken(''); setAccount(null); setItems([]); setPending(''); setPassword('');
   };
   const choose = async item => {
     if (pending === 'share') return;
@@ -147,7 +160,7 @@ export default function JellyfinDialog({ open, onClose, onShare, onCancel, base 
     try { await onCreatePrivateRoom(); }
     catch (err) { setError(err.message || 'Could not create a private room. Try again.'); setPending(''); }
   };
-  return <Dialog open={open} title="Your Jellyfin library" description={account ? 'Choose something to watch together. Audio and subtitles stay personal.' : 'Connect once, then choose movies and episodes from your library.'} onClose={close} className={account ? 'jellyfin-library-dialog' : ''}>
+  return <Dialog open={open} title={connectOnly ? 'Connect your Jellyfin account' : 'Your Jellyfin library'} description={connectOnly ? `Link your Jellyfin user to ${sameRowAccount || 'your signed-in SameRow account'}. Server pairing alone does not sign you in.` : account ? 'Choose something to watch together. Audio and subtitles stay personal.' : 'Connect once, then choose movies and episodes from your library.'} onClose={close} className={account && !connectOnly ? 'jellyfin-library-dialog' : ''}>
     {error && <div className="jellyfin-error" role="alert"><p>{error}</p>{roomError && onCreatePrivateRoom ? <button className="sr-button" disabled={!!pending} onClick={createPrivateRoom}>{pending === 'room' ? 'Creating room…' : 'Leave and create private room'}</button> : account && <button className="sr-button" onClick={() => setRefresh(value => value + 1)}>Try again</button>}</div>}
     {!account ? <form onSubmit={signIn} className="jellyfin-sign-in">
       {availableConnectors.length > 0 && !initialServerUrl && <label className="room-field">Connected Jellyfin server
@@ -161,12 +174,15 @@ export default function JellyfinDialog({ open, onClose, onShare, onCancel, base 
       {!initialServerUrl && (!selectedConnector || manualServer) && <label className="room-field">Server address<input type="url" data-autofocus value={serverUrl} onChange={e => { setManualServer(true); setServerUrl(e.target.value); }} placeholder="https://jellyfin.example.com" autoComplete="url" disabled={!!pending} required /></label>}
       {!quick && <><label className="room-field">Username<input data-autofocus={initialServerUrl ? '' : undefined} value={username} onChange={e => setUsername(e.target.value)} autoComplete="username" disabled={!!pending} required /></label>
         <label className="room-field">Password<input type="password" value={password} onChange={e => setPassword(e.target.value)} autoComplete="current-password" disabled={!!pending} /></label>
-        <label className="jellyfin-remember"><input type="checkbox" checked={remember} onChange={e => setRemember(e.target.checked)} disabled={!!pending} />Remember this connection</label>
-        <div className="jellyfin-login-actions"><button className="sr-button sr-button--primary" type="submit" disabled={!!pending || !serverUrl.trim() || !username.trim()}>{pending === 'login' ? 'Connecting…' : 'Sign in'}</button>
+        {!connectOnly && <label className="jellyfin-remember"><input type="checkbox" checked={remember} onChange={e => setRemember(e.target.checked)} disabled={!!pending} />Remember this connection</label>}
+        <div className="jellyfin-login-actions"><button className="sr-button sr-button--primary" type="submit" disabled={!!pending || !serverUrl.trim() || !username.trim()}>{pending === 'login' ? 'Connecting…' : connectOnly ? 'Connect accounts' : 'Sign in'}</button>
           <button className="sr-button" type="button" onClick={event => signIn(event, true)} disabled={!!pending || !serverUrl.trim()}>Use Quick Connect</button></div></>}
       {quick && <div className="jellyfin-quick-connect" role="status"><p>In Jellyfin, open <strong>Settings → Quick Connect</strong> and approve this code.</p><output aria-label="Quick Connect code">{quick.code}</output><p>Waiting for approval…</p><button type="button" className="sr-button" onClick={() => { setQuick(null); setPending(''); }}>Cancel Quick Connect</button></div>}
-      <p className="jellyfin-form-note">{initialServerUrl ? 'SameRow connects through the Jellyfin server you selected before entering the room.' : 'Use an address the SameRow server can reach. Your password is used only to sign in.'}</p>
-    </form> : <>
+      <p className="jellyfin-form-note">{initialServerUrl ? 'SameRow connects through the Jellyfin server you selected before entering the room.' : connectOnly ? 'Your Jellyfin password is used only to sign in. The connection is saved securely to your SameRow account, so you can use it on other devices.' : 'Use an address the SameRow server can reach. Your password is used only to sign in.'}</p>
+    </form> : connectOnly ? <div className="jellyfin-link-success" role="status">
+      <h3>Accounts connected</h3><p><strong>{account.userName}</strong> on <strong>{account.serverName}</strong> is linked to {sameRowAccount || 'your SameRow account'}.</p>
+      <p>Your library is ready to share when you start a room.</p><button className="sr-button sr-button--primary" onClick={close}>Done</button>
+    </div> : <>
       <div className="jellyfin-account"><span><strong>{account.serverName}</strong><small>Signed in as {account.userName}</small></span><button className="sr-button" onClick={logout} disabled={!!pending && pending !== 'library'}><FaSignOutAlt />Disconnect</button></div>
       <label className="jellyfin-search"><FaSearch /><input aria-label="Search your library" type="search" placeholder="Search movies and shows" value={search} onChange={e => setSearch(e.target.value)} disabled={pending === 'share'} /></label>
       <nav className="jellyfin-breadcrumbs" aria-label="Library location"><button onClick={() => { setTrail([]); setPage(0); setSearch(''); setQuery(''); }} disabled={!trail.length}>Library</button>{trail.map((item, index) => <span key={item.id}> / <button onClick={() => { setTrail(trail.slice(0, index + 1)); setPage(0); }} aria-current={index === trail.length - 1 ? 'page' : undefined}>{item.name}</button></span>)}</nav>

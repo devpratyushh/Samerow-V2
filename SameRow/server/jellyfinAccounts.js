@@ -164,8 +164,22 @@ function installJellyfinAccounts(app, options = {}) {
   } catch (error) { if (error.code !== 'ENOENT') throw new Error('The saved Jellyfin connections could not be read. Check SAMEROW_DATA_DIR and its permissions.'); }
 
   const account = connection => ({ serverUrl: connection.base, serverId: connection.serverId, serverName: connection.serverName, userId: connection.userId, userName: connection.userName });
+  const requireAccount = req => {
+    const user = req.identity;
+    if (!user?.uid || user.connectorId || user.firebase?.sign_in_provider === 'anonymous') throw failure(403, 'Sign in to your SameRow account before linking Jellyfin.');
+    return user.uid;
+  };
+  const linkedKey = uid => `jellyfin-links:${uid}`;
+  const readLinks = uid => shared ? shared.get(linkedKey(uid)) : [...connections.values()].filter(connection => connection.ownerUid === uid && connection.accountLinked).map(connection => connection.token);
+  const addLink = async connection => {
+    if (!connection.accountLinked) return;
+    if (shared) await shared.update(linkedKey(connection.ownerUid), previous => [connection.token, ...(Array.isArray(previous) ? previous : []).filter(token => token !== connection.token)].slice(0, 20), idleLifetime / 1000);
+  };
   const forget = async connection => {
-    if (shared) await shared.set(`account:${connection.token}`, null);
+    if (shared) {
+      await shared.set(`account:${connection.token}`, null);
+      if (connection.accountLinked) await shared.update(linkedKey(connection.ownerUid), previous => Array.isArray(previous) ? previous.filter(token => token !== connection.token) : [], idleLifetime / 1000);
+    }
     else { connections.delete(connection.token); if (connection.remember) save(); }
   };
   const getConnection = async token => {
@@ -179,6 +193,7 @@ function installJellyfinAccounts(app, options = {}) {
     if (connection.lastUsed <= Date.now() - idleLifetime) { await forget(connection); return null; }
     if (Date.now() - connection.lastUsed >= 60000) {
       connection.lastUsed = Date.now();
+      if (shared && connection.accountLinked) await shared.touch(linkedKey(connection.ownerUid), idleLifetime / 1000);
       if (shared) {
         // Never resurrect a credential revoked concurrently on another instance.
         await shared.update(`account:${token}`, current => current ? { ...current, lastUsed: connection.lastUsed } : null, connection.remember ? idleLifetime / 1000 : 43200);
@@ -198,15 +213,17 @@ function installJellyfinAccounts(app, options = {}) {
     throw failure(response.status === 429 ? 429 : 502, response.status === 429 ? 'Jellyfin is busy. Wait a moment and try again.' : 'Jellyfin could not complete this request.');
   };
   const jsonRequest = async (connection, resource, requestOptions, auth = false) => readJson(await checkResponse(await request(connection, resource, requestOptions), connection, auth));
-  const completeLogin = async (connection, result, remember, ownerUid) => {
+  const completeLogin = async (connection, result, remember, ownerUid, accountLinked = false) => {
     if (typeof result?.AccessToken !== 'string' || !upstreamTokenPattern.test(result.AccessToken) || !validId(result.User?.Id)) throw failure(502, 'Jellyfin returned an invalid sign-in response.');
     const info = await jsonRequest(connection, '/System/Info/Public').catch(() => ({}));
-    const value = { token: mintToken(), ownerUid, base: connection.base, apiToken: result.AccessToken, userId: result.User.Id, serverId: safeText(result.ServerId || info.Id, 128), userName: safeText(result.User.Name), serverName: safeText(info.ServerName) || 'Jellyfin', deviceId: connection.deviceId, remember: remember !== false, createdAt: Date.now(), lastUsed: Date.now() };
+    const value = { token: mintToken(), ownerUid, accountLinked, base: connection.base, apiToken: result.AccessToken, userId: result.User.Id, serverId: safeText(result.ServerId || info.Id, 128), userName: safeText(result.User.Name), serverName: safeText(info.ServerName) || 'Jellyfin', deviceId: connection.deviceId, remember: remember !== false, createdAt: Date.now(), lastUsed: Date.now() };
     if (!shared && connections.size >= 5000) throw failure(503, 'This SameRow server has reached its connection limit.');
     if (!shared) connections.set(value.token, value);
     try { if (shared) await shared.set(`account:${value.token}`, value, value.remember ? idleLifetime / 1000 : 43200); else if (value.remember) save(); }
     catch { connections.delete(value.token); request(value, '/Sessions/Logout', { method: 'POST', timeoutMs: 5000 }).then(response => response.body?.cancel()).catch(() => {}); throw failure(503, 'SameRow could not remember this connection. Check shared storage or try again shortly.'); }
-    return { token: value.token, account: account(value) };
+    try { await addLink(value); }
+    catch { await forget(value); throw failure(503, 'SameRow could not save your account link. Try again shortly.'); }
+    return { token: value.token, account: account(value), accountLinked: value.accountLinked };
   };
   const throttle = async (req, kind, maximum, period) => {
     if (shared) {
@@ -241,12 +258,24 @@ function installJellyfinAccounts(app, options = {}) {
   const router = express.Router();
   const parseJson = express.json({ limit: '16kb' });
   router.post('/login', parseJson, wrap(async (req, res) => {
-    const { serverUrl, username, password, remember } = req.body || {};
+    const { serverUrl, username, password, remember, linkAccount } = req.body || {};
+    if (linkAccount !== undefined && typeof linkAccount !== 'boolean') throw failure(400, 'Choose whether to link this account.');
+    if (linkAccount) requireAccount(req);
     if (typeof username !== 'string' || !username.trim() || username.length > 256 || typeof password !== 'string' || password.length > 4096 || (remember !== undefined && typeof remember !== 'boolean')) throw failure(400, 'Enter your Jellyfin username and password.');
     const connection = { base: await resolveBase(serverUrl, req.identity?.uid), deviceId: randomUUID() };
     const result = await jsonRequest(connection, '/Users/AuthenticateByName', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ Username: username.trim(), Pw: password }) }, true);
-    res.json(await completeLogin(connection, result, remember, req.identity?.uid));
+    res.json(await completeLogin(connection, result, linkAccount ? true : remember, req.identity?.uid, linkAccount === true));
   }, true));
+  router.get('/connections', wrap(async (req, res) => {
+    const uid = requireAccount(req);
+    const tokens = await readLinks(uid);
+    const result = [];
+    for (const token of Array.isArray(tokens) ? tokens.slice(0, 20) : []) {
+      const connection = await getConnection(token);
+      if (connection?.ownerUid === uid && connection.accountLinked && !result.some(value => value.account.serverUrl === connection.base && value.account.userId === connection.userId)) result.push({ token, account: account(connection) });
+    }
+    res.json({ connections: result });
+  }));
   router.get('/account', wrap(async (req, res) => {
     const connection = await authenticate(req);
     await jsonRequest(connection, '/Users/Me');
@@ -259,14 +288,16 @@ function installJellyfinAccounts(app, options = {}) {
     res.status(204).end();
   }));
   router.post('/quick-connect', parseJson, wrap(async (req, res) => {
-    const { serverUrl, remember } = req.body || {};
+    const { serverUrl, remember, linkAccount } = req.body || {};
+    if (linkAccount !== undefined && typeof linkAccount !== 'boolean') throw failure(400, 'Choose whether to link this account.');
+    if (linkAccount) requireAccount(req);
     if (remember !== undefined && typeof remember !== 'boolean') throw failure(400, 'Choose whether to remember this connection.');
     if (pending.size >= 1000) throw failure(503, 'Too many sign-ins are waiting. Try again shortly.');
     const connection = { base: await resolveBase(serverUrl, req.identity?.uid), deviceId: randomUUID() };
     const result = await jsonRequest(connection, '/QuickConnect/Initiate', { method: 'POST' });
     if (typeof result.Secret !== 'string' || !result.Secret || result.Secret.length > 4096 || typeof result.Code !== 'string' || !/^[A-Z0-9]{4,16}$/i.test(result.Code)) throw failure(502, 'Jellyfin did not return a Quick Connect code. Check that Quick Connect is enabled.');
     const id = mintToken(), expiresAt = Date.now() + quickLifetime;
-    await putPending(id, { connection, secret: result.Secret, code: result.Code, remember, expiresAt, lastPoll: 0, ownerUid: req.identity?.uid });
+    await putPending(id, { connection, secret: result.Secret, code: result.Code, remember: linkAccount ? true : remember, accountLinked: linkAccount === true, expiresAt, lastPoll: 0, ownerUid: req.identity?.uid });
     res.json({ id, code: result.Code, expiresAt });
   }, true));
   router.get('/quick-connect/:id', wrap(async (req, res) => {
@@ -285,7 +316,7 @@ function installJellyfinAccounts(app, options = {}) {
       const state = await jsonRequest(entry.connection, `/QuickConnect/Connect?${new URLSearchParams({ secret: entry.secret })}`);
       if (!state.Authenticated) { waiting(); return; }
       const result = await jsonRequest(entry.connection, '/Users/AuthenticateWithQuickConnect', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ Secret: entry.secret }) });
-      entry.result = await completeLogin(entry.connection, result, entry.remember, entry.ownerUid); entry.secret = '';
+      entry.result = await completeLogin(entry.connection, result, entry.remember, entry.ownerUid, entry.accountLinked); entry.secret = '';
       res.json({ status: 'authenticated', ...entry.result });
     } finally { entry.busy = false; entry.busyUntil = 0; await putPending(req.params.id, entry); }
   }));
