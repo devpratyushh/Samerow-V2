@@ -1,12 +1,11 @@
-import { sessionHeaders } from './session.js';
+import { accountFetch } from './session.js';
 
 // Some split deployments expose connector management only on their media role.
 // Resolve that role from SameRow's own config; never guess a server from an email.
 export async function discoverAccountConnectors(base, { signal, request = fetch } = {}) {
   const requestSignal = AbortSignal.any([...(signal ? [signal] : []), AbortSignal.timeout(12000)]);
-  const headers = await sessionHeaders();
-  const options = { headers, signal: requestSignal, cache: 'no-store' };
-  let response = await request(`${base}/api/jellyfin-relay/connectors`, options);
+  const options = { signal: requestSignal, cache: 'no-store' };
+  let response = await accountFetch(`${base}/api/jellyfin-relay/connectors`, options, request);
   if (response.status === 404) {
     const configResponse = await request(`${base}/api/config`, { signal: requestSignal, cache: 'no-store' });
     if (configResponse.ok) {
@@ -18,7 +17,7 @@ export async function discoverAccountConnectors(base, { signal, request = fetch 
         const control = new URL(base || globalThis.location?.origin);
         if (url.origin === config.mediaOrigin && (url.protocol === 'https:' || url.protocol === 'http:' && local(url) && local(control))) media = url.origin;
       } catch { /* A missing or malformed media origin cannot receive credentials. */ }
-      if (media && media !== base) response = await request(`${media}/api/jellyfin-relay/connectors`, options);
+      if (media && media !== base) response = await accountFetch(`${media}/api/jellyfin-relay/connectors`, options, request);
     }
   }
   if (!response.ok) {

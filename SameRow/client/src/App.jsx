@@ -32,7 +32,7 @@ function localSessionToken() {
   }
 }
 let developmentToken = '';
-configureSession(() => developmentToken || auth.currentUser?.getIdToken() || '');
+configureSession(forceRefresh => developmentToken || auth.currentUser?.getIdToken(forceRefresh) || '');
 
 function createRoomSocket(origin) {
   const socket = io(origin, {
@@ -121,7 +121,7 @@ function RoomApp({ socket = defaultSocket, hosted = null }) {
       } catch { return false; }
     };
     let hostToken = hosted?.token;
-    const defaultToken = () => developmentToken || auth.currentUser?.getIdToken() || '';
+    const defaultToken = forceRefresh => developmentToken || auth.currentUser?.getIdToken(forceRefresh) || '';
     if (hosted) configureSession(() => hostToken);
     const stopRecovery = maintainSession({ socket,
       getToken: async () => {

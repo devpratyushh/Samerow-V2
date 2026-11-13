@@ -1,4 +1,4 @@
-import { sessionHeaders } from './session';
+import { accountFetch } from './session.js';
 const connectionKey = scope => scope ? `samerow.jellyfin.connection:${scope}` : 'samerow.jellyfin.connection';
 export function savedConnection(scope) {
   const storageKey = connectionKey(scope);
@@ -12,8 +12,8 @@ export function rememberConnection(token, remember, scope) {
   } catch { /* The connection still works in memory when storage is disabled. */ }
 }
 export async function jellyfinRequest(base, path, { token, signal, body, method = body ? 'POST' : 'GET' } = {}) {
-  const response = await fetch(`${base}/api/jellyfin${path}`, {
-    method, signal, headers: { ...await sessionHeaders(), ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(body ? { 'Content-Type': 'application/json' } : {}) },
+  const response = await accountFetch(`${base}/api/jellyfin${path}`, {
+    method, signal, headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(body ? { 'Content-Type': 'application/json' } : {}) },
     ...(body ? { body: JSON.stringify(body) } : {}),
   });
   const data = await response.json().catch(() => ({}));

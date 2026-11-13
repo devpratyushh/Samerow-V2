@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { sessionHeaders } from './session';
+import { accountFetch } from './session';
 import { discoverAccountConnectors } from './connectorDiscovery';
 
 export function useAccountConnectors(serverUrl, uid) {
@@ -12,12 +12,11 @@ export function useAccountConnectors(serverUrl, uid) {
       if (running) { queued = true; return; }
       running = true;
       try {
-        const headers = await sessionHeaders();
         if (controller.signal.aborted) return;
         const get = async path => {
-          const response = await fetch(`${serverUrl}${path}`, { headers, signal: AbortSignal.any([controller.signal, AbortSignal.timeout(8000)]), cache: 'no-store' });
+          const response = await accountFetch(`${serverUrl}${path}`, { signal: AbortSignal.any([controller.signal, AbortSignal.timeout(8000)]), cache: 'no-store' });
           if (response.status === 404) return {};
-          if (!response.ok) throw new Error();
+          if (!response.ok) { const data = await response.json().catch(() => ({})); throw new Error(data.error || `Account connection lookup failed (HTTP ${response.status}).`); }
           return response.json();
         };
         const [servers, links] = await Promise.allSettled([discoverAccountConnectors(serverUrl, { signal: AbortSignal.any([controller.signal, AbortSignal.timeout(12000)]) }), get('/api/jellyfin/connections')]);
@@ -28,7 +27,7 @@ export function useAccountConnectors(serverUrl, uid) {
             connectors: servers.status === 'fulfilled' ? servers.value : old.connectors || [],
             accounts: links.status === 'fulfilled' ? (links.value.connections || []).map(value => value.account) : old.accounts || [],
             accountsKnown: links.status === 'fulfilled',
-            error: servers.status === 'rejected' || links.status === 'rejected' ? 'Could not check all connections. Open Manage connections to retry.' : '',
+            error: servers.status === 'rejected' || links.status === 'rejected' ? [servers, links].filter(value => value.status === 'rejected').map(value => value.reason.message).join(' ') : '',
           };
         });
       } catch {
