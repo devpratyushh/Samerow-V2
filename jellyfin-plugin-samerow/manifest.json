@@ -8,12 +8,12 @@
     "category": "General",
     "versions": [
       {
-        "version": "1.0.1.0",
+        "version": "1.0.2.0",
         "targetAbi": "12.3.0.0",
-        "changelog": "Protect saved credentials, restrict relay APIs, prevent pairing replay, support credential rotation and recover playback startup.",
-        "timestamp": "2026-11-13T00:00:00Z",
-        "sourceUrl": "https://github.com/devpratyushh/Samerow-V2/releases/download/samerow-connect-v1.0.1.0/SameRow-Connect-1.0.1.0.zip",
-        "checksum": "1c404bf8b99f726099798e4abea893b4"
+        "changelog": "Fix Jellyfin 12.3 dashboard authentication for status, pairing, and plugin settings requests.",
+        "timestamp": "2026-11-13T11:14:27Z",
+        "sourceUrl": "https://github.com/devpratyushh/Samerow-V2/releases/download/samerow-connect-v1.0.2.0/SameRow-Connect-1.0.2.0.zip",
+        "checksum": "0e8fb8c3366d178c63b3eade6ff87bdf"
       }
     ]
   }
