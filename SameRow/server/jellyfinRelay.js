@@ -75,10 +75,32 @@ function installJellyfinRelay(app, { config, store, identity, io }) {
     res.sendStatus(204);
   });
 
+  const indexedAt = new Map();
+  async function ensureIndexed(id, record) {
+    if (!record.ownerUid || (indexedAt.get(id) || 0) > Date.now() - 60000) return;
+    const result = await store.guardedUpdate(`connector:${id}`, record, `user-connectors:${record.ownerUid}`, current => {
+      const entries = Array.isArray(current) ? current : [];
+      return [{ ...entries.find(entry => entry.id === id), id, address: `https://${id}${suffix}`, createdAt: record.createdAt || Date.now() }, ...entries.filter(entry => entry.id !== id)].slice(0, 20);
+    }, 30 * 86400);
+    if (result) { if (indexedAt.size >= 500) indexedAt.delete(indexedAt.keys().next().value); indexedAt.set(id, Date.now()); }
+  }
+  app.get(`${ROOT}/connectors/:id`, async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    let user;
+    try { user = await identity.verify(req.get('X-SameRow-Token')); } catch { return res.sendStatus(401); }
+    const id = req.params.id;
+    if (!/^[a-f0-9]{32}$/.test(id)) return res.sendStatus(404);
+    const record = await store.get(`connector:${id}`);
+    if (!record || !record.ownerUid || record.ownerUid !== user.uid) return res.sendStatus(404);
+    await ensureIndexed(id, record);
+    res.json({ connector: { id, address: `https://${id}${suffix}`, online: Boolean(await store.get(`connector-online:${id}`)) } });
+  });
+
   app.get(`${ROOT}/account-binding`, async (req, res) => {
     res.set('Cache-Control', 'no-store');
     const connector = await authenticate(req);
     if (!connector) return res.sendStatus(401);
+    await ensureIndexed(connector.id, connector.record);
     const uid = connector.record.ownerUid;
     const tokens = await store.get(`jellyfin-links:${uid}`);
     let bound = null, email = connector.record.ownerEmail || '';
@@ -89,6 +111,12 @@ function installJellyfinRelay(app, { config, store, identity, io }) {
         bound = { userName: connection.userName, serverName: connection.serverName };
         break;
       }
+    }
+    if (!email && uid && identity.describe) {
+      try {
+        email = (await identity.describe(uid)).email || '';
+        if (email) await store.update(`connector:${connector.id}`, current => current?.ownerUid === uid ? { ...current, ownerEmail: email } : current, 30 * 86400);
+      } catch { /* Binding remains usable if profile lookup is unavailable. */ }
     }
     res.json({ sameRowEmail: email, jellyfinAccount: bound });
   });
@@ -159,7 +187,7 @@ function installJellyfinRelay(app, { config, store, identity, io }) {
       if (!id) return res.sendStatus(401);
       await store.set(`connector-online:${id}`, true, 60);
       await store.touch(`connector:${id}`, 30 * 86400);
-      if (authenticated.record.ownerUid) await store.touch(`user-connectors:${authenticated.record.ownerUid}`, 30 * 86400);
+      await ensureIndexed(id, authenticated.record);
       if (res.destroyed) return;
       const next = queues.get(id)?.values().next().value;
       if (next) return next.send(res);

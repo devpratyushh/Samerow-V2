@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { onIdTokenChanged } from 'firebase/auth';
 import { auth, accountActions } from './firebase';
 import { accountAuthError } from './accountAuth';
-import { discoverAccountConnectors } from './connectorDiscovery';
+import { discoverAccountConnector } from './connectorDiscovery';
 import { jellyfinRequest } from './jellyfinAccount';
 import { loadPluginBinding } from './pluginBinding';
 import Dialog from './components/Dialog';
@@ -28,7 +28,7 @@ export default function PluginAccountBinding({ id, base, observeAccount = observ
   useEffect(() => {
     if (!user || user.isAnonymous) return;
     const controller = new AbortController();
-    loadPluginBinding(id, () => discoverAccountConnectors(base, { signal: controller.signal }), () => jellyfinRequest(base, '/connections', { signal: controller.signal })).then(result => {
+    loadPluginBinding(id, () => discoverAccountConnector(base, id, { signal: controller.signal }), () => jellyfinRequest(base, '/connections', { signal: controller.signal })).then(result => {
       if (controller.signal.aborted) return;
       setServer(result.server); setBound(result.bound); setNotice(result.notice); setError('');
     }).catch(failure => { if (!controller.signal.aborted) setError(failure.message); });

@@ -24,7 +24,7 @@ function createIdentity(config) {
     if (cache.size >= 10000) cache.delete(cache.keys().next().value);
     cache.set(key, { user, until: Math.min(user.exp * 1000, now + 30000) });
     return user;
-  }, firestore: getFirestore(firebase), close: () => require('firebase-admin/app').deleteApp(firebase) };
+  }, describe: async uid => { const user = await getAuth(firebase).getUser(uid); return { email: user.email || '' }; }, firestore: getFirestore(firebase), close: () => require('firebase-admin/app').deleteApp(firebase) };
 }
 
 function installIdentity(io, app, identity, connectorBrowser = () => false) {

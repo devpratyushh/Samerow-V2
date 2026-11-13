@@ -21,3 +21,19 @@ test('plugin binding status exposes only its owning account label and linked Jel
  await store.set(`connector:${id}`,null);
  assert.equal((await fetch(url,{headers:{Authorization:`Bearer ${token}`}})).status,401);
 });
+
+test('a valid connector missing from the discovery index is recovered without transferring ownership',async t=>{
+ const store=new MemoryStore(),app=express(),id='d'.repeat(32),record={ownerUid:'owner',digest:'digest'};
+ await store.set(`connector:${id}`,record);
+ const relay=installJellyfinRelay(app,{store,config:{jellyfinRelay:true,serviceRole:'media',encryptionKey:'c'.repeat(64)},identity:{verify:async token=>({uid:token})}});
+ const server=http.createServer(app);await new Promise(r=>server.listen(0,'127.0.0.1',r));
+ t.after(async()=>{relay.close();server.closeAllConnections();await new Promise(r=>server.close(r));});
+ const origin=`http://127.0.0.1:${server.address().port}/api/jellyfin-relay`;
+ assert.equal((await fetch(`${origin}/connectors/${id}`,{headers:{'X-SameRow-Token':'other'}})).status,404);
+ assert.equal(await store.get('user-connectors:other'),null);
+ const restored=await fetch(`${origin}/connectors/${id}`,{headers:{'X-SameRow-Token':'owner'}});
+ assert.equal(restored.status,200);
+ assert.equal((await restored.json()).connector.id,id);
+ assert.equal((await store.get('user-connectors:owner'))[0].id,id);
+ assert.equal((await fetch(`${origin}/connectors`,{headers:{'X-SameRow-Token':'owner'}}).then(r=>r.json())).connectors[0].id,id);
+});

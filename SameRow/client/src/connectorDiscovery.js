@@ -1,3 +1,4 @@
+import { resolveAccountOrigin } from './jellyfinAccount.js';
 import { accountFetch } from './session.js';
 
 // Some split deployments expose connector management only on their media role.
@@ -29,4 +30,13 @@ export async function discoverAccountConnectors(base, { signal, request = fetch 
   }
   const data = await response.json();
   return Array.isArray(data.connectors) ? data.connectors : [];
+}
+
+export async function discoverAccountConnector(base, id, { signal } = {}) {
+  const origin = await resolveAccountOrigin(base, { signal });
+  const response = await accountFetch(`${origin}/api/jellyfin-relay/connectors/${encodeURIComponent(id)}`, { signal, cache: 'no-store' });
+  if (response.status === 404) return [];
+  if (!response.ok) throw new Error(`Could not verify this server’s account binding (HTTP ${response.status}).`);
+  const data = await response.json();
+  return data.connector ? [data.connector] : [];
 }

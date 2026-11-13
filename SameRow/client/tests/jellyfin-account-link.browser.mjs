@@ -31,8 +31,9 @@ async function dashboard(uid, binding = false) {
  const page=await context.newPage(); page.on('pageerror',e=>errors.push(e.message));
  await page.route('https://media.fixture.invalid/api/jellyfin/**', async route => { const response = await route.fetch({url:base + new URL(route.request().url()).pathname + new URL(route.request().url()).search}); await route.fulfill({response}); });
  await page.route('**/api/config',route=>route.fulfill({json:{jellyfinRelay:true,mediaOrigin:'https://media.fixture.invalid'}}));
- await page.route('**/api/jellyfin-relay/connectors',route=>{
+ await page.route('**/api/jellyfin-relay/connectors**',route=>{
   if(route.request().url().startsWith(base))return route.fulfill({status:404,body:'Cannot GET /api/jellyfin-relay/connectors'});
+  if (route.request().url().endsWith('/'+'a'.repeat(32))) return route.fulfill({json:{connector:{id:'a'.repeat(32),address:fixture.url,name:'My Jellyfin',online:true}}});
   assert.equal(route.request().url(),'https://media.fixture.invalid/api/jellyfin-relay/connectors');
   assert.equal(route.request().headers()['x-samerow-token'],`dev:${uid}`);
   return route.fulfill({json:{connectors:uid==='owner'?[{id:'a'.repeat(32),address:fixture.url,name:'My Jellyfin',online:true}]:[]}});
