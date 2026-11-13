@@ -46,13 +46,13 @@ const Lobby = ({ joinRoom, generateRoom, serverUrl, initialRoom, userStream, tog
   const [authBusy, setAuthBusy] = useState(false);
   const [linkedProviders, setLinkedProviders] = useState(null);
   const connections = useAccountConnectors(serverUrl, identity);
-  const connectedServers = connections.connectors;
+  const needsJellyfinSignIn = connections.connectors.some(server => server.status === 'sign_in_required');
   const linkedAccounts = connections.accounts || [];
   useEffect(() => {
-    if (!identity || connections.loading || !connections.accountsKnown || !connectedServers.some(server => server.status === 'sign_in_required') || linkedAccounts.length || promptedAccount.current === identity) return;
+    if (!identity || connections.loading || !connections.accountsKnown || !needsJellyfinSignIn || linkedAccounts.length || promptedAccount.current === identity) return;
     const timer = setTimeout(() => { promptedAccount.current = identity; setLinkOpen(true); }, 0);
     return () => clearTimeout(timer);
-  }, [identity, connections.loading, connections.accountsKnown, connectedServers.length, linkedAccounts.length]);
+  }, [identity, connections.loading, connections.accountsKnown, needsJellyfinSignIn, linkedAccounts.length]);
   const providerIds = linkedProviders?.uid === identity ? linkedProviders.ids : (authUser?.providerData || []).map(provider => provider.providerId);
   const [feedback, setFeedback] = useState('');
   const [attempted, setAttempted] = useState(false);
