@@ -2,6 +2,7 @@ import { browserId, randomHex } from './browserId';
 import { useState, useEffect, useCallback, useRef, useSyncExternalStore } from 'react';
 import io from 'socket.io-client';
 import Lobby from './Lobby';
+import PluginAccountBinding from './PluginAccountBinding';
 import Room from './Room';
 import JellyfinPump from './JellyfinPump';
 import './App.css';
@@ -446,6 +447,7 @@ function ConnectorApproval({ id, returnOrigin }) {
 export default function App() {
   if (localEdition && new URLSearchParams(window.location.search).get('host') === 'online') return <ConnectorHostApp />;
   const hash = new URLSearchParams(window.location.hash.slice(1));
+  if (!localEdition && /^[a-f0-9]{32}$/.test(hash.get('bind') || '')) return <PluginAccountBinding id={hash.get('bind')} base={SOCKET_URL} />;
   if (!localEdition && hash.has('connector')) return <ConnectorApproval id={hash.get('connector')} returnOrigin={hash.get('return')} />;
   return <RoomApp />;
 }

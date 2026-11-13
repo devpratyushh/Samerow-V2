@@ -50,6 +50,25 @@ public class SameRowController : ControllerBase
     /// <summary>
     /// Gets the current connection and pairing status of the SameRow plugin.
     /// </summary>
+    [HttpGet("AccountBinding")]
+    public async Task<ActionResult<object>> GetAccountBinding()
+    {
+        var config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
+        if (!config.IsPaired) return Ok(new { sameRowEmail = "", jellyfinAccount = (object?)null });
+        try
+        {
+            using var client = _httpClientFactory.CreateClient("SameRowCloud");
+            using var request = new HttpRequestMessage(HttpMethod.Get, $"{config.GatewayUrl.TrimEnd('/')}/api/jellyfin-relay/account-binding");
+            request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", config.ConnectorToken);
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(8));
+            using var response = await client.SendAsync(request, timeout.Token);
+            if (!response.IsSuccessStatusCode) return StatusCode(503, new { error = "Account binding could not be checked." });
+            var binding = await response.Content.ReadFromJsonAsync<JsonElement>(cancellationToken: timeout.Token);
+            return Ok(binding);
+        }
+        catch { return StatusCode(503, new { error = "Account binding could not be checked." }); }
+    }
+
     [HttpGet("Status")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     public ActionResult<object> GetStatus()

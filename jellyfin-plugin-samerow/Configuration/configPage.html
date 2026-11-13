@@ -30,7 +30,10 @@
                         <span id="connectionBadge" style="padding: 4px 12px; border-radius: 12px; font-weight: bold; background: #666; color: #fff;">Checking...</span>
                     </div>
 
+                    <p id="statusRequestError" role="alert" style="color: #ff8585;"></p>
                     <div id="statusDetails" style="display: none; line-height: 1.8;">
+                        <div><strong>Bound SameRow account:</strong> <span id="displayBoundAccount">Not checked</span></div>
+                        <div><strong>Jellyfin user:</strong> <span id="displayBoundJellyfin">Not bound yet</span></div>
                         <div><strong>Connector ID:</strong> <span id="displayConnectorId" style="font-family: monospace;">-</span></div>
                         <div><strong>Gateway:</strong> <span id="displayGateway">-</span></div>
                         <div><strong>Active Streams:</strong> <span id="displayActiveJobs">0</span></div>
@@ -120,20 +123,28 @@
             var get = function(id) { return page.querySelector('#' + id); };
 
             async function request(path, body) {
-                var headers = { 'Accept': 'application/json', 'Authorization': 'MediaBrowser Token="' + ApiClient.accessToken() + '"' };
-                var options = { headers: headers };
+                var options = {
+                    url: ApiClient.getUrl('SameRow/' + path),
+                    type: body === undefined ? 'GET' : 'POST',
+                    dataType: 'json'
+                };
                 if (body !== undefined) {
-                    options.method = 'POST';
-                    headers['Content-Type'] = 'application/json';
-                    options.body = JSON.stringify(body);
+                    options.contentType = 'application/json';
+                    options.data = JSON.stringify(body);
                 }
-                var response = await fetch(ApiClient.getUrl('SameRow/' + path), options);
-                var data = await response.json().catch(function() { return {}; });
-                if (!response.ok && response.status !== 410) throw new Error(data.error || 'The request failed. Please try again.');
-                return data;
+                try {
+                    return await ApiClient.ajax(options);
+                } catch (error) {
+                    if (error.status === 410) return { status: 'expired', error: 'Pairing expired. Start a new connection.' };
+                    var message = error.status === 401 ? 'Jellyfin rejected this session. Sign in again as an administrator and reopen SameRow Connect.' :
+                        error.status === 403 ? 'Administrator access is required for SameRow Connect.' :
+                        'Jellyfin could not complete the request' + (error.status ? ' (HTTP ' + error.status + ')' : '') + '. Please try again.';
+                    throw new Error(message);
+                }
             }
 
             function renderStatus(data) {
+                get('statusRequestError').textContent = '';
                 var paired = data.isPaired;
                 var badge = get('connectionBadge');
                 badge.textContent = paired ? data.connectionState || 'Connecting' : 'Not connected';
@@ -144,7 +155,7 @@
                 get('btnRotate').style.display = paired ? 'inline-block' : 'none';
                 get('btnRotate').textContent = data.rotationPending ? 'Retry credential rotation' : 'Rotate credential';
                 get('btnOpenSameRow').style.display = paired ? 'inline-block' : 'none';
-                get('btnOpenSameRow').href = data.sameRowWebUrl || 'https://samerow-v2.vercel.app';
+                get('btnOpenSameRow').href = (data.sameRowWebUrl || 'https://samerow-v2.vercel.app').replace(/\/$/, '') + '/#bind=' + encodeURIComponent(data.connectorId || '');
                 get('displayConnectorId').textContent = data.connectorId || '-';
                 get('displayGateway').textContent = data.gatewayUrl || '-';
                 get('displayActiveJobs').textContent = data.activeJobs || 0;
@@ -175,11 +186,20 @@
                     }
                     var status = await request('Status');
                     if (active) renderStatus(status);
+                    if (status.isPaired) {
+                        try {
+                            var binding = await request('AccountBinding');
+                            if (active) {
+                                get('displayBoundAccount').textContent = binding.sameRowEmail || 'Open SameRow to confirm the paired account';
+                                get('displayBoundJellyfin').textContent = binding.jellyfinAccount ? binding.jellyfinAccount.userName + ' · ' + binding.jellyfinAccount.serverName : 'Not bound yet — open SameRow to connect';
+                            }
+                        } catch (_) { if (active) get('displayBoundAccount').textContent = 'Could not check account binding'; }
+                    }
                 } catch (error) {
                     if (active) {
                         get('connectionBadge').textContent = 'Connection check failed';
                         get('connectionBadge').style.background = '#d32f2f';
-                        get('pairingMessage').textContent = error.message;
+                        get('statusRequestError').textContent = error.message;
                     }
                 } finally { refreshing = false; }
             }

@@ -213,10 +213,10 @@ function installJellyfinAccounts(app, options = {}) {
     throw failure(response.status === 429 ? 429 : 502, response.status === 429 ? 'Jellyfin is busy. Wait a moment and try again.' : 'Jellyfin could not complete this request.');
   };
   const jsonRequest = async (connection, resource, requestOptions, auth = false) => readJson(await checkResponse(await request(connection, resource, requestOptions), connection, auth));
-  const completeLogin = async (connection, result, remember, ownerUid, accountLinked = false) => {
+  const completeLogin = async (connection, result, remember, ownerUid, accountLinked = false, sameRowEmail = '') => {
     if (typeof result?.AccessToken !== 'string' || !upstreamTokenPattern.test(result.AccessToken) || !validId(result.User?.Id)) throw failure(502, 'Jellyfin returned an invalid sign-in response.');
     const info = await jsonRequest(connection, '/System/Info/Public').catch(() => ({}));
-    const value = { token: mintToken(), ownerUid, accountLinked, base: connection.base, apiToken: result.AccessToken, userId: result.User.Id, serverId: safeText(result.ServerId || info.Id, 128), userName: safeText(result.User.Name), serverName: safeText(info.ServerName) || 'Jellyfin', deviceId: connection.deviceId, remember: remember !== false, createdAt: Date.now(), lastUsed: Date.now() };
+    const value = { token: mintToken(), ownerUid, accountLinked, sameRowEmail: typeof sameRowEmail === 'string' ? sameRowEmail.slice(0, 320) : '', base: connection.base, apiToken: result.AccessToken, userId: result.User.Id, serverId: safeText(result.ServerId || info.Id, 128), userName: safeText(result.User.Name), serverName: safeText(info.ServerName) || 'Jellyfin', deviceId: connection.deviceId, remember: remember !== false, createdAt: Date.now(), lastUsed: Date.now() };
     if (!shared && connections.size >= 5000) throw failure(503, 'This SameRow server has reached its connection limit.');
     if (!shared) connections.set(value.token, value);
     try { if (shared) await shared.set(`account:${value.token}`, value, value.remember ? idleLifetime / 1000 : 43200); else if (value.remember) save(); }
@@ -264,7 +264,7 @@ function installJellyfinAccounts(app, options = {}) {
     if (typeof username !== 'string' || !username.trim() || username.length > 256 || typeof password !== 'string' || password.length > 4096 || (remember !== undefined && typeof remember !== 'boolean')) throw failure(400, 'Enter your Jellyfin username and password.');
     const connection = { base: await resolveBase(serverUrl, req.identity?.uid), deviceId: randomUUID() };
     const result = await jsonRequest(connection, '/Users/AuthenticateByName', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ Username: username.trim(), Pw: password }) }, true);
-    res.json(await completeLogin(connection, result, linkAccount ? true : remember, req.identity?.uid, linkAccount === true));
+    res.json(await completeLogin(connection, result, linkAccount ? true : remember, req.identity?.uid, linkAccount === true, req.identity?.email));
   }, true));
   router.get('/connections', wrap(async (req, res) => {
     const uid = requireAccount(req);
@@ -297,7 +297,7 @@ function installJellyfinAccounts(app, options = {}) {
     const result = await jsonRequest(connection, '/QuickConnect/Initiate', { method: 'POST' });
     if (typeof result.Secret !== 'string' || !result.Secret || result.Secret.length > 4096 || typeof result.Code !== 'string' || !/^[A-Z0-9]{4,16}$/i.test(result.Code)) throw failure(502, 'Jellyfin did not return a Quick Connect code. Check that Quick Connect is enabled.');
     const id = mintToken(), expiresAt = Date.now() + quickLifetime;
-    await putPending(id, { connection, secret: result.Secret, code: result.Code, remember: linkAccount ? true : remember, accountLinked: linkAccount === true, expiresAt, lastPoll: 0, ownerUid: req.identity?.uid });
+    await putPending(id, { connection, secret: result.Secret, code: result.Code, remember: linkAccount ? true : remember, accountLinked: linkAccount === true, sameRowEmail: req.identity?.email, expiresAt, lastPoll: 0, ownerUid: req.identity?.uid });
     res.json({ id, code: result.Code, expiresAt });
   }, true));
   router.get('/quick-connect/:id', wrap(async (req, res) => {
@@ -316,7 +316,7 @@ function installJellyfinAccounts(app, options = {}) {
       const state = await jsonRequest(entry.connection, `/QuickConnect/Connect?${new URLSearchParams({ secret: entry.secret })}`);
       if (!state.Authenticated) { waiting(); return; }
       const result = await jsonRequest(entry.connection, '/Users/AuthenticateWithQuickConnect', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ Secret: entry.secret }) });
-      entry.result = await completeLogin(entry.connection, result, entry.remember, entry.ownerUid, entry.accountLinked); entry.secret = '';
+      entry.result = await completeLogin(entry.connection, result, entry.remember, entry.ownerUid, entry.accountLinked, entry.sameRowEmail); entry.secret = '';
       res.json({ status: 'authenticated', ...entry.result });
     } finally { entry.busy = false; entry.busyUntil = 0; await putPending(req.params.id, entry); }
   }));

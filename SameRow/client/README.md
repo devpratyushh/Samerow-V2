@@ -205,3 +205,13 @@ these user links. Disconnecting the Jellyfin login removes the link; revoking th
 plugin connection invalidates links through that connector. Deploy the matching
 server and client for this flow. The client requires a server acknowledgement of
 the link before showing success.
+
+### Opening SameRow from the Jellyfin plugin
+
+The plugin Open SameRow action opens a server-scoped binding confirmation.
+Signed-out users first sign in with Google; signed-in users see the account that
+will own the binding before continuing to Jellyfin authentication. Existing links
+show both accounts and can continue directly to the lobby. The plugin settings
+page reads account binding through its authenticated connector and displays the
+SameRow email and Jellyfin user. This flow requires the updated plugin binary
+as well as the matching web and backend changes.

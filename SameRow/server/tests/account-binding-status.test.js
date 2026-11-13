@@ -1,0 +1,23 @@
+const test=require('node:test');
+const assert=require('node:assert/strict');
+const express=require('express');
+const http=require('node:http');
+const {createHash}=require('node:crypto');
+const {MemoryStore}=require('../store');
+const {installJellyfinRelay}=require('../jellyfinRelay');
+test('plugin binding status exposes only its owning account label and linked Jellyfin user',async t=>{
+ const store=new MemoryStore(),app=express(),id='a'.repeat(32),token=`${id}.${'b'.repeat(64)}`;
+ await store.set(`connector:${id}`,{ownerUid:'owner',ownerEmail:'owner@example.com',digest:createHash('sha256').update(token).digest('hex')});
+ await store.set('jellyfin-links:owner',['private-account-token']);
+ await store.set('account:private-account-token',{ownerUid:'owner',accountLinked:true,base:`https://${id}.samerow-connector.invalid`,userName:'Movie fan',serverName:'Home cinema',apiToken:'upstream-secret'});
+ const relay=installJellyfinRelay(app,{store,config:{jellyfinRelay:true,serviceRole:'media',encryptionKey:'c'.repeat(64)},identity:{verify:async()=>({uid:'other'})}});
+ const server=http.createServer(app);await new Promise(r=>server.listen(0,'127.0.0.1',r));
+ t.after(async()=>{relay.close();server.closeAllConnections();await new Promise(r=>server.close(r));});
+ const url=`http://127.0.0.1:${server.address().port}/api/jellyfin-relay/account-binding`;
+ assert.equal((await fetch(url)).status,401);
+ const response=await fetch(url,{headers:{Authorization:`Bearer ${token}`}});
+ assert.deepEqual(await response.json(),{sameRowEmail:'owner@example.com',jellyfinAccount:{userName:'Movie fan',serverName:'Home cinema'}});
+ assert.equal(response.headers.get('cache-control'),'no-store');
+ await store.set(`connector:${id}`,null);
+ assert.equal((await fetch(url,{headers:{Authorization:`Bearer ${token}`}})).status,401);
+});

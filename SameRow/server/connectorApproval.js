@@ -32,7 +32,7 @@ function installConnectorApproval(app, { root, config, store, identity }) {
       await store.update(`connector:${id}`, current => {
         if (!current?.claim || current.claimed || current.until <= now) throw Object.assign(new Error(), { status: 410 });
         if (current.ownerUid && current.ownerUid !== user.uid) throw Object.assign(new Error(), { status: 409 });
-        return { ...current, ownerUid: user.uid, digest: hash(tokenFor(id, current.claim)) };
+        return { ...current, ownerUid: user.uid, ownerEmail: typeof user.email === 'string' ? user.email.slice(0, 320) : '', digest: hash(tokenFor(id, current.claim)) };
       }, pairingSeconds);
       await store.update(`user-connectors:${user.uid}`, current => {
         const list = Array.isArray(current) ? current.filter(x => x.id !== id) : [];

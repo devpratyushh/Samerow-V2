@@ -75,6 +75,24 @@ function installJellyfinRelay(app, { config, store, identity, io }) {
     res.sendStatus(204);
   });
 
+  app.get(`${ROOT}/account-binding`, async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    const connector = await authenticate(req);
+    if (!connector) return res.sendStatus(401);
+    const uid = connector.record.ownerUid;
+    const tokens = await store.get(`jellyfin-links:${uid}`);
+    let bound = null, email = connector.record.ownerEmail || '';
+    for (const token of Array.isArray(tokens) ? tokens.slice(0, 20) : []) {
+      const connection = await store.get(`account:${token}`);
+      if (connection?.ownerUid === uid && connection.accountLinked && connectorId(connection.base) === connector.id) {
+        email ||= connection.sameRowEmail || '';
+        bound = { userName: connection.userName, serverName: connection.serverName };
+        break;
+      }
+    }
+    res.json({ sameRowEmail: email, jellyfinAccount: bound });
+  });
+
   app.get(`${ROOT}/connectors`, async (req, res) => {
     let user;
     try { user = await identity.verify(req.get('X-SameRow-Token')); }
