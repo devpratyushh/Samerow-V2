@@ -159,3 +159,34 @@ late join, focus mute, reconnect, fullscreen, responsive layout, guest API scope
 message validation, and shared stop/access revocation. `JELLYFIN_TEST_AUTOPLAY=blocked`
 runs with the browser's normal autoplay policy rather than the test override.
 `test:jellyfin:legacy` retains the previous generated HLS fixture coverage.
+## Google, GitHub, and connected Jellyfin servers
+
+SameRow uses Firebase Authentication's user ID as the owner of paired Jellyfin
+plugin and Docker connectors. The lobby loads that account's paired servers and
+shows connection status instead of the setup promotion. Sign out or change
+accounts to stop displaying the previous account's servers. Direct Jellyfin
+username/password sessions still require their own Jellyfin authentication;
+pairing a server does not grant access to a Jellyfin user account.
+
+To use both Google and GitHub with the same libraries, sign in with the existing
+method, open **Manage account**, then select **Link GitHub** or **Link Google**.
+Linking preserves the Firebase UID. Separate existing accounts are not merged
+by matching email addresses; a provider already used by another account must be
+used to sign in to that account instead.
+
+Deployment setup for GitHub sign-in:
+
+1. Create a GitHub OAuth App for this SameRow deployment.
+2. In Firebase Console → Authentication → Sign-in method, enable GitHub and set
+   the OAuth App's client ID and secret. Keep the secret in the provider settings.
+3. Copy the callback URL shown by Firebase into the GitHub OAuth App. For the
+   default project it is `https://mellettem-4f7ee.firebaseapp.com/__/auth/handler`;
+   use your configured Firebase auth domain if overridden.
+4. Verify the deployed SameRow hostname is in Firebase's authorized domains, then
+   test Google sign-in → Link GitHub → sign out → GitHub sign-in. The same paired
+   servers should appear.
+
+The client implements provider sign-in, linking and connector approval with either
+provider. Enabling a provider requires the console setup above. See the official
+[Firebase GitHub setup](https://firebase.google.com/docs/auth/web/github-auth) and
+[account linking guide](https://firebase.google.com/docs/auth/web/account-linking).

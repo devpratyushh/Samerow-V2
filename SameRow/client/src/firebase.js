@@ -1,5 +1,6 @@
+import { createAccountActions } from './accountAuth';
 import { initializeApp } from "firebase/app";
-import { getAuth, GoogleAuthProvider } from "firebase/auth";
+import { getAuth, GoogleAuthProvider, GithubAuthProvider, signInWithPopup, linkWithPopup, signOut } from "firebase/auth";
 import { getAnalytics, isSupported } from "firebase/analytics";
 
 const firebaseConfig = {
@@ -25,3 +26,6 @@ if (import.meta.env.VITE_ANALYTICS_ENABLED === 'true') isSupported().then(suppor
 
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
+
+export const githubProvider = new GithubAuthProvider();
+export const accountActions = createAccountActions({ auth, providers: { 'google.com': googleProvider, 'github.com': githubProvider }, signInWithPopup, linkWithPopup, signOut });

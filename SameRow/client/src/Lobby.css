@@ -159,3 +159,12 @@
  .lobby-form { gap:8px; }
  .lobby-history { margin-top:10px; }
 }
+.lobby-account-button { width:fit-content; padding:0; border:0; background:none; color:var(--lobby-muted); text-decoration:underline; text-underline-offset:3px; font-size:11px; cursor:pointer; }
+.lobby-integration.is-linked { padding:18px; background:var(--lobby-surface); border-color:var(--lobby-border); }
+.lobby-integration.is-linked .lobby-integration-icon { display:none; }
+.lobby-integration.is-linked h2 { font-size:18px; }
+.lobby-integration.is-linked p { margin-bottom:12px; }
+.lobby-account-button { font-size:11px!important; }
+@media (max-width:700px) {
+ .lobby-integration.is-linked { padding:0; background:none; border:0; }
+}

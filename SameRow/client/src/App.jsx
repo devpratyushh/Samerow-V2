@@ -6,8 +6,9 @@ import Room from './Room';
 import JellyfinPump from './JellyfinPump';
 import './App.css';
 
-import { auth, googleProvider } from './firebase';
-import { onIdTokenChanged, signInAnonymously, signInWithPopup } from 'firebase/auth';
+import { auth, accountActions } from './firebase';
+import { accountAuthError } from './accountAuth';
+import { onIdTokenChanged, signInAnonymously } from 'firebase/auth';
 import { configureSession } from './session';
 import { maintainSession } from './sessionRecovery';
 import { isLegacyRoomServer, joinLegacyRoom, legacyControlOrigin } from './legacyRooms';
@@ -170,7 +171,7 @@ function RoomApp({ socket = defaultSocket, hosted = null }) {
           if (!signingIn) {
             signingIn = true;
             try { if (!await connectDevelopmentGuest()) await signInAnonymously(auth); }
-            catch { if (!await connectDevelopmentGuest() && !disposed) setConnectionError('Guest sign-in is unavailable. Sign in with Google to join.'); }
+            catch { if (!await connectDevelopmentGuest() && !disposed) setConnectionError('Guest sign-in is unavailable. Sign in with Google or GitHub to join.'); }
             finally { signingIn = false; }
           }
           return;
@@ -403,11 +404,11 @@ function ConnectorApproval({ id, returnOrigin }) {
   useEffect(() => onIdTokenChanged(auth, setAccount), []);
   const isLocal = returnOrigin && ['http://localhost:8080', 'http://127.0.0.1:8080'].includes(returnOrigin);
   const valid = /^[a-f0-9]{32}$/.test(id) && (!returnOrigin || isLocal);
-  const approve = async () => {
+  const approve = async (providerId = 'google.com') => {
     setBusy(true);
     setError('');
     try {
-      const user = account && !account.isAnonymous ? account : (await signInWithPopup(auth, googleProvider)).user;
+      const user = account && !account.isAnonymous ? account : (await accountActions.signIn(providerId)).user;
       const response = await fetch(`${SOCKET_URL}/api/jellyfin-relay/approval/approve`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-SameRow-Token': await user.getIdToken() },
@@ -422,7 +423,7 @@ function ConnectorApproval({ id, returnOrigin }) {
       } else {
         setApproved(true);
       }
-    } catch (failure) { setError(failure.message); }
+    } catch (failure) { setError(failure.code?.startsWith('auth/') ? accountAuthError(failure) : failure.message); }
     finally { setBusy(false); }
   };
   return <main className="lobby"><section className="lobby-content">
@@ -433,9 +434,10 @@ function ConnectorApproval({ id, returnOrigin }) {
       <a href="/" className="sr-button sr-button--primary">Go to SameRow Lobby</a>
     </> : valid ? <>
       <p>Approve this request to connect your Jellyfin server to your SameRow account.</p>
-      <button type="button" className="sr-button sr-button--primary" disabled={busy || account === undefined} onClick={approve}>
+      <button type="button" className="sr-button sr-button--primary" disabled={busy || account === undefined} onClick={() => approve()}>
         {busy ? 'Approving…' : account && !account.isAnonymous ? 'Approve connection' : 'Sign in with Google and approve'}
       </button>
+      {account !== undefined && (!account || account.isAnonymous) && <button type="button" className="sr-button" disabled={busy} onClick={() => approve('github.com')}>Sign in with GitHub and approve</button>}
     </> : <p role="alert">Invalid connection approval link.</p>}
     {error && <p role="alert">{error}</p>}
   </section></main>;

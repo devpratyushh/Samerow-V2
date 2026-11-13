@@ -44,9 +44,10 @@ export default function ConnectorPairing({ serverUrl, onPrivateRoom, disabled })
     setBusy(true); setError('');
     try {
       const response = await fetch(`${serverUrl}/api/jellyfin-relay/pair`, { method: 'POST', headers: await sessionHeaders() });
-      if (!response.ok) throw new Error('Could not pair the connector. Sign in with Google and try again.');
+      if (!response.ok) throw new Error('Could not pair the connector. Sign in to your SameRow account and try again.');
       setPairing(await response.json());
       setRefresh(value => value + 1);
+      window.dispatchEvent(new Event('samerow:connections-changed'));
     } catch (failure) { setError(failure.message); }
     finally { setBusy(false); }
   };
@@ -58,6 +59,7 @@ export default function ConnectorPairing({ serverUrl, onPrivateRoom, disabled })
       if (pairing?.token?.startsWith(`${id}.`)) setPairing(null);
       setConnectors(previous => previous.filter(connector => connector.id !== id));
       setRefresh(value => value + 1);
+      window.dispatchEvent(new Event('samerow:connections-changed'));
     } catch (failure) { setError(failure.message); }
     finally { setBusy(false); }
   };

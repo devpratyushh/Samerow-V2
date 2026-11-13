@@ -45,7 +45,7 @@ assert.ok(chromium, 'Playwright is required');
   await page.setViewportSize({width:1440,height:900});
   await page.screenshot({path:'/tmp/samerow-home-desktop.png'});
   await lobby.getByRole('button',{name:'Connect Jellyfin',exact:true}).click();
-  await page.getByRole('dialog',{name:'Connect Jellyfin',exact:true}).waitFor();
+  await page.getByRole('dialog',{name:'Your account & Jellyfin',exact:true}).waitFor();
   await page.keyboard.press('Escape');
   await page.setViewportSize({width:390,height:844});
   await page.screenshot({path:'/tmp/samerow-home-mobile.png'});
