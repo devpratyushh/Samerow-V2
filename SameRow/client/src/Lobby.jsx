@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
-import { FaArrowRight, FaGoogle, FaHistory, FaMicrophone, FaMicrophoneSlash, FaSignOutAlt, FaVideo, FaVideoSlash } from 'react-icons/fa';
+import { FaArrowRight, FaGoogle, FaHistory, FaMicrophone, FaMicrophoneSlash, FaSignOutAlt, FaVideo, FaVideoSlash, FaFilm, FaPlus } from 'react-icons/fa';
 import { signInWithPopup, signOut } from 'firebase/auth';
 import { auth, googleProvider } from './firebase';
 import './Lobby.css';
 import ConnectorPairing from './components/ConnectorPairing';
+import Dialog from './components/Dialog';
 
 const validRoomCode = (value) => /^[a-zA-Z0-9_-]{1,64}$/.test(value);
 
@@ -27,6 +28,7 @@ function timeAgo(timestamp, now) {
 
 const Lobby = ({ joinRoom, generateRoom, hostedWebOrigin, connectorHosting, hostedRoom, serverUrl, initialRoom, userStream, toggleMute, toggleVideo, isMuted, isVideoOff, streamError, connectionError, authUser, localEdition, serverConnected }) => {
   const identity = authUser?.uid || null;
+  const [jellyfinOpen, setJellyfinOpen] = useState(false);
   const [generated, setGenerated] = useState(null);
   const [generating, setGenerating] = useState(false);
   const [joining, setJoining] = useState(false);
@@ -107,7 +109,8 @@ const Lobby = ({ joinRoom, generateRoom, hostedWebOrigin, connectorHosting, host
       const next = await generateRoom(privateRoom);
       setGenerated(next);
       setRoomDraft(next.code);
-    } catch (error) { setFeedback(error.message); }
+      return true;
+    } catch (error) { setFeedback(error.message); return false; }
     finally { setGenerating(false); }
   };
 
@@ -132,7 +135,7 @@ const Lobby = ({ joinRoom, generateRoom, hostedWebOrigin, connectorHosting, host
         <span className={`lobby-connection ${serverConnected ? 'is-connected' : ''}`} role="status"><span aria-hidden="true" />{serverConnected ? 'Ready to connect' : 'Connecting to server'}</span>
       </header>
       <div className="lobby-content">
-        <section className="lobby-intro" aria-labelledby="lobby-heading"><h1 id="lobby-heading">{hostedRoom ? 'Host for friends online' : 'Join a room'}</h1><p className="lobby-description">{hostedRoom ? 'Enter your private room, then send friends the invite link.' : 'Start a room or enter a code to join a friend.'}</p></section>
+        <section className="lobby-intro" aria-labelledby="lobby-heading"><h1 id="lobby-heading">{hostedRoom ? 'Host for friends online' : 'Your people. Your movie night.'}</h1><p className="lobby-description">{hostedRoom ? 'Enter your private room, then send friends the invite link.' : 'Start a room or enter a code to join a friend.'}</p></section>
         <div className="lobby-setup">
           <section className="lobby-preview-section" aria-labelledby="preview-heading">
             <div className="lobby-section-label"><h2 id="preview-heading">Your preview</h2><span>Only you can see this</span></div>
@@ -148,30 +151,50 @@ const Lobby = ({ joinRoom, generateRoom, hostedWebOrigin, connectorHosting, host
             <p className={`lobby-preview-help ${streamError ? 'has-error' : ''}`} role={streamError ? 'status' : undefined}>{streamError || 'You can change these settings after joining.'}</p>
           </section>
           <section className="lobby-join-card" aria-labelledby="join-heading">
-            <div className="lobby-join-heading"><h2 id="join-heading">Room details</h2></div>
+            <div className="lobby-join-heading"><span className="lobby-eyebrow">GET TOGETHER</span><h2 id="join-heading">Start or join a room</h2></div>
             <form className="lobby-form" onSubmit={handleSubmit} noValidate>
               <div className="lobby-field"><label htmlFor="lobby-name">Your name</label><input ref={nameRef} id="lobby-name" autoComplete="nickname" placeholder="Your name" maxLength={64} value={userName} onChange={(event) => setNameDraft({ identity, value: event.target.value })} aria-invalid={Boolean(nameError)} aria-describedby={nameError ? 'lobby-name-error' : undefined} required />{nameError && <span className="lobby-field-error" id="lobby-name-error">{nameError}</span>}</div>
-              {generateRoom && <><button className="lobby-host-button" type="button" onClick={() => makeRoom(Boolean(hostedRoom))} disabled={!serverConnected || generating || joining}>{generating ? 'Creating room…' : 'Host a room'}</button><div className="lobby-divider"><span>or join with a code</span></div></>}
+              {generateRoom && <><button className="lobby-host-button" type="button" onClick={() => makeRoom(Boolean(hostedRoom))} disabled={!serverConnected || generating || joining}><FaPlus aria-hidden="true" />{generating ? 'Creating room…' : 'Host a room'}</button><div className="lobby-divider"><span>or join with a code</span></div></>}
               <div className="lobby-field"><label htmlFor="lobby-room">Room code</label><input id="lobby-room" autoComplete="off" autoCapitalize="none" spellCheck={false} placeholder="Enter a room code" value={roomId} readOnly={hostedRoom && Boolean(generated)} onChange={(event) => setRoomDraft(event.target.value)} aria-invalid={Boolean(roomError)} aria-describedby={roomError ? 'lobby-room-error' : 'lobby-room-hint'} required />{roomError ? <span className="lobby-field-error" id="lobby-room-error">{roomError}</span> : <span className="lobby-field-hint" id="lobby-room-hint">{generated?.code === trimmedRoom ? 'Your room code is ready. Enter the room, then invite friends.' : 'Enter a code from your friend, or select Host a room.'}</span>}</div>
               <button className="lobby-join-button" type="submit" disabled={!canJoin}>{joining ? 'Joining…' : serverConnected ? 'Enter room' : 'Connecting…'}<FaArrowRight aria-hidden="true" /></button>
               {joinError && <p className="lobby-auth-feedback" role="alert">{joinError}</p>}
               {!serverConnected && <p className="lobby-server-help" role="status">{connectionError || 'Connecting to the room server…'}</p>}
             </form>
-            {connectorHosting && <a className="sr-button" href="/?host=online">Host for friends online</a>}
-            {hostedRoom && <a href="/">Back to SameRow Local</a>}
-            {!connectorHosting && hostedWebOrigin && <a href={hostedWebOrigin} target="_blank" rel="noreferrer">Share to SameRow Web</a>}
-            {!localEdition && authUser && serverUrl && <ConnectorPairing serverUrl={serverUrl} onPrivateRoom={() => makeRoom(true)} disabled={!serverConnected || generating} />}
             {generated?.invite && generated.code === trimmedRoom && <p>Private room. Invite guests using the link inside the room.</p>}
+
+          </section>
+          <aside className="lobby-sidebar" aria-label="Jellyfin and account">
+            <section className="lobby-integration">
+              <span className="lobby-integration-icon"><FaFilm aria-hidden="true" /></span>
+              <span className="lobby-eyebrow">BRING YOUR LIBRARY</span>
+              <h2>Better together.</h2>
+              <p>Connect Jellyfin and share your movies, with audio and subtitles for everyone.</p>
+              <button className="lobby-jellyfin-button" type="button" onClick={() => setJellyfinOpen(true)}><FaFilm aria-hidden="true" /><span>Connect Jellyfin</span><FaArrowRight aria-hidden="true" /></button>
+              <small>Plugin, Docker, or your server address</small>
+            </section>
             <div className="lobby-auth">
               {!localEdition && (authUser ? <div className="lobby-profile">{authUser.photoURL ? <img src={authUser.photoURL} alt="" referrerPolicy="no-referrer" /> : <span className="lobby-profile-avatar" aria-hidden="true">{initials}</span>}<div><strong>{authUser.displayName || 'Signed in'}</strong><span>Recent rooms saved to this browser</span></div><button className="lobby-signout" type="button" onClick={handleAuth} disabled={authBusy} aria-label="Sign out" title="Sign out"><FaSignOutAlt aria-hidden="true" /></button></div> : <><div className="lobby-divider"><span>or save your recent rooms</span></div><button className="lobby-google-button" type="button" onClick={handleAuth} disabled={authBusy}><FaGoogle aria-hidden="true" />{authBusy ? 'Opening sign-in…' : 'Continue with Google'}</button><p className="lobby-guest-note">No account needed to join.</p></>)}
               {feedback && <p className="lobby-auth-feedback" role="status">{feedback}</p>}
             </div>
-
-          </section>
+          </aside>
         </div>
             {authUser && history.length > 0 && <section className="lobby-history" aria-labelledby="lobby-history-heading"><h3 id="lobby-history-heading"><FaHistory aria-hidden="true" />Recent rooms</h3><ul>{history.map((entry) => <li key={entry.code}><button type="button" onClick={() => joinRecentRoom(entry.code)} disabled={!serverConnected} title={`Join ${entry.code}`}><span className="lobby-history-code">{entry.code}</span><span className="lobby-history-time">{timeAgo(entry.timestamp, now)}</span><FaArrowRight aria-hidden="true" /></button></li>)}</ul></section>}
       </div>
-          </main>
+      <Dialog open={jellyfinOpen} title="Connect Jellyfin" description="Bring your movie library to SameRow." onClose={() => setJellyfinOpen(false)}>
+        <div className="lobby-jellyfin-dialog">
+          <p>Start a room, then choose <strong>Share something → Your Jellyfin library</strong> to sign in with your server address.</p>
+          {!localEdition && !authUser && <><p>For a paired plugin or Docker connector, sign in to your SameRow account first.</p><button className="sr-button" onClick={handleAuth} disabled={authBusy}><FaGoogle /> Continue with Google</button></>}
+          {!localEdition && authUser && serverUrl && <ConnectorPairing serverUrl={serverUrl} onPrivateRoom={async () => { if (await makeRoom(true)) setJellyfinOpen(false); }} disabled={!serverConnected || generating} />}
+          <a href="https://github.com/devpratyushh/Samerow-V2/tree/main/jellyfin-plugin-samerow" target="_blank" rel="noreferrer">Set up the Jellyfin plugin ↗</a>
+            {connectorHosting && <a className="sr-button" href="/?host=online">Host for friends online</a>}
+            {hostedRoom && <a href="/">Back to SameRow Local</a>}
+            {!connectorHosting && hostedWebOrigin && <a href={hostedWebOrigin} target="_blank" rel="noreferrer">Share to SameRow Web</a>}
+
+
+          {feedback && <p role="status">{feedback}</p>}
+        </div>
+      </Dialog>
+    </main>
   );
 };
 

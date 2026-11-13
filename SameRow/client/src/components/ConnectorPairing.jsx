@@ -62,8 +62,7 @@ export default function ConnectorPairing({ serverUrl, onPrivateRoom, disabled })
     finally { setBusy(false); }
   };
   if (!enabled) return null;
-  return <details className="connector-pairing">
-    <summary>Connect Jellyfin</summary>
+  return <div className="connector-pairing">
     {error && <p role="alert">{error}</p>}
     {connectors.length > 0 && <section className="connector-pairing-section" aria-label="Connected Jellyfin servers">
       <h4>Your connected servers</h4>
@@ -89,5 +88,5 @@ export default function ConnectorPairing({ serverUrl, onPrivateRoom, disabled })
         <button type="button" className="sr-button" disabled={busy} onClick={() => revoke(pairing.token.split('.')[0])}>Revoke this connector</button>
       </>}
     </section>
-  </details>;
+  </div>;
 }
