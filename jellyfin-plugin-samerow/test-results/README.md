@@ -1,6 +1,6 @@
 # SameRow Connect verification after fixes — 2026-11-13
 
-This report supersedes the earlier baseline failures. Results below describe the local verification run before the GitHub push. No public plugin release was performed.
+This report supersedes the earlier baseline failures. It includes the original local regression runs and the public beta publication checks on 2026-11-13.
 
 ## Fixes
 
@@ -41,7 +41,7 @@ This report supersedes the earlier baseline failures. Results below describe the
 4. Real Jellyfin playback and independent preferences pass locally, including 4K through a real C# worker.
 5. New negative tests cover privileged endpoint rejection, encrypted credential tampering, claim replay, cross-owner access and old-token rejection after rotation. This is not an independent security audit.
 6. Existing room UI regressions and real Jellyfin library UI passed. Full hosted plugin-dashboard onboarding is pending.
-7. Artifact and workflow are present. Remote GitHub Actions results must be checked on the pushed commit. The catalog is empty until an actual release exists. Licensing review is in LICENSING.md and requires a copyright-owner decision before public distribution.
+7. Public beta 1.0.1.0 is published with corresponding source and GPL-3.0-or-later licensing for the plugin/build/test files. GitHub Actions application and plugin workflows passed on the release source and catalog commits. The public catalog ZIP/checksum were verified and Jellyfin 12.3 installed it successfully. Third-party directory inclusion is submitted and awaiting maintainer review.
 8. Local regression/integration checks pass. The mandatory clean-install, hosted approval and separate-network guest acceptance scenario remains pending.
 9. Real 4K decode, stream-copy evidence and binary range integrity pass through the local C# worker harness. HDR and every audio codec/device combination remain unverified.
 
@@ -58,4 +58,15 @@ From Samerow-V2, Node 24 executed:
 - client tests/jellyfin-native.browser.mjs
 - client tests/jellyfin-plugin.browser.mjs
 
-The test Redis container was stopped after validation. Docker was started to run these checks. The updated local Jellyfin sandbox remains running. The original plugin DLL was backed up under jellyfin-sandbox/tmp before upgrading.
+The test Redis container was stopped after validation. Docker was started to run these checks. The local Jellyfin sandbox was stopped after the catalog installation/restart check. The original plugin DLL was backed up under jellyfin-sandbox/tmp before upgrading.
+
+## Public catalog publication checks
+
+- [Release source commit b6e46bb](https://github.com/devpratyushh/Samerow-V2/commit/b6e46bb) and tag `samerow-connect-v1.0.1.0` include the plugin license, build/test files and packaging changes. The main application license is unchanged.
+- Local Release build passed with warnings as errors; all 10 C# tests passed. [Linux plugin CI](https://github.com/devpratyushh/Samerow-V2/actions/runs/43404822765) and the application checks passed for the release source.
+- [Public beta release](https://github.com/devpratyushh/Samerow-V2/releases/tag/samerow-connect-v1.0.1.0) includes the ZIP, corresponding source archive, and SHA-256 sidecars. The downloaded ZIP matched the local archive byte for byte.
+- [Catalog commit 3bb5204](https://github.com/devpratyushh/Samerow-V2/commit/3bb5204) points to the published ZIP. Its public JSON and MD5 checksum were independently verified. [Plugin CI](https://github.com/devpratyushh/Samerow-V2/actions/runs/43405072625), [application CI](https://github.com/devpratyushh/Samerow-V2/actions/runs/43405072767), and Vercel deployment passed for this commit.
+- A disposable Jellyfin 12.3 server discovered version 1.0.1.0 through the public repository, downloaded and installed it, and produced a DLL matching the released build. After restart, `/SameRow/Status` returned 200 and the settings page returned 200 with the new license notice. Repository settings were restored, the earlier manual installation preserved outside the plugins directory, and the sandbox stopped.
+- [Third-party directory submission](https://github.com/jellyfin/jellyfin.org/pull/2089) adds the plugin and repository to Jellyfin's community listing. Its TypeScript repository data loads with unique repository IDs and the correct SameRow entry. This submission is awaiting maintainer review; inclusion in Jellyfin's official repository is not claimed.
+
+These publication and installation checks do not complete the hosted Google approval / separate-network playback acceptance scenario described above.

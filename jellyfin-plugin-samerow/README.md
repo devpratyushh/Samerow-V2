@@ -4,7 +4,7 @@ This plugin connects a Jellyfin server to SameRow using outbound HTTPS. The serv
 
 ## Install from the Jellyfin catalog
 
-**Version 1.0.1.0 is a public beta for Jellyfin 12.3 and .NET 10.** It is distributed through SameRow's third-party repository. Inclusion in Jellyfin's default repository or community directory requires separate maintainer acceptance.
+**Version 1.0.1.0 is a public beta for Jellyfin 12.3 and .NET 10.** It is distributed through SameRow's third-party repository. A [third-party directory submission](https://github.com/jellyfin/jellyfin.org/pull/2089) is awaiting maintainer review. Inclusion in Jellyfin's default repository requires separate acceptance.
 
 1. Open Jellyfin **Dashboard → Plugins → Repositories** and add a repository.
 2. Name it **SameRow Connect** and paste this URL:
