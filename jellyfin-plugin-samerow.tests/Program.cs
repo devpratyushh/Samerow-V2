@@ -54,6 +54,7 @@ public static class Program
         await RunTestAsync("Relay Protocol: Range request with 206 Partial Content and binary body", () => TestRelayRangeRequestStreaming(false));
         await RunTestAsync("Relay Protocol: JSON is carried as opaque bytes", () => TestRelayRangeRequestStreaming(true));
         await RunTestAsync("Relay Lifecycle: 401 Unauthorized enters AuthFailed state", TestRelayAuthFailure);
+        await RunTestAsync("Relay lifecycle: duplicate start and disposal are safe", TestDuplicateLifecycle);
         await RunTestAsync("Controller: Pairing flow (Start, Claim, Status, Disconnect)", TestControllerPairingWorkflow);
         await RunTestAsync("Controller: Settings update and friendly name persistence", TestControllerSettings);
         await RunTestAsync("Plugin Metadata: GUID, Name, and WebPage registration", TestPluginMetadata);
@@ -340,6 +341,25 @@ public static class Program
 
         AssertEqual(ConnectorConnectionState.AuthenticationFailed, observedState, "Service state must be AuthenticationFailed upon 401");
         Assert(!string.IsNullOrEmpty(observedError), "LastError should explain auth failure");
+    }
+
+    private static async Task TestDuplicateLifecycle()
+    {
+        InitMockPlugin("https://cloud.example.com", "0123456789abcdef0123456789abcdef.invalid");
+        Plugin.Instance!.Configuration.WorkerCount = 16;
+        int polls = 0;
+        var handler = new MockHttpMessageHandler(async _ => { Interlocked.Increment(ref polls); await Task.Delay(300); return new HttpResponseMessage(HttpStatusCode.NoContent); });
+        var factory = new MockHttpClientFactory(new Dictionary<string, HttpMessageHandler> { { "SameRowCloud", handler } });
+        var host = DuckProxy.Create<IServerApplicationHost>(p => { p.Returns["get_HttpPort"] = 8096; p.Returns["get_CoreStartupHasCompleted"] = true; });
+        var service = new SameRowConnectorService(host, factory, NullLogger<SameRowConnectorService>.Instance);
+        await service.StartAsync(CancellationToken.None);
+        await service.StartAsync(CancellationToken.None);
+        await Task.Delay(150);
+        AssertEqual(8, Volatile.Read(ref polls), "Duplicate startup must not exceed the gateway's eight poll slots");
+        await service.StopAsync(CancellationToken.None);
+        service.Dispose();
+        service.Dispose();
+        await service.StopAsync(CancellationToken.None);
     }
 
     private static async Task TestControllerPairingWorkflow()

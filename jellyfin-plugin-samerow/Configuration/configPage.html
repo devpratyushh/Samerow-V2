@@ -79,6 +79,11 @@
             </div>
 
             <!-- Plugin Settings Form -->
+            <div id="disconnectConfirmation" role="alert" style="display:none;padding:1em;">
+                <p>Disconnect this Jellyfin server from its current SameRow account?</p>
+                <button is="emby-button" type="button" id="confirmDisconnect" class="raised">Confirm disconnect</button>
+                <button is="emby-button" type="button" id="cancelDisconnect" class="raised">Cancel</button>
+            </div>
             <form id="samerowSettingsForm" class="verticalSection">
                 <div class="sectionTitleContainer">
                     <h3 class="sectionTitle">Server Settings</h3>
@@ -228,10 +233,10 @@
             get('btnCancelPairing').addEventListener('click', function() { void action('Pair/Cancel', {}); });
             get('btnRotate').addEventListener('click', function() { void action('Rotate', {}); });
             get('btnDisconnect').addEventListener('click', function() {
-                Dashboard.confirm('Disconnect this Jellyfin server from SameRow?', 'Disconnect SameRow', function(confirmed) {
-                    if (confirmed) void action('Disconnect', {});
-                });
+                get('disconnectConfirmation').style.display = 'block';
             });
+            get('confirmDisconnect').addEventListener('click', function() { get('disconnectConfirmation').style.display = 'none'; void action('Disconnect', {}); });
+            get('cancelDisconnect').addEventListener('click', function() { get('disconnectConfirmation').style.display = 'none'; });
             get('samerowSettingsForm').addEventListener('submit', function(event) {
                 event.preventDefault();
                 void action('Settings', {

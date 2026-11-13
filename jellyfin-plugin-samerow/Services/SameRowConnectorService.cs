@@ -52,6 +52,8 @@ public class SameRowConnectorService : IHostedService, IDisposable
     private readonly ILogger<SameRowConnectorService> _logger;
     private CancellationTokenSource _cts = new();
     private bool _stopped;
+    private int _disposed;
+    private int _reportedConnected;
 
     private readonly List<Task> _workers = new();
     private readonly SemaphoreSlim _stateLock = new(1, 1);
@@ -77,26 +79,23 @@ public class SameRowConnectorService : IHostedService, IDisposable
     public long TotalJobs => Interlocked.Read(ref _totalJobsHandled);
     public long TotalBytes => Interlocked.Read(ref _totalBytesRelayed);
 
-    public Task StartAsync(CancellationToken cancellationToken)
+    public async Task StartAsync(CancellationToken cancellationToken)
     {
-        _logger.LogInformation("Starting SameRow Connector service...");
-        var config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
-
-        if (config.AutoStart && config.IsPaired)
+        if (Volatile.Read(ref _disposed) != 0) return;
+        await _stateLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
         {
-            StartWorkers(config);
+            if (_stopped || _workers.Count > 0) return;
+            var config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
+            if (config.AutoStart && config.IsPaired) StartWorkers(config);
+            else State = ConnectorConnectionState.Disconnected;
         }
-        else
-        {
-            State = ConnectorConnectionState.Disconnected;
-            _logger.LogInformation("SameRow Connector is idle (not paired or autostart disabled).");
-        }
-
-        return Task.CompletedTask;
+        finally { _stateLock.Release(); }
     }
 
     public async Task StopAsync(CancellationToken cancellationToken)
     {
+        if (Volatile.Read(ref _disposed) != 0) return;
         _logger.LogInformation("Stopping SameRow Connector service...");
         await _stateLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
@@ -124,6 +123,7 @@ public class SameRowConnectorService : IHostedService, IDisposable
     /// </summary>
     public async Task RestartAsync()
     {
+        if (Volatile.Read(ref _disposed) != 0) return;
         await _stateLock.WaitAsync().ConfigureAwait(false);
         try
         {
@@ -134,6 +134,7 @@ public class SameRowConnectorService : IHostedService, IDisposable
             _cts.Dispose();
             _cts = new CancellationTokenSource();
             LastError = null;
+            Interlocked.Exchange(ref _reportedConnected, 0);
 
             var config = Plugin.Instance?.Configuration;
             if (config != null && config.IsPaired)
@@ -153,14 +154,15 @@ public class SameRowConnectorService : IHostedService, IDisposable
 
     private void StartWorkers(PluginConfiguration config)
     {
-        int count = Math.Max(1, Math.Min(16, config.WorkerCount));
+        int count = Math.Max(1, Math.Min(8, config.WorkerCount));
         _logger.LogInformation("Spawning {Count} SameRow relay worker loops to {Gateway}", count, config.GatewayUrl);
         State = ConnectorConnectionState.Connecting;
 
+        var generationToken = _cts.Token;
         for (int i = 0; i < count; i++)
         {
             int workerIndex = i;
-            _workers.Add(Task.Run(() => WorkerLoopAsync(workerIndex, _cts.Token)));
+            _workers.Add(Task.Run(() => WorkerLoopAsync(workerIndex, generationToken)));
         }
     }
 
@@ -185,18 +187,14 @@ public class SameRowConnectorService : IHostedService, IDisposable
                 if (job == null)
                 {
                     // 204 No Content - loop timeout with no job, poll again immediately
-                    State = ConnectorConnectionState.Connected;
-                    LastError = null;
-                    LastConnectedAt ??= DateTime.UtcNow;
+                    ReportConnected();
                     await Task.Delay(50, stoppingToken).ConfigureAwait(false);
                     failureCount = 0;
                     continue;
                 }
 
-                State = ConnectorConnectionState.Connected;
-                LastError = null;
+                ReportConnected();
                 LastActivityAt = DateTime.UtcNow;
-                if (LastConnectedAt == null) LastConnectedAt = DateTime.UtcNow;
                 failureCount = 0;
 
                 Interlocked.Increment(ref _activeJobCount);
@@ -219,12 +217,15 @@ public class SameRowConnectorService : IHostedService, IDisposable
                 State = ConnectorConnectionState.AuthenticationFailed;
                 LastError = "Authentication failed: Connector token was revoked or expired. Please re-pair from the Jellyfin dashboard.";
                 _logger.LogWarning("SameRow Cloud rejected connector token (401). Worker {Index} backing off.", workerIndex);
-                await Task.Delay(15000 + rnd.Next(0, 5000), stoppingToken).ConfigureAwait(false);
+                break; // A new pairing explicitly restarts workers; a revoked token cannot recover by polling.
             }
             catch (HttpRequestException ex) when (ex.StatusCode == HttpStatusCode.TooManyRequests)
             {
                 _logger.LogWarning("SameRow Cloud returned 429 Too Many Requests. Worker {Index} backing off.", workerIndex);
-                await Task.Delay(5000 + rnd.Next(1000, 4000), stoppingToken).ConfigureAwait(false);
+                failureCount++;
+                State = ConnectorConnectionState.Reconnecting;
+                LastError = "The gateway is busy. Retrying automatically.";
+                await Task.Delay(Math.Min(30000, 5000 * Math.Min(failureCount, 6)) + rnd.Next(1000, 4000), stoppingToken).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -235,6 +236,17 @@ public class SameRowConnectorService : IHostedService, IDisposable
                 _logger.LogDebug(ex, "Worker {Index} encountered error. Backing off for {Delay}ms", workerIndex, delayMs);
                 await Task.Delay(delayMs, stoppingToken).ConfigureAwait(false);
             }
+        }
+    }
+
+    private void ReportConnected()
+    {
+        State = ConnectorConnectionState.Connected;
+        LastError = null;
+        if (Interlocked.Exchange(ref _reportedConnected, 1) == 0)
+        {
+            LastConnectedAt = DateTime.UtcNow;
+            _logger.LogInformation("SameRow relay connection established: gateway accepted an authenticated poll.");
         }
     }
 
@@ -493,6 +505,8 @@ public class SameRowConnectorService : IHostedService, IDisposable
 
     public void Dispose()
     {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+        _stopped = true;
         _cts.Cancel();
         _cts.Dispose();
         _stateLock.Dispose();
