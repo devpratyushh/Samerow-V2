@@ -26,9 +26,10 @@ await new Promise(resolve=>upstream.listen(0,'127.0.0.1',resolve));
 const fixture={url:`http://127.0.0.1:${upstream.address().port}`,close:async()=>{upstream.closeAllConnections();await new Promise(resolve=>upstream.close(resolve));}};
 const browser=await chromium.launch({headless:true,executablePath:'/Applications/Brave Browser.app/Contents/MacOS/Brave Browser'});
 const errors=[];
-async function dashboard(uid) {
+async function dashboard(uid, binding = false) {
  const context=await browser.newContext({viewport:{width:1280,height:900}});
  const page=await context.newPage(); page.on('pageerror',e=>errors.push(e.message));
+ await page.route('https://media.fixture.invalid/api/jellyfin/**', async route => { const response = await route.fetch({url:base + new URL(route.request().url()).pathname + new URL(route.request().url()).search}); await route.fulfill({response}); });
  await page.route('**/api/config',route=>route.fulfill({json:{jellyfinRelay:true,mediaOrigin:'https://media.fixture.invalid'}}));
  await page.route('**/api/jellyfin-relay/connectors',route=>{
   if(route.request().url().startsWith(base))return route.fulfill({status:404,body:'Cannot GET /api/jellyfin-relay/connectors'});
@@ -36,19 +37,26 @@ async function dashboard(uid) {
   assert.equal(route.request().headers()['x-samerow-token'],`dev:${uid}`);
   return route.fulfill({json:{connectors:uid==='owner'?[{id:'a'.repeat(32),address:fixture.url,name:'My Jellyfin',online:true}]:[]}});
  });
+ if (binding) await page.route('**/api/jellyfin/connections', route => route.fulfill({status:403,json:{error:'Saved-library lookup denied'}}));
  await page.goto(`${process.env.UI_BASE_URL||'http://127.0.0.1:5175'}/ui-preview?scene=lobby`);
- await page.evaluate(async ({base,uid})=>{
+ await page.evaluate(async ({base,uid,binding})=>{
   const {default:React}=await import('/node_modules/.vite/deps/react.js');
   const {default:{createRoot}}=await import('/node_modules/.vite/deps/react-dom_client.js');
   const {default:Lobby}=await import('/src/Lobby.jsx');
+  const {default:PluginAccountBinding}=await import('/src/PluginAccountBinding.jsx');
   const {configureSession}=await import('/src/session.js');
   configureSession(async()=>`dev:${uid}`);
   document.querySelector('#root').remove();const target=document.createElement('div');document.body.append(target);
-  createRoot(target).render(React.createElement(Lobby,{authUser:{uid,displayName:'Alex',email:'alex@example.com'},serverUrl:base,serverConnected:true,joinRoom:async()=>{},generateRoom:async()=>({code:'HOST'}),toggleMute:()=>{},toggleVideo:()=>{}}));
- },{base,uid});
+  createRoot(target).render(binding ? React.createElement(PluginAccountBinding,{id:'a'.repeat(32),base,observeAccount:listener=>{listener({uid,email:'owner@example.com',isAnonymous:false});return()=>{};}}) : React.createElement(Lobby,{authUser:{uid,displayName:'Alex',email:'alex@example.com'},serverUrl:base,serverConnected:true,joinRoom:async()=>{},generateRoom:async()=>({code:'HOST'}),toggleMute:()=>{},toggleVideo:()=>{}}));
+ },{base,uid,binding});
  return {page,context};
 }
 try {
+ const launch=await dashboard('owner',true);
+ await launch.page.getByRole('button',{name:'Continue and connect Jellyfin',exact:true}).click();
+ await launch.page.getByRole('dialog',{name:'Connect your Jellyfin account',exact:true}).waitFor();
+ await launch.page.getByRole('button',{name:'Use Quick Connect',exact:true}).waitFor();
+ await launch.context.close();
  const {page,context}=await dashboard('owner');
  const dialog=page.getByRole('dialog',{name:'Connect your Jellyfin account',exact:true});
  await dialog.waitFor();

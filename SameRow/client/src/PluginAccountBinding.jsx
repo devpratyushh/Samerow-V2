@@ -1,32 +1,39 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { onIdTokenChanged } from 'firebase/auth';
 import { auth, accountActions } from './firebase';
 import { accountAuthError } from './accountAuth';
 import { discoverAccountConnectors } from './connectorDiscovery';
 import { jellyfinRequest } from './jellyfinAccount';
+import { loadPluginBinding } from './pluginBinding';
 import Dialog from './components/Dialog';
 import JellyfinDialog from './components/JellyfinDialog';
 
-export default function PluginAccountBinding({ id, base }) {
+const observeFirebaseAccount = listener => onIdTokenChanged(auth, listener);
+
+export default function PluginAccountBinding({ id, base, observeAccount = observeFirebaseAccount }) {
+  const identityRef = useRef(undefined);
   const [user, setUser] = useState(undefined);
   const [server, setServer] = useState(null);
   const [bound, setBound] = useState(null);
   const [confirmed, setConfirmed] = useState(false);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  useEffect(() => onIdTokenChanged(auth, value => { setUser(value); setServer(null); setBound(null); setConfirmed(false); }), []);
+  const [notice, setNotice] = useState('');
+  const [attempt, setAttempt] = useState(0);
+  useEffect(() => observeAccount(value => {
+    const identity = value ? `${value.uid}:${value.isAnonymous}` : null;
+    setUser(value);
+    if (identityRef.current !== identity) { identityRef.current = identity; setServer(null); setBound(null); setConfirmed(false); }
+  }), [observeAccount]);
   useEffect(() => {
     if (!user || user.isAnonymous) return;
     const controller = new AbortController();
-    Promise.all([discoverAccountConnectors(base, { signal: controller.signal }), jellyfinRequest(base, '/connections', { signal: controller.signal })]).then(([servers, links]) => {
+    loadPluginBinding(id, () => discoverAccountConnectors(base, { signal: controller.signal }), () => jellyfinRequest(base, '/connections', { signal: controller.signal })).then(result => {
       if (controller.signal.aborted) return;
-      const selected = servers.find(value => value.id === id);
-      if (!selected) { setError('This server is paired with a different SameRow account, or its pairing expired. Sign in with the account used to approve the plugin.'); return; }
-      setServer(selected); setError('');
-      setBound(links.connections?.find(value => value.account.serverUrl === selected.address)?.account || null);
+      setServer(result.server); setBound(result.bound); setNotice(result.notice); setError('');
     }).catch(failure => { if (!controller.signal.aborted) setError(failure.message); });
     return () => controller.abort();
-  }, [user, id, base]);
+  }, [user, id, base, attempt]);
   const signIn = async () => {
     setBusy(true); setError('');
     try { await accountActions.signIn('google.com'); }
@@ -41,6 +48,6 @@ export default function PluginAccountBinding({ id, base }) {
       {!server && !error && <p role="status">Checking this server’s account binding…</p>}
       <button className="sr-button" disabled={busy} onClick={signIn}>Use another Google account</button>
     </> : <><p>Sign in to SameRow with Google first. You’ll then confirm the account before connecting your Jellyfin user.</p><button className="sr-button sr-button--primary" disabled={busy || user === undefined} onClick={signIn}>Sign in with Google</button></>}
-    {error && <p role="alert">{error}</p>}
+    {notice && <p role="status">{notice}</p>}{error && <><p role="alert">{error}</p><button className="sr-button" onClick={() => { setError(''); setAttempt(value => value + 1); }}>Retry connection check</button></>}
   </Dialog>{confirmed && server && <JellyfinDialog open connectOnly base={base} initialServerUrl={server.address} sameRowAccount={user.email || user.displayName} onClose={finish} />}</main>;
 }

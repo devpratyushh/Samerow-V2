@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { accountFetch } from './session';
+import { jellyfinRequest } from './jellyfinAccount';
 import { discoverAccountConnectors } from './connectorDiscovery';
 
 export function useAccountConnectors(serverUrl, uid) {
@@ -13,13 +13,7 @@ export function useAccountConnectors(serverUrl, uid) {
       running = true;
       try {
         if (controller.signal.aborted) return;
-        const get = async path => {
-          const response = await accountFetch(`${serverUrl}${path}`, { signal: AbortSignal.any([controller.signal, AbortSignal.timeout(8000)]), cache: 'no-store' });
-          if (response.status === 404) return {};
-          if (!response.ok) { const data = await response.json().catch(() => ({})); throw new Error(data.error || `Account connection lookup failed (HTTP ${response.status}).`); }
-          return response.json();
-        };
-        const [servers, links] = await Promise.allSettled([discoverAccountConnectors(serverUrl, { signal: AbortSignal.any([controller.signal, AbortSignal.timeout(12000)]) }), get('/api/jellyfin/connections')]);
+        const [servers, links] = await Promise.allSettled([discoverAccountConnectors(serverUrl, { signal: AbortSignal.any([controller.signal, AbortSignal.timeout(12000)]) }), jellyfinRequest(serverUrl, '/connections', { signal: controller.signal })]);
         if (controller.signal.aborted) return;
         setResult(previous => {
           const old = previous?.uid === uid && previous.serverUrl === serverUrl ? previous : {};
