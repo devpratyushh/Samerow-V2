@@ -61,6 +61,17 @@ async function openGroupCall({ socket, roomId, stream, onPeers, onError, signal,
     await syncTracks(); refresh();
   } catch (error) { disconnect(); signal.removeEventListener('abort', disconnect); throw error; }
   return {
+    async getStats() {
+      const reports = [];
+      for (const participant of [room.localParticipant, ...room.remoteParticipants.values()]) {
+        for (const publication of participant.trackPublications.values()) {
+          if (!publication.track) continue;
+          const report = await publication.track.getRTCStatsReport().catch(() => null);
+          reports.push({ key: participant.identity, name: `${participant === room.localParticipant ? 'You → SFU' : participant.name || 'Guest'} · ${publication.source}`, report });
+        }
+      }
+      return reports;
+    },
     syncTracks,
     async setMuted(kind, muted) {
       if (signal.aborted) return;

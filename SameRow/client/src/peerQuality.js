@@ -1,17 +1,20 @@
 // Bound total upload as the mesh grows. Each peer otherwise gets a full camera copy.
-export function mediaBudget(participants, screen = false) {
+export function mediaBudget(participants, screen = false, mode = 'balanced') {
+  if (mode === 'high') return screen
+    ? { bitrate: 6000000, width: 1920, height: 1080, frameRate: 30 }
+    : { bitrate: 2500000, width: 1280, height: 720, frameRate: 30 };
   const copies = Math.max(1, participants - 1);
   if (screen) return { bitrate: Math.max(180000, Math.floor(2400000 / copies)), width: participants > 5 ? 960 : 1280, height: participants > 5 ? 540 : 720, frameRate: 15 };
   return { bitrate: Math.max(70000, Math.floor(1200000 / copies)), width: participants > 8 ? 256 : participants > 3 ? 320 : 640, height: participants > 8 ? 144 : participants > 3 ? 180 : 360, frameRate: participants > 8 ? 12 : participants > 3 ? 15 : 20 };
 }
 
 const pending = new WeakMap();
-export function tunePeer(peer, participants, screen = false) {
+export function tunePeer(peer, participants, screen = false, mode = 'balanced') {
   // simple-peer exposes its RTCPeerConnection here; contain that dependency in one module.
   const connection = peer?._pc;
   if (!connection || peer.destroyed || pending.has(peer)) return;
   const task = (async () => {
-    const budget = mediaBudget(participants, screen);
+    const budget = mediaBudget(participants, screen, mode);
     let congested = false;
     try {
       const stats = await connection.getStats();

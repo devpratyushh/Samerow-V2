@@ -98,6 +98,17 @@ test('native Jellyfin gateway limits guests to the shared item, rewrites credent
     const segment = manifest.split('\n').find(line => line.startsWith('http'));
     assert.equal((await fetch(segment)).status, 200);
     response = await fetch(`${gateway}/Videos/movie/stream.mp4`, { headers: { Range: 'bytes=0-3' } }); assert.equal(response.status, 206); assert.equal(response.headers.get('content-range'), 'bytes 0-3/100');
+    await response.arrayBuffer();
+    const delivered = await ack(host, 'jellyfin-stats', 'room');
+    assert.equal(delivered.viewers.find(viewer => viewer.id === guest.id).bytes, 8);
+    assert.equal(delivered.bytes, 8);
+    assert.ok(!JSON.stringify(delivered).includes(state.accessToken));
+    guest.emit('jellyfin-playback-stats', { roomId: 'room', sessionId: state.sessionId, stats: { width: 1920, height: 1080, buffer: 5, frames: 50, dropped: 1 } });
+    await ack(guest, 'jellyfin-sync-request', 'room');
+    const received = await ack(host, 'jellyfin-stats', 'room');
+    assert.equal(received.viewers.find(viewer => viewer.id === guest.id).playback.width, 1920);
+    const outsiderReply = await Promise.race([ack(other, 'jellyfin-stats', 'room'), new Promise(resolve => setTimeout(() => resolve('denied'), 30))]);
+    assert.equal(outsiderReply, 'denied');
     const device = requests.find(request => request.path === '/Items/movie/PlaybackInfo').query.DeviceId;
     assert.notEqual(device, connection.deviceId); assert.ok(requests.every(request => request.authorization.includes('owner-secret')));
     const before = requests.length;

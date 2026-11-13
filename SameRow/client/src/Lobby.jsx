@@ -11,7 +11,7 @@ function readHistory(uid) {
   if (!uid) return [];
   try {
     const stored = JSON.parse(localStorage.getItem(`recent_rooms_${uid}`) || '[]');
-    return Array.isArray(stored) ? stored.filter((entry) => validRoomCode(entry?.code) && Number.isFinite(entry?.timestamp)).slice(0, 5) : [];
+    return Array.isArray(stored) ? stored.filter((entry) => validRoomCode(entry?.code) && Number.isFinite(entry?.timestamp)).slice(0, 3) : [];
   } catch {
     return [];
   }
@@ -60,27 +60,6 @@ const Lobby = ({ joinRoom, generateRoom, hostedWebOrigin, connectorHosting, host
     return () => { if (video) video.srcObject = null; };
   }, [userStream]);
 
-  useEffect(() => {
-    if (!serverConnected || !generateRoom || initialRoom || roomDraft !== null || generating) return;
-    let cancelled = false;
-    let retryDelay = 2000;
-    async function reserveCode() {
-      try {
-        const next = await generateRoom(false);
-        if (!cancelled) {
-          setGenerated(next);
-          setRoomDraft(current => current ?? next.code);
-        }
-      } catch {
-        if (cancelled) return;
-        timer = setTimeout(reserveCode, retryDelay);
-        retryDelay = Math.min(retryDelay * 2, 30000);
-      }
-    }
-    let timer = setTimeout(reserveCode, 0);
-    return () => { cancelled = true; clearTimeout(timer); };
-  }, [generateRoom, generating, initialRoom, roomDraft, serverConnected]);
-
   const handleAuth = async () => {
     setAuthBusy(true);
     setFeedback('');
@@ -99,7 +78,7 @@ const Lobby = ({ joinRoom, generateRoom, hostedWebOrigin, connectorHosting, host
     setJoining(true);
     setJoinError('');
     if (authUser) {
-      const entries = [{ code, timestamp: Date.now() }, ...history.filter((entry) => entry.code !== code)].slice(0, 5);
+      const entries = [{ code, timestamp: Date.now() }, ...history.filter((entry) => entry.code !== code)].slice(0, 3);
       setRecentRooms({ identity, entries });
       try { localStorage.setItem(`recent_rooms_${identity}`, JSON.stringify(entries)); } catch { /* Joining works if browser storage is unavailable. */ }
     }
@@ -109,7 +88,7 @@ const Lobby = ({ joinRoom, generateRoom, hostedWebOrigin, connectorHosting, host
       if (hostedRoom && error.status === 403) {
         setGenerated(null);
         setRoomDraft(null);
-        setJoinError('That room code expired. Try again when the new code appears.');
+        setJoinError('That room code expired. Select Host a room to create another.');
       } else {
         setJoinError(error.message || 'Could not join this room. Try again.');
       }
@@ -119,7 +98,10 @@ const Lobby = ({ joinRoom, generateRoom, hostedWebOrigin, connectorHosting, host
   };
 
   const makeRoom = async privateRoom => {
+    if (generating || joining || !serverConnected) return;
     setGenerating(true);
+    setJoinError('');
+    setAttempted(false);
     setFeedback('');
     try {
       const next = await generateRoom(privateRoom);
@@ -150,7 +132,7 @@ const Lobby = ({ joinRoom, generateRoom, hostedWebOrigin, connectorHosting, host
         <span className={`lobby-connection ${serverConnected ? 'is-connected' : ''}`} role="status"><span aria-hidden="true" />{serverConnected ? 'Ready to connect' : 'Connecting to server'}</span>
       </header>
       <div className="lobby-content">
-        <section className="lobby-intro" aria-labelledby="lobby-heading"><h1 id="lobby-heading">{hostedRoom ? 'Host for friends online' : 'Join a room'}</h1><p className="lobby-description">{hostedRoom ? 'Enter your private room, then send friends the invite link.' : 'Check your camera, then enter your room or join a friend.'}</p></section>
+        <section className="lobby-intro" aria-labelledby="lobby-heading"><h1 id="lobby-heading">{hostedRoom ? 'Host for friends online' : 'Join a room'}</h1><p className="lobby-description">{hostedRoom ? 'Enter your private room, then send friends the invite link.' : 'Start a room or enter a code to join a friend.'}</p></section>
         <div className="lobby-setup">
           <section className="lobby-preview-section" aria-labelledby="preview-heading">
             <div className="lobby-section-label"><h2 id="preview-heading">Your preview</h2><span>Only you can see this</span></div>
@@ -169,7 +151,8 @@ const Lobby = ({ joinRoom, generateRoom, hostedWebOrigin, connectorHosting, host
             <div className="lobby-join-heading"><h2 id="join-heading">Room details</h2></div>
             <form className="lobby-form" onSubmit={handleSubmit} noValidate>
               <div className="lobby-field"><label htmlFor="lobby-name">Your name</label><input ref={nameRef} id="lobby-name" autoComplete="nickname" placeholder="Your name" maxLength={64} value={userName} onChange={(event) => setNameDraft({ identity, value: event.target.value })} aria-invalid={Boolean(nameError)} aria-describedby={nameError ? 'lobby-name-error' : undefined} required />{nameError && <span className="lobby-field-error" id="lobby-name-error">{nameError}</span>}</div>
-              <div className="lobby-field"><label htmlFor="lobby-room">Room code</label><input id="lobby-room" autoComplete="off" autoCapitalize="none" spellCheck={false} placeholder={roomDraft === null && !initialRoom && generateRoom ? 'Getting your room code…' : 'Enter a room code'} value={roomId} readOnly={hostedRoom} onChange={(event) => setRoomDraft(event.target.value)} aria-invalid={Boolean(roomError)} aria-describedby={roomError ? 'lobby-room-error' : 'lobby-room-hint'} required />{roomError ? <span className="lobby-field-error" id="lobby-room-error">{roomError}</span> : <span className="lobby-field-hint" id="lobby-room-hint">{hostedRoom ? 'SameRow creates your private room code automatically.' : 'Use the code we give you or enter a friend’s code.'}</span>}</div>
+              {generateRoom && <><button className="lobby-host-button" type="button" onClick={() => makeRoom(Boolean(hostedRoom))} disabled={!serverConnected || generating || joining}>{generating ? 'Creating room…' : 'Host a room'}</button><div className="lobby-divider"><span>or join with a code</span></div></>}
+              <div className="lobby-field"><label htmlFor="lobby-room">Room code</label><input id="lobby-room" autoComplete="off" autoCapitalize="none" spellCheck={false} placeholder="Enter a room code" value={roomId} readOnly={hostedRoom && Boolean(generated)} onChange={(event) => setRoomDraft(event.target.value)} aria-invalid={Boolean(roomError)} aria-describedby={roomError ? 'lobby-room-error' : 'lobby-room-hint'} required />{roomError ? <span className="lobby-field-error" id="lobby-room-error">{roomError}</span> : <span className="lobby-field-hint" id="lobby-room-hint">{generated?.code === trimmedRoom ? 'Your room code is ready. Enter the room, then invite friends.' : 'Enter a code from your friend, or select Host a room.'}</span>}</div>
               <button className="lobby-join-button" type="submit" disabled={!canJoin}>{joining ? 'Joining…' : serverConnected ? 'Enter room' : 'Connecting…'}<FaArrowRight aria-hidden="true" /></button>
               {joinError && <p className="lobby-auth-feedback" role="alert">{joinError}</p>}
               {!serverConnected && <p className="lobby-server-help" role="status">{connectionError || 'Connecting to the room server…'}</p>}
@@ -183,9 +166,10 @@ const Lobby = ({ joinRoom, generateRoom, hostedWebOrigin, connectorHosting, host
               {!localEdition && (authUser ? <div className="lobby-profile">{authUser.photoURL ? <img src={authUser.photoURL} alt="" referrerPolicy="no-referrer" /> : <span className="lobby-profile-avatar" aria-hidden="true">{initials}</span>}<div><strong>{authUser.displayName || 'Signed in'}</strong><span>Recent rooms saved to this browser</span></div><button className="lobby-signout" type="button" onClick={handleAuth} disabled={authBusy} aria-label="Sign out" title="Sign out"><FaSignOutAlt aria-hidden="true" /></button></div> : <><div className="lobby-divider"><span>or save your recent rooms</span></div><button className="lobby-google-button" type="button" onClick={handleAuth} disabled={authBusy}><FaGoogle aria-hidden="true" />{authBusy ? 'Opening sign-in…' : 'Continue with Google'}</button><p className="lobby-guest-note">No account needed to join.</p></>)}
               {feedback && <p className="lobby-auth-feedback" role="status">{feedback}</p>}
             </div>
-            {authUser && history.length > 0 && <section className="lobby-history" aria-labelledby="lobby-history-heading"><h3 id="lobby-history-heading"><FaHistory aria-hidden="true" />Recent rooms</h3><ul>{history.map((entry) => <li key={entry.code}><button type="button" onClick={() => joinRecentRoom(entry.code)} disabled={!serverConnected} title={`Join ${entry.code}`}><span className="lobby-history-code">{entry.code}</span><span className="lobby-history-time">{timeAgo(entry.timestamp, now)}</span><FaArrowRight aria-hidden="true" /></button></li>)}</ul></section>}
+
           </section>
         </div>
+            {authUser && history.length > 0 && <section className="lobby-history" aria-labelledby="lobby-history-heading"><h3 id="lobby-history-heading"><FaHistory aria-hidden="true" />Recent rooms</h3><ul>{history.map((entry) => <li key={entry.code}><button type="button" onClick={() => joinRecentRoom(entry.code)} disabled={!serverConnected} title={`Join ${entry.code}`}><span className="lobby-history-code">{entry.code}</span><span className="lobby-history-time">{timeAgo(entry.timestamp, now)}</span><FaArrowRight aria-hidden="true" /></button></li>)}</ul></section>}
       </div>
           </main>
   );

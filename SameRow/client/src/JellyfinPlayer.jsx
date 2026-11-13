@@ -6,8 +6,9 @@ import { createDriftController } from './playbackSync';
 import './JellyfinPlayer.css';
 import { useJellyfinQuality } from './useJellyfinQuality';
 import JellyfinQuality from './JellyfinQuality';
+import { playbackStats } from './playbackStats';
 
-export default function JellyfinPlayer({ state, base, command, connected, focused, onBrowse, onOpenNative }) {
+export default function JellyfinPlayer({ state, base, command, connected, focused, onBrowse, onOpenNative, onPlaybackStats }) {
   const videoRef = useRef(null);
   const [audio, setAudio] = useState(() => state.audioTracks.find(track => track.default)?.index ?? state.audioTracks[0]?.index ?? -1);
   const [subtitle, setSubtitle] = useState(-1);
@@ -65,6 +66,11 @@ export default function JellyfinPlayer({ state, base, command, connected, focuse
   useEffect(() => { synchronize(true); }, [state.revision, state.sessionId, connected]);
   useEffect(() => {
     const timer = setInterval(() => { synchronize(); if (videoRef.current) setTime(videoRef.current.currentTime); }, 400);
+    return () => clearInterval(timer);
+  }, []);
+  const reportPlayback = useEffectEvent(() => onPlaybackStats?.(playbackStats(videoRef.current)));
+  useEffect(() => {
+    const timer = setInterval(() => reportPlayback(), 5000);
     return () => clearInterval(timer);
   }, []);
   const initialTime = useEffectEvent(() => jellyfinTime(state));

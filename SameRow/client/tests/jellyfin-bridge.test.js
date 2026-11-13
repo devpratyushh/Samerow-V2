@@ -24,6 +24,8 @@ async function fixture({ directToggle = false, playError = null, queue = [] } = 
   const parent = { postMessage(message, origin) { messages.push({ ...message, origin }); } };
   const document = new Target();
   const video = Object.assign(new Target(), {
+    videoWidth: 1920, videoHeight: 1080, buffered: { length: 1, start: () => 0, end: () => 60 },
+    getVideoPlaybackQuality: () => ({ totalVideoFrames: 100, droppedVideoFrames: 2 }),
     readyState: 4, currentTime: 0, playbackRate: 1, paused: false, seeking: false,
     play() { if (playError) return Promise.reject(playError); this.paused = false; return Promise.resolve(); },
   });
@@ -232,4 +234,13 @@ test('sustained Auto buffering reduces only local bitrate, bounds retries and re
   const before = f.calls.filter(call => call[0] === 'quality').length;
   f.video.readyState = 1; f.poll(); f.advance(40000); f.poll();
   assert.equal(f.calls.filter(call => call[0] === 'quality').length, before, 'Original never silently lowers the requested bitrate');
+});
+
+ test('native playback telemetry reports decoded size and frames without shared commands', async () => {
+  const f = await fixture(); f.video.currentTime = 20; f.poll();
+  const message = f.messages.find(message => message.type === 'playback-stats');
+  assert.equal(message.stats.width, 1920);
+  assert.equal(message.stats.buffer, 40);
+  assert.equal(message.stats.dropped, 2);
+  assert.equal(f.commands().length, 0);
 });

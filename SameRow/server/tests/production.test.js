@@ -378,6 +378,10 @@ test('a paired Docker host can open a private web room and relay Jellyfin to a g
       assert.equal(fragment.status, 200);
       assert.deepEqual(new Uint8Array(await fragment.arrayBuffer()), Uint8Array.from(bytes));
     }
+    const delivery = await ack(host, 'jellyfin-stats', code);
+    assert.equal(delivery.viewers.find(viewer => viewer.id === guest.id).bytes, 8, 'Native and SameRow player bytes share the Docker delivery counter');
+    assert.equal(delivery.viewers.find(viewer => viewer.id === host.id).bytes, 0);
+    assert.equal(delivery.viewers.find(viewer => viewer.id === guest.id).name, 'Guest');
   })()]);
   assert.equal((await fetch(pairUrl, { method: 'POST', headers: { 'X-SameRow-Token': token } })).status, 403);
   const onlineList = await fetch(`${application.url}/api/jellyfin-relay/connectors`, { headers: { 'X-SameRow-Token': 'test:owner' } });

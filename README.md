@@ -119,6 +119,45 @@ The hosted pilot currently uses four participants per room and **one media
 replica**. Control services share state through Redis. Multiple media replicas
 need explicit connector routing before they can be enabled.
 
+## Stats for nerds and local video quality
+
+In a room, open **More options → Stats for nerds**. While open, it refreshes
+call upload/download, each peer’s bitrate, resolution, FPS, codec, packet loss,
+jitter and available encoder/RTT information every five seconds. Unsupported
+browser metrics appear as unavailable. Call stats describe this device’s links;
+in hosted rooms, upload goes to LiveKit and received tracks come from LiveKit.
+
+For Jellyfin, the panel shows media delivered to each current room member and
+their reported decoded resolution, buffered seconds, and dropped/total frames.
+Delivery is measured at the gateway, includes prefetch/retries, and is separate
+from the encoded movie bitrate. The first sample measures a baseline; a fully
+buffered viewer can receive zero bytes while playback continues. Viewer reports
+expire after 20 seconds without updates. Only current room members can request
+these stats. Credentials, upstream addresses and access tokens are excluded.
+
+These measurements use the same media gateway for direct Jellyfin, the Docker
+connector, and the native SameRow Connect plugin. Deploy matching web/server
+revisions; rebuild the local Docker image to include the panel. No plugin binary
+or connector protocol update is required. Redis shares counters when the control
+service and media gateway run separately.
+
+SameRow Local uses a peer mesh. Its **Balanced upload** policy divides a 1.2 Mbps
+camera budget among receivers and lowers camera capture to 320×180 from four
+participants, regardless of LAN speed. Screen sharing similarly divides a
+2.4 Mbps budget. This can cause blur even when all devices are on the same Wi-Fi.
+Choose **Call quality on this device → High quality / LAN** in the stats panel
+to allow 1280×720 cameras at up to 2.5 Mbps per receiver and 1920×1080 screen
+sharing at up to 6 Mbps per receiver, up to 30 FPS. Each sender chooses its own
+policy. The browser can still adapt under CPU or network pressure. With several
+peers, these per-receiver uploads add up.
+
+Jellyfin movies use their own **Quality on this device** menu. Auto, manual bitrate
+caps, shared gateway/origin limits, codec support and subtitle burn-in can cause
+conversion independently of call quality. **Original** requests source video when
+supported and within configured capacity. Connecting locally does not bypass a
+hosted gateway: use the local Docker edition for LAN delivery. Camera quality
+settings do not alter Jellyfin or YouTube movies.
+
 ## Other ways to use SameRow
 
 | What you want | Setup |
@@ -143,6 +182,10 @@ The lobby generates a four-letter code when you start a room.
 ![SameRow lobby with name and room code fields](docs/images/lobby.jpg)
 
 ## Architecture
+
+Read the [movie delivery and quality guide](docs/media-architecture.md) for public
+Jellyfin and plugin paths, the media gateway, four-viewer bandwidth, quality
+selection, synchronization, and local blur troubleshooting.
 
 | Component | Role |
 | --- | --- |

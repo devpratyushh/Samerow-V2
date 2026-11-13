@@ -7,7 +7,7 @@ import './JellyfinNativePlayer.css';
 import { useJellyfinQuality } from './useJellyfinQuality';
 import JellyfinQuality from './JellyfinQuality';
 
-export default function JellyfinNativePlayer({ state, base, command, connected, focused, onBrowse, onOpenSameRow }) {
+export default function JellyfinNativePlayer({ state, base, command, connected, focused, onBrowse, onOpenSameRow, onPlaybackStats }) {
   const frameRef = useRef(null);
   const [channel] = useState(() => browserId());
   const [attempt, setAttempt] = useState(0);
@@ -26,6 +26,7 @@ export default function JellyfinNativePlayer({ state, base, command, connected, 
   const receive = useEffectEvent(event => {
     if (event.source !== frameRef.current?.contentWindow || event.origin !== 'null' || event.data?.source !== 'samerow-jellyfin' || event.data.channel !== channel) return;
     const data = event.data;
+    if (data.type === 'playback-stats') onPlaybackStats?.(data.stats);
     if (data.type === 'ready') { ready.current = true; synchronize(); }
     if (data.type === 'status' && ['loading', 'playing', 'paused', 'buffering', 'blocked', 'error', 'ended'].includes(data.phase)) setStatus({ phase: data.phase, message: typeof data.message === 'string' ? data.message.slice(0, 300) : '' });
     if (data.type === 'command' && connected && ['play', 'pause', 'seek', 'stop'].includes(data.action)) {

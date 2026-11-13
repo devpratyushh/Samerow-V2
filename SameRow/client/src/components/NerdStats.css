@@ -1,0 +1,14 @@
+.nerd-stats { min-width: 0; font-size: 13px; line-height: 1.6; }
+.nerd-stats p { overflow-wrap: anywhere; }
+.nerd-stats label { display: grid; gap: 8px; }
+.nerd-stats select { width: 100%; padding: 10px; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 8px; }
+.nerd-table-wrap { max-width: 100%; overflow-x: auto; }
+.nerd-stats table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; text-align: left; }
+.nerd-stats caption { text-align: left; font-weight: 700; padding: 8px 0; }
+.nerd-stats th, .nerd-stats td { padding: 9px 7px; border-bottom: 1px solid var(--border); vertical-align: top; }
+.nerd-stats small { display: block; color: var(--muted); }
+
+.sr-dialog-panel.nerd-stats-dialog { width: min(960px, 100%); }
+.room-diagnostics .nerd-stats p { display: block; margin: 12px 0; }
+.nerd-stats table { min-width: 640px; overflow-wrap: normal; }
+.nerd-stats th, .nerd-stats td { word-break: normal; }

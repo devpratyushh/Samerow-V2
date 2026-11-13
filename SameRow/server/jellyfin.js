@@ -16,6 +16,7 @@ function installJellyfin(app, io, accounts, options = {}) {
   const store = options.store || new MemoryStore(), roomTtl = options.roomTtl || 86400;
   const pending = new Map(), activeRequests = new Map();
   const quality = createQualityPolicy(store, options.quality);
+  const delivery = require('./deliveryStats').createDeliveryStats(store);
   const request = accounts?.request || upstreamRequest;
   const member = (socket, roomId) => typeof roomId === 'string' && socket.rooms.has(roomId);
   const permitted = (socket, roomId) => options.canControl ? options.canControl(socket, roomId) : member(socket, roomId);
@@ -58,6 +59,16 @@ function installJellyfin(app, io, accounts, options = {}) {
   };
   io.on('connection', socket => {
     const on = socket.handle || socket.on.bind(socket);
+    on('jellyfin-playback-stats', async (payload = {}) => {
+      if (!member(socket, payload.roomId)) return;
+      const state = await store.get(`jellyfin-room:${payload.roomId}`);
+      if (state && !state.stopped && state.id === payload.sessionId) await delivery.report(state, socket.id, payload.stats);
+    });
+    on('jellyfin-stats', async (roomId, ack) => {
+      if (!member(socket, roomId) || typeof ack !== 'function') return;
+      const state = await store.get(`jellyfin-room:${roomId}`);
+      ack(state && !state.stopped ? await delivery.snapshot(state, await io.in(roomId).fetchSockets()) : null);
+    });
     on('jellyfin-sync-request', async (roomId, ack) => {
       if (!member(socket, roomId) || typeof ack !== 'function') return;
       const serverReceivedAt = Date.now();
@@ -170,7 +181,7 @@ function installJellyfin(app, io, accounts, options = {}) {
     viewer.assets = new Map();
     return { viewer, state };
   };
-  if (accounts) require('./jellyfinWeb').installJellyfinWeb(app, { resolveViewer, accounts, saveViewer, quality, allowedOrigins: options.allowedOrigins, publicOrigin: options.publicOrigin });
+  if (accounts) require('./jellyfinWeb').installJellyfinWeb(app, { resolveViewer, accounts, saveViewer, quality, delivery, allowedOrigins: options.allowedOrigins, publicOrigin: options.publicOrigin });
 
   const registerAsset = async (viewer, url, state) => {
     const parsed = new URL(url);
@@ -217,7 +228,7 @@ function installJellyfin(app, io, accounts, options = {}) {
       } else {
         res.status(response.status);
         for (const key of ['content-type', 'content-length', 'content-range', 'accept-ranges']) if (response.headers.has(key)) res.set(key, response.headers.get(key));
-        if (response.body) await pipeline(Readable.fromWeb(response.body), res);
+        if (response.body) await pipeline(Readable.fromWeb(response.body), ...(/subtitle/i.test(parsed.pathname) ? [] : [delivery.meter(viewer, state)]), res);
         else res.end();
       }
     } catch { if (!res.headersSent && !res.destroyed) res.status(502).send('Jellyfin stream unavailable. Try reconnecting playback.'); }

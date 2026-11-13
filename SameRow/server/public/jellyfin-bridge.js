@@ -405,6 +405,19 @@
       void stopPlayer();
     }
   });
+  const statsInterval = setInterval(() => {
+    const video = document.querySelector('video');
+    if (!video || disposed) return;
+    const frames = video.getVideoPlaybackQuality?.();
+    let buffer = 0;
+    for (let i = 0; i < video.buffered.length; i++) {
+      if (video.buffered.start(i) <= video.currentTime && video.buffered.end(i) >= video.currentTime) buffer = video.buffered.end(i) - video.currentTime;
+    }
+    send('playback-stats', { stats: { width: video.videoWidth, height: video.videoHeight, buffer,
+      frames: frames?.totalVideoFrames ?? null, dropped: frames?.droppedVideoFrames ?? null,
+      paused: video.paused, readyState: video.readyState } });
+  }, 5000);
+  cleanup.push(() => clearInterval(statsInterval));
   const interval = setInterval(() => {
     if (!disposed) { void openItem(); applyQuality(); adaptQuality(); synchronize(); }
   }, 250);

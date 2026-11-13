@@ -51,7 +51,7 @@ const playerLoader = `<script type="module">
 
 // Every request is restricted to the selected room item. A viewer never receives
 // the library owner's Jellyfin credential or a general-purpose server proxy.
-function installJellyfinWeb(app, { resolveViewer, accounts, saveViewer = async (viewer, patch) => Object.assign(viewer, patch), quality, allowedOrigins, publicOrigin }) {
+function installJellyfinWeb(app, { resolveViewer, accounts, saveViewer = async (viewer, patch) => Object.assign(viewer, patch), quality, delivery, allowedOrigins, publicOrigin }) {
   app.use(`${ROOT}/storage`, require('express').static(path.resolve(path.dirname(require.resolve('fake-indexeddb')), '../esm'), { fallthrough: false, immutable: true, maxAge: '1d' }));
   app.get(`${ROOT}/bridge.js`, (req, res) => {
     res.set('Cache-Control', 'no-cache').type('application/javascript').sendFile(path.join(__dirname, 'public/jellyfin-bridge.js'));
@@ -189,7 +189,7 @@ function installJellyfinWeb(app, { resolveViewer, accounts, saveViewer = async (
         for (const header of ['accept-ranges', 'content-range', 'last-modified', 'etag']) if (response.headers.has(header)) res.set(header, response.headers.get(header));
         if (!response.headers.has('content-encoding') && response.headers.has('content-length')) res.set('Content-Length', response.headers.get('content-length'));
         if (web) res.set('Cache-Control', 'private, max-age=3600');
-        await pipeline(Readable.fromWeb(response.body), res);
+        await pipeline(Readable.fromWeb(response.body), ...(!web && /^\/Videos\//i.test(route) && !/subtitle/i.test(route) && delivery ? [delivery.meter(viewer, state)] : []), res);
       } finally { clearInterval(leaseCheck); clearTimeout(timeout); res.off('close', abort); viewer.requests.delete(controller); }
     };
     try {

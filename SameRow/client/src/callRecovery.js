@@ -50,6 +50,7 @@ export function maintainCall({ open, signal, onError, onPeers, retryDelay = atte
   if (signal.aborted) close(); else void start();
   return {
     close,
+    getStats: () => active?.getStats?.() || Promise.resolve([]),
     syncTracks: reconcile,
     setMuted(kind, value) { muted[kind] = value; stateVersion++; return reconcile(); },
     publishScreen(value) { screen = value; stateVersion++; return reconcile(); },

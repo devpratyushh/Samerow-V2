@@ -558,3 +558,12 @@
     max-width: 130px;
   }
 }
+
+.lobby-host-button {
+  min-height: 46px; padding: 12px 18px; border: 1px solid var(--lobby-border);
+  border-radius: 6px; background: var(--lobby-raised); color: var(--lobby-text);
+  font: inherit; font-weight: 600; cursor: pointer;
+}
+.lobby-host-button:hover:not(:disabled) { filter: brightness(1.15); }
+.lobby-host-button:disabled { opacity: .5; cursor: not-allowed; }
+.lobby-host-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }

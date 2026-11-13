@@ -17,6 +17,7 @@ import { useJellyfinRoom } from './jellyfinRoom';
 import { mediaBudget, tunePeer } from './peerQuality';
 import RoomView from './components/RoomView';
 import Dialog from './components/Dialog';
+import NerdStats from './components/NerdStats';
 const PEER_CONFIG = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:global.stun.twilio.com:3478' }] };
 
 function RoomJellyfinPlayer({ state, ...props }) {
@@ -61,6 +62,7 @@ export default function Room({ socket, roomId, roomInvite, inviteOrigin, jellyfi
   const [connected, setConnected] = useState(false);
   const [mediaMode, setMediaMode] = useState(socket.roomConfig?.mediaMode || null);
   const groupCallRef = useRef(null);
+  const [callQuality, setCallQuality] = useState('balanced');
   const [youtubeState, setYoutubeState] = useState(null);
   const youtubeRoomRef = useRef(null);
   const [isSubmittingUrl, setIsSubmittingUrl] = useState(false);
@@ -88,7 +90,7 @@ export default function Room({ socket, roomId, roomInvite, inviteOrigin, jellyfi
     const peer = new Peer({ initiator: !incomingSignal, trickle: true, stream: incomingSignal && screen ? undefined : stream, config: PEER_CONFIG });
     peer.on('signal', signal => socket.emit('signal', { signal, to: remoteId, userName, isScreenShare: screen, screenOwner }));
     peer.on('stream', remoteStream => updatePeerStream(remoteId, remoteStream, screen, screenOwner));
-    peer.on('connect', () => tunePeer(peer, peersRef.current.filter(person => !person.isScreenShare).length + 1, screen));
+    peer.on('connect', () => tunePeer(peer, peersRef.current.filter(person => !person.isScreenShare).length + 1, screen, callQuality));
     peer.on('close', () => {
       peersRef.current = peersRef.current.filter(person => person.peer !== peer);
       setPeers(previous => previous.filter(person => person.peer !== peer));
@@ -216,15 +218,15 @@ export default function Room({ socket, roomId, roomInvite, inviteOrigin, jellyfi
 
   const participantCount = peers.filter(person => !person.isScreenShare).length + 1;
   useEffect(() => {
-    const budget = mediaBudget(mediaMode === 'livekit' ? 2 : participantCount);
+    const budget = mediaBudget(mediaMode === 'livekit' ? 2 : participantCount, false, mediaMode === 'livekit' ? 'high' : callQuality);
     activeStream.getVideoTracks().forEach(track => {
       track.applyConstraints?.({ width: { ideal: budget.width }, height: { ideal: budget.height }, frameRate: { ideal: budget.frameRate, max: budget.frameRate } }).catch(() => {});
     });
-    const tune = () => peersRef.current.filter(person => person.peer).forEach(person => tunePeer(person.peer, participantCount, person.isScreenShare));
+    const tune = () => peersRef.current.filter(person => person.peer).forEach(person => tunePeer(person.peer, participantCount, person.isScreenShare, callQuality));
     tune();
     const timer = setInterval(tune, 5000);
     return () => clearInterval(timer);
-  }, [participantCount, activeStream, userStream, mediaMode]);
+  }, [participantCount, activeStream, userStream, mediaMode, callQuality]);
 
   const toggleMute = () => { setMuted(value => !value); socket.emit('update-user-state', { roomId, type: 'audio', enabled: muted }); };
   const toggleVideo = () => { setVideoOff(value => !value); socket.emit('update-user-state', { roomId, type: 'video', enabled: videoOff }); };
@@ -237,7 +239,7 @@ export default function Room({ socket, roomId, roomInvite, inviteOrigin, jellyfi
   const startScreenShare = async () => {
     if (!navigator.mediaDevices?.getDisplayMedia) { notify('Screen sharing is unavailable in this browser. You can share a YouTube video instead.'); return; }
     try {
-      const stream = await navigator.mediaDevices.getDisplayMedia({ video: { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 15, max: 20 } }, audio: true });
+      const stream = await navigator.mediaDevices.getDisplayMedia({ video: { width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30, max: 30 } }, audio: true });
       screenStreamRef.current = stream; setMyScreenStream(stream);
       stream.getVideoTracks()[0].onended = stopScreenShare;
       if (mediaMode === 'livekit') {
@@ -269,8 +271,8 @@ export default function Room({ socket, roomId, roomInvite, inviteOrigin, jellyfi
     <RoomView roomId={roomId} userName={userName} connected={connected} participants={participants} screenShares={screenShares} muted={muted} videoOff={videoOff} onToggleMute={toggleMute} onToggleVideo={toggleVideo} onShare={() => setShowShare(true)} onLeave={leaveRoom} onInvite={invite} onStopScreen={stopScreenShare} notification={notification} chatOpen={showChat} onChatToggle={socket.legacyRooms ? undefined : () => setShowChat(value => !value)} unread={unread}
       chat={socket.legacyRooms ? null : <Chat socket={socket} roomId={roomId} userName={userName} open={showChat} onClose={() => setShowChat(false)} onUnreadChange={setUnread} />}
       youtube={{ active: Boolean(youtubeState?.url), node: focused => youtubeState?.url ? <YouTubePlayer key={youtubeState.sessionId} state={youtubeState} socket={socket} roomId={roomId} focused={focused} onClose={() => youtubeRoomRef.current.close()} /> : null }}
-      jellyfin={{ active: Boolean(jellyfin.state), node: focused => jellyfin.state ? <RoomJellyfinPlayer key={jellyfin.state.sessionId} state={jellyfin.state} base={jellyfin.base} command={jellyfin.command} connected={connected} focused={focused} onBrowse={jellyfin.state.native ? () => setShowJellyfinInput(true) : undefined} /> : null }}
-      diagnostics={<p>Socket <strong>{socket.id || 'Waiting'}</strong></p>} />
+      jellyfin={{ active: Boolean(jellyfin.state), node: focused => jellyfin.state ? <RoomJellyfinPlayer key={jellyfin.state.sessionId} state={jellyfin.state} base={jellyfin.base} command={jellyfin.command} connected={connected} focused={focused} onPlaybackStats={stats => { if (socket.connected && stats) socket.emit('jellyfin-playback-stats', { roomId, sessionId: jellyfin.state.sessionId, stats }); }} onBrowse={jellyfin.state.native ? () => setShowJellyfinInput(true) : undefined} /> : null }}
+      diagnostics={() => <NerdStats socket={socket} roomId={roomId} mediaMode={mediaMode} peersRef={peersRef} groupCallRef={groupCallRef} qualityMode={callQuality} onQualityChange={setCallQuality} />} />
     <Dialog open={showShare} title="Share with the room" description="Choose what to share." onClose={() => setShowShare(false)}><div className="room-share-options"><button onClick={myScreenStream ? () => { stopScreenShare(); setShowShare(false); } : startScreenShare}><FaDesktop /><span><strong>{myScreenStream ? 'Stop sharing your screen' : 'Your screen'}</strong><small>Share a tab, an app, or your desktop.</small></span></button><button onPointerEnter={preloadYouTube} onFocus={preloadYouTube} onClick={() => { preloadYouTube(); setShowShare(false); setShowUrlInput(true); }}><FaYoutube /><span><strong>A YouTube video</strong><small>Watch a video together.</small></span></button>{!socket.legacyRooms && <button onClick={() => { setShowShare(false); setShowJellyfinInput(true); }}><FaPlayCircle /><span><strong>Your Jellyfin library</strong><small>Stream a video from your server.</small></span></button>}</div></Dialog>
     <Dialog open={showUrlInput} title="Share a YouTube video" description="Paste a YouTube link. Playback controls are shared with the room." onClose={() => setShowUrlInput(false)}><form onSubmit={submitUrl}><label className="room-field">YouTube video link<input type="url" data-autofocus disabled={isSubmittingUrl} placeholder="https://youtube.com/watch?v=…" value={inputUrl} onChange={event => { setInputUrl(event.target.value); setUrlError(''); }} aria-describedby={urlError ? 'youtube-url-error' : undefined} required /></label>{urlError && <p id="youtube-url-error" className="room-field-error" role="alert">{urlError}</p>}<button className="sr-button sr-button--primary" type="submit" disabled={!inputUrl.trim() || !connected || isSubmittingUrl}>{isSubmittingUrl ? 'Opening video…' : 'Watch together'}</button></form></Dialog>
     <JellyfinDialog base={jellyfin.base} initialServerUrl={jellyfinAddress} open={showJellyfinInput} onClose={() => setShowJellyfinInput(false)} onShare={jellyfin.open} onCancel={jellyfin.cancel} />
