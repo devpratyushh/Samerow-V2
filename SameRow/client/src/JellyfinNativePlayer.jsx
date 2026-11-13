@@ -6,6 +6,7 @@ import { useRoomPresentation } from './components/RoomPresentation';
 import './JellyfinNativePlayer.css';
 import { useJellyfinQuality } from './useJellyfinQuality';
 import JellyfinQuality from './JellyfinQuality';
+import PlayerNerdStats from './components/PlayerNerdStats';
 
 export default function JellyfinNativePlayer({ state, base, command, connected, focused, onBrowse, onOpenSameRow, onPlaybackStats }) {
   const frameRef = useRef(null);
@@ -13,6 +14,7 @@ export default function JellyfinNativePlayer({ state, base, command, connected, 
   const [attempt, setAttempt] = useState(0);
   const [qualityNote, setQualityNote] = useState('');
   const [status, setStatus] = useState({ phase: 'loading' });
+  const [reportedStats, setReportedStats] = useState(null);
   const { fullscreen, toggleFullscreen } = useRoomPresentation();
   const quality = useJellyfinQuality(`${base}/api/jellyfin-native/${state.accessToken}/samerow/quality`);
   const ready = useRef(false);
@@ -26,7 +28,7 @@ export default function JellyfinNativePlayer({ state, base, command, connected, 
   const receive = useEffectEvent(event => {
     if (event.source !== frameRef.current?.contentWindow || event.origin !== 'null' || event.data?.source !== 'samerow-jellyfin' || event.data.channel !== channel) return;
     const data = event.data;
-    if (data.type === 'playback-stats') onPlaybackStats?.(data.stats);
+    if (data.type === 'playback-stats') { setReportedStats({ ...data.stats, receivedAt: Date.now() }); onPlaybackStats?.(data.stats); }
     if (data.type === 'ready') { ready.current = true; synchronize(); }
     if (data.type === 'status' && ['loading', 'playing', 'paused', 'buffering', 'blocked', 'error', 'ended'].includes(data.phase)) setStatus({ phase: data.phase, message: typeof data.message === 'string' ? data.message.slice(0, 300) : '' });
     if (data.type === 'command' && connected && ['play', 'pause', 'seek', 'stop'].includes(data.action)) {
@@ -59,5 +61,7 @@ export default function JellyfinNativePlayer({ state, base, command, connected, 
       </div>}
     </div>
     <div className="jellyfin-native-info"><span title={state.title}>{state.title}<small>{connected ? 'Shared playback · personal audio & subtitles' : 'Reconnecting to room…'}</small></span><div><button className="icon-button" onClick={onBrowse} title="Browse Jellyfin library" aria-label="Browse Jellyfin library"><FaFilm /></button><button className="icon-button" onClick={() => command('stop')} disabled={!connected} title="Stop movie for everyone" aria-label="Stop movie for everyone"><FaStop /></button></div></div>
+    <PlayerNerdStats reported={reportedStats} policy={quality.policy} phase={status.phase} delivery="Jellyfin Web player"
+      stage={status.message || status.phase} failure={status.phase === 'error' ? status.message : quality.error} />
   </div>;
 }

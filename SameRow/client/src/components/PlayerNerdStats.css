@@ -1,0 +1,17 @@
+.player-nerd-stats { grid-area: 3 / 1; min-width: 0; color: #e8e8e8; background: #151718; border-top: 1px solid #ffffff20; font-size: 12px; text-align: left; z-index: 5; }
+.player-nerd-stats > summary { cursor: pointer; padding: 10px 14px; min-height: 40px; box-sizing: border-box; }
+.player-nerd-stats > summary span, .player-nerd-stats dt, .player-nerd-stats p { color: #aaa; }
+.player-nerd-stats-body { max-height: min(220px, 30dvh); overflow: auto; padding: 0 14px 12px; }
+.player-nerd-stats p { margin: 0 0 10px; line-height: 1.5; }
+.player-nerd-stats dl { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px 20px; margin: 0; font-variant-numeric: tabular-nums; }
+.player-nerd-stats dl > div { min-width: 0; }
+.player-nerd-stats dd { margin: 4px 0 0; overflow-wrap: anywhere; }
+.jellyfin-player:has(> .player-nerd-stats), .jellyfin-native-player:has(> .player-nerd-stats) { grid-template-rows: minmax(0, 1fr) auto auto; }
+.room-shell.is-fullscreen.is-watching .jellyfin-player > .player-nerd-stats { position: absolute; bottom: 174px; left: 140px; right: 20px; border: 1px solid #ffffff25; border-radius: 8px; background: #151718f5; }
+.room-shell.is-fullscreen .jellyfin-native-player:has(> .player-nerd-stats) { grid-template-rows: minmax(0, 1fr) auto; }
+@media (max-width: 900px) { .player-nerd-stats dl { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 600px) { .room-shell.is-fullscreen.is-watching .jellyfin-player > .player-nerd-stats { left: 10px; right: 10px; bottom: 164px; } }
+@media (max-height: 540px) and (orientation: landscape) { .room-shell.is-fullscreen.is-watching .jellyfin-player > .player-nerd-stats { left: 100px; right: 12px; bottom: 154px; } }
+@media (min-width: 1100px) { .room-shell.is-fullscreen.is-watching.has-open-chat .jellyfin-player > .player-nerd-stats { right: 360px; } }
+.jellyfin-player:has(> .player-nerd-stats) > .jellyfin-player-status { position: relative; inset: auto; grid-area: 1 / 1; min-height: 0; overflow: auto; }
+.room-shell.is-fullscreen.is-watching .jellyfin-player > .jellyfin-player-status { position: absolute; inset: 0 0 174px; }

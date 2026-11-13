@@ -7,10 +7,12 @@ import './JellyfinPlayer.css';
 import { useJellyfinQuality } from './useJellyfinQuality';
 import JellyfinQuality from './JellyfinQuality';
 import { playbackStats } from './playbackStats';
+import PlayerNerdStats from './components/PlayerNerdStats';
 import { hlsFailure, mediaFailure, mediaReadiness } from './playbackDiagnostics';
 
 export default function JellyfinPlayer({ state, base, command, connected, focused, onBrowse, onOpenNative, onPlaybackStats }) {
   const videoRef = useRef(null);
+  const hlsRef = useRef(null);
   const [audio, setAudio] = useState(() => state.audioTracks.find(track => track.default)?.index ?? state.audioTracks[0]?.index ?? -1);
   const [subtitle, setSubtitle] = useState(-1);
   const [volume, setVolume] = useState(1);
@@ -130,6 +132,7 @@ export default function JellyfinPlayer({ state, base, command, connected, focuse
           return;
         }
         hls = new Hls({ maxBufferLength: 20, maxMaxBufferLength: 40, backBufferLength: 20, maxBufferSize: 40 * 1000 * 1000, startPosition: initialTime(), enableWorker: true });
+        hlsRef.current = hls;
         const stage = text => { if (!disposed) setDiagnostics(previous => ({ ...previous, stage: text })); };
         hls.on(Hls.Events.MANIFEST_LOADING, () => stage('Requesting stream playlist…'));
         hls.on(Hls.Events.MANIFEST_LOADED, () => stage('Reading stream playlist…'));
@@ -169,7 +172,7 @@ export default function JellyfinPlayer({ state, base, command, connected, focuse
       else { setPhase('error'); setError('Jellyfin is taking too long to start. Check the server and reconnect playback.'); }
     }, 30000);
     return () => {
-      disposed = true; clearInterval(adaptiveTimer); clearTimeout(timeout); hls?.destroy();
+      disposed = true; clearInterval(adaptiveTimer); clearTimeout(timeout); hls?.destroy(); hlsRef.current = null;
       video.removeEventListener('loadedmetadata', onMetadata);
       video.removeEventListener('canplay', onReady); video.removeEventListener('playing', onPlaying); video.removeEventListener('waiting', onWaiting); video.removeEventListener('error', onError); video.removeEventListener('pause', onPause);
       video.pause(); video.removeAttribute('src'); video.load();
@@ -221,5 +224,10 @@ export default function JellyfinPlayer({ state, base, command, connected, focuse
       {onBrowse && <button className="player-control" onClick={onBrowse} title="Browse Jellyfin library" aria-label="Browse Jellyfin library"><FaFilm /></button>}
       <button className="player-control" aria-label="Stop movie for everyone" title="Stop movie for everyone" onClick={() => command('stop')} disabled={!connected}><FaStop /></button>
     </PlaybackControls>
+    <PlayerNerdStats videoRef={videoRef} hlsRef={hlsRef} policy={quality.policy} phase={policyFailed ? 'error' : phase}
+      stage={policyReady ? diagnostics.stage : 'Playback settings request'} failure={policyFailed ? quality.error : diagnostics.lastError || error}
+      delivery={policyReady ? original ? 'Original video · fragmented MP4' : 'Compatible HLS' : 'Waiting for settings'}
+      audio={state.audioTracks.find(track => track.index === audio)?.title || 'No audio'} subtitle={selectedSubtitle?.title || 'Off'}
+      targetTime={() => jellyfinTime(state)} />
   </div>;
 }
