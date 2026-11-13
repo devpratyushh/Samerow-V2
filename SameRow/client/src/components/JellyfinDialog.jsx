@@ -35,6 +35,9 @@ export default function JellyfinDialog({ open, onClose, onShare, onCancel, base 
   const [trail, setTrail] = useState([]);
   const [refresh, setRefresh] = useState(0);
   const [availableConnectors, setAvailableConnectors] = useState([]);
+  const [manualServer, setManualServer] = useState(false);
+  const [connectorError, setConnectorError] = useState('');
+  const selectedConnector = availableConnectors.find(connector => connector.address === serverUrl);
   const generation = useRef(0);
   const parentId = trail.at(-1)?.id || '';
   const authenticated = reply => {
@@ -44,18 +47,32 @@ export default function JellyfinDialog({ open, onClose, onShare, onCancel, base 
   useEffect(() => {
     if (!open) return;
     const controller = new AbortController();
-    sessionHeaders().then(headers => fetch(`${base}/api/jellyfin-relay/connectors`, { headers, signal: controller.signal }))
-      .then(res => res.ok ? res.json() : null)
-      .then(data => {
+    let timer;
+    const discover = async () => {
+      try {
+        const headers = await sessionHeaders();
+        const response = await fetch(`${base}/api/jellyfin-relay/connectors`, { headers, signal: controller.signal, cache: 'no-store' });
+        if (!response.ok) throw new Error(response.status === 401 || response.status === 403
+          ? 'Sign in to SameRow with the account that approved your Jellyfin plugin to find your paired server.'
+          : 'Could not find your paired servers. Retrying…');
+        const data = await response.json();
         if (controller.signal.aborted) return;
-        const connectors = data?.connectors || [];
+        const connectors = data.connectors || [];
         setAvailableConnectors(connectors);
+        setConnectorError('');
         const preferred = connectors.find(connector => connector.online) || connectors[0];
-        if (!initialServerUrl && preferred) setServerUrl(previous => previous || preferred.address);
-      })
-      .catch(() => {});
-    return () => controller.abort();
-  }, [open, base, initialServerUrl]);
+        if (!initialServerUrl && !manualServer && preferred) {
+          setServerUrl(previous => connectors.some(connector => connector.address === previous) ? previous : preferred.address);
+        }
+      } catch (err) {
+        if (!controller.signal.aborted) setConnectorError(err.message);
+      } finally {
+        if (!controller.signal.aborted) timer = setTimeout(discover, 5000);
+      }
+    };
+    discover();
+    return () => { controller.abort(); clearTimeout(timer); };
+  }, [open, base, initialServerUrl, manualServer]);
   useEffect(() => {
     if (!open || !token) return;
     const controller = new AbortController();
@@ -128,12 +145,14 @@ export default function JellyfinDialog({ open, onClose, onShare, onCancel, base 
     {error && <div className="jellyfin-error" role="alert"><p>{error}</p>{account && <button className="sr-button" onClick={() => setRefresh(value => value + 1)}>Try again</button>}</div>}
     {!account ? <form onSubmit={signIn} className="jellyfin-sign-in">
       {availableConnectors.length > 0 && !initialServerUrl && <label className="room-field">Connected Jellyfin server
-        <select value={availableConnectors.some(connector => connector.address === serverUrl) ? serverUrl : ''} onChange={event => setServerUrl(event.target.value)} disabled={!!pending}>
+        <select value={availableConnectors.some(connector => connector.address === serverUrl) ? serverUrl : ''} onChange={event => { setManualServer(!event.target.value); setServerUrl(event.target.value); setError(''); }} disabled={!!pending}>
           <option value="">Enter a server address</option>
           {availableConnectors.map(connector => <option key={connector.id} value={connector.address}>{connector.name || `Jellyfin server ${connector.id.slice(0, 8)}`} · {connector.online ? 'Online' : 'Offline'}</option>)}
         </select>
       </label>}
-      {!initialServerUrl && <label className="room-field">Server address<input type="url" data-autofocus value={serverUrl} onChange={e => setServerUrl(e.target.value)} placeholder="https://jellyfin.example.com" autoComplete="url" disabled={!!pending} required /></label>}
+      {connectorError && !initialServerUrl && <p role="status">{connectorError}</p>}
+      {!initialServerUrl && selectedConnector && !manualServer && <p className="jellyfin-form-note">Your paired Jellyfin server is selected. Sign in with your Jellyfin account below.</p>}
+      {!initialServerUrl && (!selectedConnector || manualServer) && <label className="room-field">Server address<input type="url" data-autofocus value={serverUrl} onChange={e => { setManualServer(true); setServerUrl(e.target.value); }} placeholder="https://jellyfin.example.com" autoComplete="url" disabled={!!pending} required /></label>}
       {!quick && <><label className="room-field">Username<input data-autofocus={initialServerUrl ? '' : undefined} value={username} onChange={e => setUsername(e.target.value)} autoComplete="username" disabled={!!pending} required /></label>
         <label className="room-field">Password<input type="password" value={password} onChange={e => setPassword(e.target.value)} autoComplete="current-password" disabled={!!pending} /></label>
         <label className="jellyfin-remember"><input type="checkbox" checked={remember} onChange={e => setRemember(e.target.checked)} disabled={!!pending} />Remember this connection</label>
