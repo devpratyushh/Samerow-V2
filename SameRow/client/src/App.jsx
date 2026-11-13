@@ -259,6 +259,14 @@ function RoomApp({ socket = defaultSocket, hosted = null }) {
     socket.roomConfig = reply; setRoomInvite(reply.invite || ''); setRoomId(id); setUserName(name);
   };
 
+  const createPrivateRoom = async () => {
+    const next = await reserveRoom(true);
+    const url = new URL('/', hosted?.webOrigin || window.location.origin);
+    url.searchParams.set('room', next.code);
+    url.hash = new URLSearchParams({ invite: next.invite }).toString();
+    window.location.assign(url.href);
+  };
+
   const leaveRoom = () => {
     socket.emit('leave-room', roomId);
     setRoomId(null);
@@ -303,6 +311,7 @@ function RoomApp({ socket = defaultSocket, hosted = null }) {
           userName={userName}
           socket={socket}
           leaveRoom={leaveRoom}
+          onCreatePrivateRoom={createPrivateRoom}
           userStream={userStream} // Pass established stream
           initialMuted={isMuted}
           initialVideoOff={isVideoOff}

@@ -17,7 +17,7 @@ function Poster({ base, token, item }) {
   return <div className="jellyfin-poster">{src ? <img src={src} alt="" loading="lazy" /> : <FaFilm aria-hidden="true" />}</div>;
 }
 
-export default function JellyfinDialog({ open, onClose, onShare, onCancel, base = '', initialServerUrl = '' }) {
+export default function JellyfinDialog({ open, onClose, onShare, onCancel, base = '', initialServerUrl = '', onCreatePrivateRoom }) {
   const [token, setToken] = useState(() => savedConnection(initialServerUrl));
   const [account, setAccount] = useState(null);
   const [serverUrl, setServerUrl] = useState(initialServerUrl);
@@ -26,6 +26,7 @@ export default function JellyfinDialog({ open, onClose, onShare, onCancel, base 
   const [remember, setRemember] = useState(true);
   const [pending, setPending] = useState('');
   const [error, setError] = useState('');
+  const [roomError, setRoomError] = useState(false);
   const [quick, setQuick] = useState(null);
   const [items, setItems] = useState([]);
   const [total, setTotal] = useState(0);
@@ -137,12 +138,17 @@ export default function JellyfinDialog({ open, onClose, onShare, onCancel, base 
   const choose = async item => {
     if (pending === 'share') return;
     if (['Series', 'Season', 'CollectionFolder', 'Folder', 'BoxSet'].includes(item.type)) { setTrail(previous => [...previous, item]); setSearch(''); setQuery(''); setPage(0); return; }
-    const request = ++generation.current; setPending('share'); setError('');
+    const request = ++generation.current; setPending('share'); setError(''); setRoomError(false);
     try { await onShare({ connectionToken: token, itemId: item.id }); if (generation.current === request) { setPending(''); onClose(); } }
-    catch (err) { if (generation.current === request) { setError(err.message); setPending(''); } }
+    catch (err) { if (generation.current === request) { setError(err.message); setRoomError(['JELLYFIN_PRIVATE_ROOM_REQUIRED', 'JELLYFIN_ROOM_OWNER_REQUIRED'].includes(err.code)); setPending(''); } }
+  };
+  const createPrivateRoom = async () => {
+    setPending('room');
+    try { await onCreatePrivateRoom(); }
+    catch (err) { setError(err.message || 'Could not create a private room. Try again.'); setPending(''); }
   };
   return <Dialog open={open} title="Your Jellyfin library" description={account ? 'Choose something to watch together. Audio and subtitles stay personal.' : 'Connect once, then choose movies and episodes from your library.'} onClose={close} className={account ? 'jellyfin-library-dialog' : ''}>
-    {error && <div className="jellyfin-error" role="alert"><p>{error}</p>{account && <button className="sr-button" onClick={() => setRefresh(value => value + 1)}>Try again</button>}</div>}
+    {error && <div className="jellyfin-error" role="alert"><p>{error}</p>{roomError && onCreatePrivateRoom ? <button className="sr-button" disabled={!!pending} onClick={createPrivateRoom}>{pending === 'room' ? 'Creating room…' : 'Leave and create private room'}</button> : account && <button className="sr-button" onClick={() => setRefresh(value => value + 1)}>Try again</button>}</div>}
     {!account ? <form onSubmit={signIn} className="jellyfin-sign-in">
       {availableConnectors.length > 0 && !initialServerUrl && <label className="room-field">Connected Jellyfin server
         <select value={availableConnectors.some(connector => connector.address === serverUrl) ? serverUrl : ''} onChange={event => { setManualServer(!event.target.value); setServerUrl(event.target.value); setError(''); }} disabled={!!pending}>

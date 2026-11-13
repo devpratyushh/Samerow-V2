@@ -88,8 +88,12 @@ function installJellyfin(app, io, accounts, options = {}) {
       if (options.production && !connection) { ack({ error: 'Sign in to your Jellyfin library first.' }); return; }
       if (connectorId(connection?.base)) {
         const room = await store.get(`room:${roomId}`);
-        if (!room?.invite || room.ownerUid !== socket.data.uid) {
-          ack({ error: 'Create a private web room to share from your Docker connector.' });
+        if (room?.ownerUid !== socket.data.uid) {
+          ack({ code: 'JELLYFIN_ROOM_OWNER_REQUIRED', error: 'Only the room creator can share from a paired Jellyfin server. Create your own private room to watch together.' });
+          return;
+        }
+        if (!room.invite) {
+          ack({ code: 'JELLYFIN_PRIVATE_ROOM_REQUIRED', error: 'Sharing from your paired Jellyfin server requires a private room. Create one, then invite friends using its full invitation link.' });
           return;
         }
       }

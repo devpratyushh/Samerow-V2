@@ -58,7 +58,7 @@ export function useJellyfinRoom(socket, roomId) {
     if (!socket.timeout) { reject(new Error('Update the room server to enable Jellyfin sharing.')); return; }
     socket.timeout(25000).emit('jellyfin-open', { roomId, ...details }, (error, reply) => {
       if (error) reject(new Error('Jellyfin did not respond. Check the connection and that the room server is up to date.'));
-      else if (reply?.error) reject(new Error(reply.error));
+      else if (reply?.error) reject(Object.assign(new Error(reply.error), { code: reply.code }));
       else resolve();
     });
   });
