@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { FaArrowLeft, FaFilm, FaPlay, FaSearch, FaSignOutAlt } from 'react-icons/fa';
 import Dialog from './Dialog';
-import { jellyfinRequest, rememberConnection, savedConnection } from '../jellyfinAccount';
+import { jellyfinRequest, rememberConnection, savedConnection, resolveAccountOrigin } from '../jellyfinAccount';
 import { sessionHeaders } from '../session';
 import { discoverAccountConnectors } from '../connectorDiscovery';
 import './JellyfinDialog.css';
@@ -11,7 +11,7 @@ function Poster({ base, token, item }) {
   useEffect(() => {
     if (!item.imageTag) return;
     const controller = new AbortController(); let objectUrl;
-    sessionHeaders().then(headers => fetch(`${base}/api/jellyfin/images/${encodeURIComponent(item.id)}`, { headers: { ...headers, Authorization: `Bearer ${token}` }, signal: controller.signal }))
+    Promise.all([sessionHeaders(), resolveAccountOrigin(base, { signal: controller.signal })]).then(([headers, origin]) => fetch(`${origin}/api/jellyfin/images/${encodeURIComponent(item.id)}`, { headers: { ...headers, Authorization: `Bearer ${token}` }, signal: controller.signal }))
       .then(response => response.ok ? response.blob() : null).then(blob => { if (!blob || controller.signal.aborted) return; objectUrl = URL.createObjectURL(blob); setSrc(objectUrl); }).catch(() => {});
     return () => { controller.abort(); if (objectUrl) URL.revokeObjectURL(objectUrl); };
   }, [base, token, item.id, item.imageTag]);
@@ -59,12 +59,12 @@ export default function JellyfinDialog({ open, onClose, onShare, onCancel, base 
     let timer;
     const discover = async () => {
       try {
-        const connectors = await discoverAccountConnectors(base, { signal: controller.signal });
+        const [connectors, preferences] = await Promise.all([discoverAccountConnectors(base, { signal: controller.signal }), jellyfinRequest(base, '/preferences', { signal: controller.signal }).catch(() => ({}))]);
         if (controller.signal.aborted) return;
         setDiscoveryComplete(true);
         setAvailableConnectors(connectors);
         setConnectorError('');
-        const preferred = connectors.find(connector => connector.online) || connectors[0];
+        const preferred = connectors.find(connector => connector.id === preferences.defaultServerId) || connectors.find(connector => connector.online) || connectors[0];
         if (!initialServerUrl && !manualServer && preferred) {
           setServerUrl(previous => connectors.some(connector => connector.address === previous) ? previous : preferred.address);
         }
@@ -83,7 +83,8 @@ export default function JellyfinDialog({ open, onClose, onShare, onCancel, base 
     jellyfinRequest(base, '/connections', { signal: controller.signal }).then(reply => {
       if (controller.signal.aborted) return;
       const connection = reply.connections?.find(value => !initialServerUrl || value.account.serverUrl === initialServerUrl);
-      if (connection) { rememberConnection(connection.token, true, initialServerUrl); setToken(connection.token); }
+      if (connection?.token) { rememberConnection(connection.token, true, initialServerUrl); setToken(connection.token); }
+      else if (connection?.needsSignIn) { setServerUrl(connection.account.serverUrl); setError('Your account binding is saved. Authorize Jellyfin again to browse.'); }
     }).catch(() => { /* Guests and older servers continue to use manual sign-in. */ });
     return () => controller.abort();
   }, [open, token, connectOnly, base, initialServerUrl]);

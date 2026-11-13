@@ -37,7 +37,7 @@ class MemoryStore {
     await this.set(key, value, ttl); return value;
   }
   async touch(key, ttl = 86400) {
-    const entry = this.read(key); if (entry) entry.expires = Date.now() + ttl * 1000;
+    const entry = this.read(key); if (entry) entry.expires = ttl ? Date.now() + ttl * 1000 : 0;
   }
   async limit(key, maximum, seconds) {
     const name = `limit:${key}`;
@@ -113,7 +113,7 @@ class RedisStore {
     this.check();
     const raw = await this.client.get(this.key(guardKey));
     if (JSON.stringify(this.decode(raw, guardKey)) !== JSON.stringify(expected)) return false;
-    return await this.client.eval(`if (redis.call('GET', KEYS[1]) or '') ~= ARGV[1] then return 0 end; redis.call('SET', KEYS[2], ARGV[2], 'EX', ARGV[3]); return 1`,
+    return await this.client.eval(`if (redis.call('GET', KEYS[1]) or '') ~= ARGV[1] then return 0 end; if tonumber(ARGV[3]) > 0 then redis.call('SET', KEYS[2], ARGV[2], 'EX', ARGV[3]) else redis.call('SET', KEYS[2], ARGV[2]) end; return 1`,
       { keys: [this.key(guardKey), this.key(key)], arguments: [raw || '', this.encode(value, key), String(ttl)] }) === 1;
   }
   async guardedUpdate(guardKey, expected, key, mutate, ttl = 86400) {
@@ -122,13 +122,13 @@ class RedisStore {
       const [guardRaw, raw] = await this.client.mGet([this.key(guardKey), this.key(key)]);
       if (JSON.stringify(this.decode(guardRaw, guardKey)) !== JSON.stringify(expected)) return null;
       const value = mutate(this.decode(raw, key));
-      const changed = await this.client.eval(`if (redis.call('GET', KEYS[1]) or '') ~= ARGV[1] or (redis.call('GET', KEYS[2]) or '') ~= ARGV[2] then return 0 end; redis.call('SET', KEYS[2], ARGV[3], 'EX', ARGV[4]); return 1`,
+      const changed = await this.client.eval(`if (redis.call('GET', KEYS[1]) or '') ~= ARGV[1] or (redis.call('GET', KEYS[2]) or '') ~= ARGV[2] then return 0 end; if tonumber(ARGV[4]) > 0 then redis.call('SET', KEYS[2], ARGV[3], 'EX', ARGV[4]) else redis.call('SET', KEYS[2], ARGV[3]) end; return 1`,
         { keys: [this.key(guardKey), this.key(key)], arguments: [guardRaw || '', raw || '', this.encode(value, key), String(ttl)] });
       if (changed === 1) return value;
     }
     throw unavailable();
   }
-  async touch(key, ttl = 86400) { this.check(); await this.client.expire(this.key(key), ttl); }
+  async touch(key, ttl = 86400) { this.check(); await (ttl ? this.client.expire(this.key(key), ttl) : this.client.persist(this.key(key))); }
   async limit(key, maximum, seconds) {
     this.check();
     const count = await this.client.eval(`local n = redis.call('INCR', KEYS[1]); if n == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end; return n`,

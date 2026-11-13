@@ -1,3 +1,4 @@
+import { useJellyfinRecovery } from './useJellyfinRecovery';
 import { browserId } from './browserId';
 import { useEffect, useEffectEvent, useRef, useState } from 'react';
 import { FaFilm, FaStop } from 'react-icons/fa';
@@ -18,6 +19,7 @@ export default function JellyfinNativePlayer({ state, base, command, connected, 
   const { fullscreen, toggleFullscreen } = useRoomPresentation();
   const quality = useJellyfinQuality(`${base}/api/jellyfin-native/${state.accessToken}/samerow/quality`);
   const ready = useRef(false);
+  const recovery = useJellyfinRecovery(`${base}/api/jellyfin-native/${state.accessToken}/samerow/health`, () => { ready.current = false; setStatus({ phase: 'loading' }); setAttempt(value => value + 1); });
   const send = (type, details = {}) => frameRef.current?.contentWindow?.postMessage({ source: 'samerow', channel, type, ...details }, '*');
   const synchronize = useEffectEvent(() => {
     if (!ready.current) return;
@@ -51,6 +53,7 @@ export default function JellyfinNativePlayer({ state, base, command, connected, 
   }, [attempt, state.accessToken]);
   const src = `${base}/api/jellyfin-native/${state.accessToken}/web/index.html?${new URLSearchParams({ channel, parentOrigin: window.location.origin, attempt: String(attempt) })}`;
   return <div className="jellyfin-native-player" data-phase={status.phase}>
+    {recovery && <p className="jellyfin-recovery" role="status">{recovery}</p>}
     <div className="jellyfin-native-stage">
       <details className="jellyfin-native-quality"><summary>Quality</summary><JellyfinQuality {...quality} select={mode => { setQualityNote(''); return quality.select(mode); }} />{qualityNote && <small role="status">{qualityNote}</small>}{onOpenSameRow && <button className="sr-button" onClick={onOpenSameRow}>Open SameRow player</button>}</details>
       <iframe ref={frameRef} className="jellyfin-native-frame" src={src} title="Jellyfin player" allow="autoplay; fullscreen; picture-in-picture" sandbox="allow-scripts allow-forms allow-pointer-lock allow-downloads" referrerPolicy="no-referrer" />

@@ -1,3 +1,4 @@
+import { useJellyfinRecovery } from './useJellyfinRecovery';
 import { useCallback, useEffect, useEffectEvent, useRef, useState } from 'react';
 import { FaCog, FaFilm, FaStop } from 'react-icons/fa';
 import PlaybackControls from './components/PlaybackControls';
@@ -54,6 +55,7 @@ export default function JellyfinPlayer({ state, base, command, connected, focuse
     if (!policyReady) quality.retry();
     setAttempt(value => value + 1);
   };
+  const recovery = useJellyfinRecovery(`${root}/health`, retry);
   useEffect(() => {
     const update = () => setTelemetry({ ...playbackStats(videoRef.current), elapsed: Math.floor((performance.now() - startedAt.current) / 1000) });
     update();
@@ -189,6 +191,7 @@ export default function JellyfinPlayer({ state, base, command, connected, focuse
   const seek = value => { if (videoRef.current) videoRef.current.currentTime = value; setTime(value); command('seek', value); };
   const subtitleUrl = selectedSubtitle?.text ? `${root}/subtitle/${subtitle}` : null;
   return <div className="jellyfin-player" data-phase={phase} data-delivery={original ? 'original' : 'compatible'}>
+    {recovery && <p className="jellyfin-recovery" role="status">{recovery}</p>}
     <video ref={videoRef} playsInline muted={!focused || muted} aria-label="Shared Jellyfin video" crossOrigin="anonymous">
       {subtitleUrl && <track key={subtitleUrl} kind="subtitles" src={subtitleUrl} srcLang={selectedSubtitle.language || 'und'} label={selectedSubtitle.title} default onLoad={event => { event.target.track.mode = 'showing'; }} />}
     </video>

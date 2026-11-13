@@ -1,5 +1,5 @@
-import { browserId, randomHex } from './browserId';
-import { useState, useEffect, useCallback, useRef, useSyncExternalStore } from 'react';
+import { browserId } from './browserId';
+import { useState, useEffect, useCallback, useSyncExternalStore } from 'react';
 import io from 'socket.io-client';
 import Lobby from './Lobby';
 import PluginAccountBinding from './PluginAccountBinding';
@@ -14,24 +14,9 @@ import { configureSession } from './session';
 import { maintainSession } from './sessionRecovery';
 import { isLegacyRoomServer, joinLegacyRoom, legacyControlOrigin } from './legacyRooms';
 
-const localEdition = import.meta.env.VITE_SAMEROW_LOCAL_EDITION === 'true';
-const SOCKET_URL = localEdition
-  ? window.location.origin
-  : import.meta.env.VITE_SOCKET_URL || (import.meta.env.DEV ? window.location.origin : legacyControlOrigin);
+const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || (import.meta.env.DEV ? window.location.origin : legacyControlOrigin);
 const clientId = browserId();
 
-function localSessionToken() {
-  const key = 'samerow.local.session';
-  try {
-    const saved = localStorage.getItem(key);
-    if (/^[a-f0-9]{64}$/.test(saved || '')) return saved;
-    const token = randomHex(32);
-    localStorage.setItem(key, token);
-    return token;
-  } catch {
-    return randomHex(32);
-  }
-}
 let developmentToken = '';
 configureSession(forceRefresh => developmentToken || auth.currentUser?.getIdToken(forceRefresh) || '');
 
@@ -51,19 +36,6 @@ function createRoomSocket(origin) {
 }
 
 const defaultSocket = createRoomSocket(SOCKET_URL);
-
-async function connectorRequest(action, body) {
-  const response = await fetch(`/api/connector-host/${action}`, {
-    method: 'POST',
-    headers: { 'X-SameRow-Local-Host': '1', 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(action === 'settings' ? 5000 : 75000),
-  });
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw Object.assign(new Error(data.error || 'Online hosting is unavailable from this address.'), { status: response.status });
-  return data;
-}
-const getConnectorSession = () => connectorRequest('session');
 
 function subscribeToConnection(socket, callback) {
   socket.on('connect', callback);
@@ -85,9 +57,7 @@ function generateRoom(socket, privateRoom) {
   });
 }
 
-function RoomApp({ socket = defaultSocket, hosted = null }) {
-  const [hostedWebOrigin, setHostedWebOrigin] = useState('');
-  const [connectorHosting, setConnectorHosting] = useState(false);
+function RoomApp({ socket = defaultSocket }) {
   const [roomInvite, setRoomInvite] = useState('');
   const [roomId, setRoomId] = useState(null);
   const [userName, setUserName] = useState('');
@@ -95,8 +65,8 @@ function RoomApp({ socket = defaultSocket, hosted = null }) {
   const [connectionError, setConnectionError] = useState('');
   const subscribe = useCallback(callback => subscribeToConnection(socket, callback), [socket]);
   const serverConnected = useSyncExternalStore(subscribe, () => socket.connected);
-  const reserveRoom = useCallback(privateRoom => generateRoom(socket, hosted ? true : privateRoom), [socket, hosted]);
-  const [initialRoomFromUrl] = useState(() => hosted ? '' : new URLSearchParams(window.location.search).get('room') || '');
+  const reserveRoom = useCallback(privateRoom => generateRoom(socket, privateRoom), [socket]);
+  const [initialRoomFromUrl] = useState(() => new URLSearchParams(window.location.search).get('room') || '');
 
   // Media State
   const [userStream, setUserStream] = useState(null);
@@ -121,37 +91,13 @@ function RoomApp({ socket = defaultSocket, hosted = null }) {
         return true;
       } catch { return false; }
     };
-    let hostToken = hosted?.token;
-    const defaultToken = forceRefresh => developmentToken || auth.currentUser?.getIdToken(forceRefresh) || '';
-    if (hosted) configureSession(() => hostToken);
-    const stopRecovery = maintainSession({ socket,
-      getToken: async () => {
-        if (!hosted) return developmentToken || auth.currentUser?.getIdToken(true);
-        hostToken = (await getConnectorSession()).token;
-        return hostToken;
-      },
-      onError: setConnectionError,
-    });
+    const stopRecovery = maintainSession({ socket, getToken: async () => developmentToken || auth.currentUser?.getIdToken(true), onError: setConnectionError });
     const connected = () => setConnectionError('');
     const failed = error => {
       setConnectionError(error.data?.code === 'UNAUTHENTICATED' ? 'Sign in again to connect.' : 'The room server is reconnecting.');
     };
     socket.on('connect', connected); socket.on('connect_error', failed);
     let unsubscribe = () => {};
-    if (hosted) {
-      socket.auth = { clientId, token: hostToken };
-      socket.connect();
-    } else if (localEdition) {
-      developmentToken ||= localSessionToken();
-      socket.auth = { clientId, token: developmentToken };
-      socket.connect();
-      fetch('/api/config', { signal: AbortSignal.timeout(5000) }).then(response => response.json()).then(config => {
-        if (!disposed) {
-          setHostedWebOrigin(config.hostedWebOrigin || '');
-          setConnectorHosting(config.connectorHosting === true && ['localhost:8080', '127.0.0.1:8080'].includes(window.location.host));
-        }
-      }).catch(() => {});
-    }
     const connectHosted = async () => {
       if (SOCKET_URL === legacyControlOrigin) {
         const config = await fetch(SOCKET_URL + '/api/config', { cache: 'no-store', redirect: 'error', signal: AbortSignal.timeout(5000) }).catch(() => null);
@@ -191,13 +137,12 @@ function RoomApp({ socket = defaultSocket, hosted = null }) {
         } catch { setConnectionError('Could not verify your sign-in. Try again.'); }
       });
     };
-    if (!localEdition) void connectHosted();
+    void connectHosted();
     return () => {
       disposed = true; stopRecovery(); unsubscribe(); socket.disconnect();
-      if (hosted) configureSession(defaultToken);
       socket.off('connect', connected); socket.off('connect_error', failed);
     };
-  }, [socket, hosted]);
+  }, [socket]);
 
   useEffect(() => {
     // Acquire stream immediately on load
@@ -252,7 +197,7 @@ function RoomApp({ socket = defaultSocket, hosted = null }) {
     else try {
       reply = await socket.timeout(10000).emitWithAck('join-room', id, name, ...(invite ? [invite] : []));
     } catch {
-      const config = !hosted && await fetch(`${SOCKET_URL}/api/config`, { signal: AbortSignal.timeout(3000), cache: 'no-store' }).catch(() => null);
+      const config = await fetch(`${SOCKET_URL}/api/config`, { signal: AbortSignal.timeout(3000), cache: 'no-store' }).catch(() => null);
       if (config?.status === 404) throw new Error('This room server needs an update before you can join.');
       if (config?.status === 503 || !socket.connected) throw new Error('Lost connection to the room server. Try again when it reconnects.');
       throw new Error('The room server did not confirm your join. Try again.');
@@ -263,7 +208,7 @@ function RoomApp({ socket = defaultSocket, hosted = null }) {
 
   const createPrivateRoom = async () => {
     const next = await reserveRoom(true);
-    const url = new URL('/', hosted?.webOrigin || window.location.origin);
+    const url = new URL('/', window.location.origin);
     url.searchParams.set('room', next.code);
     url.hash = new URLSearchParams({ invite: next.invite }).toString();
     window.location.assign(url.href);
@@ -273,8 +218,7 @@ function RoomApp({ socket = defaultSocket, hosted = null }) {
     socket.emit('leave-room', roomId);
     setRoomId(null);
     setUserName('');
-    if (hosted) window.location.assign('/');
-    else window.location.reload();
+    window.location.reload();
   };
 
   // Check if we want to run the test pump route
@@ -288,9 +232,6 @@ function RoomApp({ socket = defaultSocket, hosted = null }) {
         <Lobby
           joinRoom={joinRoom}
           generateRoom={reserveRoom}
-          connectorHosting={connectorHosting}
-          hostedRoom={Boolean(hosted)}
-          hostedWebOrigin={hostedWebOrigin}
           serverUrl={socket.legacyRooms ? undefined : SOCKET_URL}
           initialRoom={initialRoomFromUrl}
           userStream={userStream}
@@ -301,15 +242,12 @@ function RoomApp({ socket = defaultSocket, hosted = null }) {
           streamError={streamError}
           connectionError={connectionError}
           authUser={user?.isAnonymous ? null : user}
-          localEdition={localEdition}
           serverConnected={serverConnected}
         />
       ) : (
         <Room
           roomId={roomId}
           roomInvite={roomInvite}
-          inviteOrigin={hosted?.webOrigin}
-          jellyfinAddress={hosted?.jellyfinAddress}
           userName={userName}
           socket={socket}
           leaveRoom={leaveRoom}
@@ -323,88 +261,13 @@ function RoomApp({ socket = defaultSocket, hosted = null }) {
   );
 }
 
-function ConnectorHostApp() {
-  const [connection, setConnection] = useState(null);
-  const [error, setError] = useState(null);
-  const [busy, setBusy] = useState(false);
-  const [settings, setSettings] = useState(null);
-  const [jellyfinUrl, setJellyfinUrl] = useState('');
-  const preparedSession = useRef(null);
-  useEffect(() => {
-    let cancelled = false;
-    async function prepare() {
-      const id = new URLSearchParams(window.location.hash.slice(1)).get('approved');
-      if (id) {
-        await connectorRequest('complete', { id });
-        window.history.replaceState(null, '', '/?host=online');
-      }
-      const local = await connectorRequest('settings');
-      if (cancelled) return;
-      setSettings(local);
-      setJellyfinUrl(local.jellyfinUrl || '');
-      if (local.paired) {
-        const session = getConnectorSession();
-        preparedSession.current = { started: Date.now(), session };
-        void session.catch(() => {});
-        if (id) {
-          setBusy(true);
-          const hosted = await session;
-          if (!cancelled) setConnection({ hosted, socket: createRoomSocket(hosted.controlOrigin) });
-        }
-      }
-    }
-    prepare().catch(failure => {
-      if (!cancelled) { setError(failure); setBusy(false); }
-    });
-    return () => { cancelled = true; };
-  }, []);
-
-  const start = async event => {
-    event.preventDefault();
-    setBusy(true);
-    setError(null);
-    const selected = jellyfinUrl.trim();
-    try {
-      const reconnect = error?.status === 401;
-      if (reconnect || !settings.paired || selected !== settings.jellyfinUrl) {
-        const { approvalUrl } = await connectorRequest('start', { jellyfinUrl: selected, reconnect });
-        if (approvalUrl) { window.location.assign(approvalUrl); return; }
-      }
-      const prepared = preparedSession.current;
-      preparedSession.current = null;
-      const hosted = prepared && Date.now() - prepared.started < 90000
-        ? await prepared.session : await getConnectorSession();
-      setConnection({ hosted, socket: createRoomSocket(hosted.controlOrigin) });
-    } catch (failure) {
-      setError(failure);
-      setBusy(false);
-    }
-  };
-  if (connection) return <RoomApp {...connection} />;
-  const needsApproval = !settings?.paired || jellyfinUrl.trim() !== settings.jellyfinUrl || error?.status === 401;
-  return <main className="lobby"><section className="lobby-content">
-    <h1>Host for friends online</h1>
-    {error && <p role="alert">{error.message}</p>}
-    {busy && <p role="status">Connecting to SameRow Web. This may take up to a minute if the server was asleep.</p>}
-    {settings && <form className="lobby-form" onSubmit={start}>
-      <label className="room-field">Jellyfin address<input type="url" value={jellyfinUrl} placeholder="http://your-server:8096" required disabled={busy} onChange={event => setJellyfinUrl(event.target.value)} /></label>
-      <button type="submit" className="sr-button sr-button--primary" disabled={busy}>
-        {busy ? 'Connecting…' : needsApproval ? 'Connect to SameRow Web' : 'Continue to room'}
-      </button>
-    </form>}
-    {!settings && (error ? <a href={window.location.href}>Try again</a> : <p role="status">Loading your Jellyfin settings…</p>)}
-    <p><a href="/">Back to SameRow Local</a></p>
-  </section></main>;
-}
-
-function ConnectorApproval({ id, returnOrigin }) {
+function ConnectorApproval({ id }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [approved, setApproved] = useState(false);
   const [account, setAccount] = useState(undefined);
   useEffect(() => onIdTokenChanged(auth, setAccount), []);
-  const isLocal = returnOrigin && ['http://localhost:8080', 'http://127.0.0.1:8080'].includes(returnOrigin);
-  const valid = /^[a-f0-9]{32}$/.test(id) && (!returnOrigin || isLocal);
+  const valid = /^[a-f0-9]{32}$/.test(id);
   const approve = async (providerId = 'google.com') => {
     setBusy(true);
     setError('');
@@ -417,13 +280,9 @@ function ConnectorApproval({ id, returnOrigin }) {
         signal: AbortSignal.timeout(20000),
       });
       if (!response.ok) throw new Error(response.status === 410 || response.status === 409
-        ? 'This connection request is no longer available. Start again from your Jellyfin server or SameRow Local.'
+        ? 'This connection request is no longer available. Start again from your Jellyfin server.'
         : 'Could not approve this connection. Try again.');
-      if (isLocal) {
-        window.location.assign(`${returnOrigin}/?host=online#approved=${id}`);
-      } else {
-        setApproved(true);
-      }
+      setApproved(true);
     } catch (failure) { setError(failure.code?.startsWith('auth/') ? accountAuthError(failure) : failure.message); }
     finally { setBusy(false); }
   };
@@ -445,9 +304,8 @@ function ConnectorApproval({ id, returnOrigin }) {
 }
 
 export default function App() {
-  if (localEdition && new URLSearchParams(window.location.search).get('host') === 'online') return <ConnectorHostApp />;
   const hash = new URLSearchParams(window.location.hash.slice(1));
-  if (!localEdition && /^[a-f0-9]{32}$/.test(hash.get('bind') || '')) return <PluginAccountBinding id={hash.get('bind')} base={SOCKET_URL} />;
-  if (!localEdition && hash.has('connector')) return <ConnectorApproval id={hash.get('connector')} returnOrigin={hash.get('return')} />;
+  if (/^[a-f0-9]{32}$/.test(hash.get('bind') || '')) return <PluginAccountBinding id={hash.get('bind')} base={SOCKET_URL} />;
+  if (hash.has('connector')) return <ConnectorApproval id={hash.get('connector')} />;
   return <RoomApp />;
 }

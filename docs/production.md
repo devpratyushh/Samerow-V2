@@ -130,15 +130,6 @@ bounded Redis/memory history (1,000 messages, seven-day retention).
 
 ## Room behavior and limits
 
-Public rooms can be joined by code. Private web rooms require the full invite
-link, which carries a separate secret. Users have one active room per socket.
-The Render Blueprint sets `MAX_ROOM_SIZE=4` for the pilot, including the host.
-Enabling the Jellyfin relay or local edition also caps admission at four even
-if `MAX_ROOM_SIZE` is higher. See the [pilot walkthrough](jellyfin-pilot.md).
-`CONTROL_POLICY=everyone` preserves collaborative controls; `host` restricts
-playback changes to the first creator's Firebase identity. Host ownership lasts
-with the room state; an absent host does not transfer control automatically.
-
 Membership leases renew every 20 seconds and expire after 90 seconds. Normal
 leave/disconnect removes membership immediately. Process failures can therefore
 leave an admission slot occupied for up to 90 seconds. Viewer HTTP requests check

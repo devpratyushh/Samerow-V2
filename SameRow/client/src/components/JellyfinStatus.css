@@ -1,0 +1,9 @@
+.jellyfin-status-list { display: grid; gap: 1rem; min-width: 0; }
+.jellyfin-status-card { padding: 1rem; border: 1px solid var(--border, #47414e); border-radius: 12px; min-width: 0; }
+.jellyfin-status-heading { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; justify-content: space-between; }
+.jellyfin-status-card p { margin: .6rem 0; font-size: .9rem; overflow-wrap: anywhere; }
+.jellyfin-status-card small, .jellyfin-status-meta { color: var(--text-muted, #aaa); }
+.jellyfin-status-badge { padding: .25rem .5rem; border-radius: 20px; font-size: .8rem; background: #34343a; color: #ddd; }
+.jellyfin-status-badge.is-ready { background: #20462d; color: #b2edc4; }
+.jellyfin-status-badge.is-sign_in_required { background: #4f3c20; color: #f5d7a4; }
+.jellyfin-status-actions { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1rem; }

@@ -1,3 +1,4 @@
+import JellyfinStatus from './components/JellyfinStatus';
 import { useState, useEffect, useRef } from 'react';
 import { FaArrowRight, FaGoogle, FaGithub, FaHistory, FaMicrophone, FaMicrophoneSlash, FaSignOutAlt, FaVideo, FaVideoSlash, FaFilm, FaPlus } from 'react-icons/fa';
 import { accountActions } from './firebase';
@@ -28,10 +29,12 @@ function timeAgo(timestamp, now) {
   return `${Math.floor(minutes / 1440)}d ago`;
 }
 
-const Lobby = ({ joinRoom, generateRoom, hostedWebOrigin, connectorHosting, hostedRoom, serverUrl, initialRoom, userStream, toggleMute, toggleVideo, isMuted, isVideoOff, streamError, connectionError, authUser, localEdition, serverConnected }) => {
+const Lobby = ({ joinRoom, generateRoom, serverUrl, initialRoom, userStream, toggleMute, toggleVideo, isMuted, isVideoOff, streamError, connectionError, authUser, serverConnected }) => {
   const identity = authUser?.uid || null;
   const [jellyfinOpen, setJellyfinOpen] = useState(false);
   const [linkOpen, setLinkOpen] = useState(false);
+  const [selectedLibrary, setSelectedLibrary] = useState(null);
+  const [linkServer, setLinkServer] = useState('');
   const promptedAccount = useRef('');
   const [generated, setGenerated] = useState(null);
   const [generating, setGenerating] = useState(false);
@@ -42,14 +45,14 @@ const Lobby = ({ joinRoom, generateRoom, hostedWebOrigin, connectorHosting, host
   const [recentRooms, setRecentRooms] = useState(null);
   const [authBusy, setAuthBusy] = useState(false);
   const [linkedProviders, setLinkedProviders] = useState(null);
-  const connections = useAccountConnectors(serverUrl, !localEdition ? identity : null);
+  const connections = useAccountConnectors(serverUrl, identity);
   const connectedServers = connections.connectors;
   const linkedAccounts = connections.accounts || [];
   useEffect(() => {
-    if (!identity || localEdition || connections.loading || !connections.accountsKnown || !connectedServers.length || linkedAccounts.length || promptedAccount.current === identity) return;
+    if (!identity || connections.loading || !connections.accountsKnown || !connectedServers.some(server => server.status === 'sign_in_required') || linkedAccounts.length || promptedAccount.current === identity) return;
     const timer = setTimeout(() => { promptedAccount.current = identity; setLinkOpen(true); }, 0);
     return () => clearTimeout(timer);
-  }, [identity, localEdition, connections.loading, connections.accountsKnown, connectedServers.length, linkedAccounts.length]);
+  }, [identity, connections.loading, connections.accountsKnown, connectedServers.length, linkedAccounts.length]);
   const providerIds = linkedProviders?.uid === identity ? linkedProviders.ids : (authUser?.providerData || []).map(provider => provider.providerId);
   const [feedback, setFeedback] = useState('');
   const [attempted, setAttempted] = useState(false);
@@ -106,7 +109,7 @@ const Lobby = ({ joinRoom, generateRoom, hostedWebOrigin, connectorHosting, host
     try {
       await joinRoom(code, trimmedName, generated?.code === code ? generated.invite : undefined);
     } catch (error) {
-      if (hostedRoom && error.status === 403) {
+      if (generated && error.status === 403) {
         setGenerated(null);
         setRoomDraft(null);
         setJoinError('That room code expired. Select Host a room to create another.');
@@ -154,7 +157,7 @@ const Lobby = ({ joinRoom, generateRoom, hostedWebOrigin, connectorHosting, host
         <span className={`lobby-connection ${serverConnected ? 'is-connected' : ''}`} role="status"><span aria-hidden="true" />{serverConnected ? 'Ready to connect' : 'Connecting to server'}</span>
       </header>
       <div className="lobby-content">
-        <section className="lobby-intro" aria-labelledby="lobby-heading"><h1 id="lobby-heading">{hostedRoom ? 'Host for friends online' : 'Your people. Your movie night.'}</h1><p className="lobby-description">{hostedRoom ? 'Enter your private room, then send friends the invite link.' : 'Start a room or enter a code to join a friend.'}</p></section>
+        <section className="lobby-intro" aria-labelledby="lobby-heading"><h1 id="lobby-heading">{'Your people. Your movie night.'}</h1><p className="lobby-description">{'Start a room or enter a code to join a friend.'}</p></section>
         <div className="lobby-setup">
           <section className="lobby-preview-section" aria-labelledby="preview-heading">
             <div className="lobby-section-label"><h2 id="preview-heading">Your preview</h2><span>Only you can see this</span></div>
@@ -173,8 +176,8 @@ const Lobby = ({ joinRoom, generateRoom, hostedWebOrigin, connectorHosting, host
             <div className="lobby-join-heading"><span className="lobby-eyebrow">GET TOGETHER</span><h2 id="join-heading">Start or join a room</h2></div>
             <form className="lobby-form" onSubmit={handleSubmit} noValidate>
               <div className="lobby-field"><label htmlFor="lobby-name">Your name</label><input ref={nameRef} id="lobby-name" autoComplete="nickname" placeholder="Your name" maxLength={64} value={userName} onChange={(event) => setNameDraft({ identity, value: event.target.value })} aria-invalid={Boolean(nameError)} aria-describedby={nameError ? 'lobby-name-error' : undefined} required />{nameError && <span className="lobby-field-error" id="lobby-name-error">{nameError}</span>}</div>
-              {generateRoom && <><button className="lobby-host-button" type="button" onClick={() => makeRoom(!localEdition || Boolean(hostedRoom))} disabled={!serverConnected || generating || joining}><FaPlus aria-hidden="true" />{generating ? 'Creating room…' : 'Host a room'}</button><div className="lobby-divider"><span>or join with a code</span></div></>}
-              <div className="lobby-field"><label htmlFor="lobby-room">Room code</label><input id="lobby-room" autoComplete="off" autoCapitalize="none" spellCheck={false} placeholder="Enter a room code" value={roomId} readOnly={hostedRoom && Boolean(generated)} onChange={(event) => setRoomDraft(event.target.value)} aria-invalid={Boolean(roomError)} aria-describedby={roomError ? 'lobby-room-error' : 'lobby-room-hint'} required />{roomError ? <span className="lobby-field-error" id="lobby-room-error">{roomError}</span> : <span className="lobby-field-hint" id="lobby-room-hint">{generated?.code === trimmedRoom ? 'Your room code is ready. Enter the room, then invite friends.' : 'Enter a code from your friend, or select Host a room.'}</span>}</div>
+              {generateRoom && <><button className="lobby-host-button" type="button" onClick={() => makeRoom(true)} disabled={!serverConnected || generating || joining}><FaPlus aria-hidden="true" />{generating ? 'Creating room…' : 'Host a room'}</button><div className="lobby-divider"><span>or join with a code</span></div></>}
+              <div className="lobby-field"><label htmlFor="lobby-room">Room code</label><input id="lobby-room" autoComplete="off" autoCapitalize="none" spellCheck={false} placeholder="Enter a room code" value={roomId} onChange={(event) => setRoomDraft(event.target.value)} aria-invalid={Boolean(roomError)} aria-describedby={roomError ? 'lobby-room-error' : 'lobby-room-hint'} required />{roomError ? <span className="lobby-field-error" id="lobby-room-error">{roomError}</span> : <span className="lobby-field-hint" id="lobby-room-hint">{generated?.code === trimmedRoom ? 'Your room code is ready. Enter the room, then invite friends.' : 'Enter a code from your friend, or select Host a room.'}</span>}</div>
               <button className="lobby-join-button" type="submit" disabled={!canJoin}>{joining ? 'Joining…' : serverConnected ? 'Enter room' : 'Connecting…'}<FaArrowRight aria-hidden="true" /></button>
               {joinError && <p className="lobby-auth-feedback" role="alert">{joinError}</p>}
               {!serverConnected && <p className="lobby-server-help" role="status">{connectionError || 'Connecting to the room server…'}</p>}
@@ -185,27 +188,19 @@ const Lobby = ({ joinRoom, generateRoom, hostedWebOrigin, connectorHosting, host
           <aside className="lobby-sidebar" aria-label="Jellyfin and account">
             <section className={`lobby-integration ${connectedServers.length || linkedAccounts.length ? 'is-linked' : ''}`}>
               <span className="lobby-integration-icon"><FaFilm aria-hidden="true" /></span>
-              {linkedAccounts.length ? <>
-                <span className="lobby-eyebrow">YOUR JELLYFIN</span>
-                <h2>Library connected</h2>
-                <p>{linkedAccounts.map(account => `${account.userName} · ${account.serverName}`).join(', ')}</p>
-                <button className="lobby-jellyfin-button" type="button" onClick={() => setJellyfinOpen(true)}><FaFilm aria-hidden="true" /><span>Manage connections</span><FaArrowRight aria-hidden="true" /></button>
-              </> : connectedServers.length ? <>
-                <span className="lobby-eyebrow">YOUR JELLYFIN</span>
-                <h2>{connectedServers.length === 1 ? 'Server paired' : `${connectedServers.length} servers paired`}</h2>
-                <p>{connectedServers.filter(server => server.online).length} online · Connect your Jellyfin user to finish setup</p>
-                <button className="lobby-jellyfin-button" type="button" onClick={() => setLinkOpen(true)}><FaFilm aria-hidden="true" /><span>Connect Jellyfin account</span><FaArrowRight aria-hidden="true" /></button>
+              {connections.servers.length ? <>
+                <span className="lobby-eyebrow">YOUR JELLYFIN</span><h2>Your libraries</h2>
+                <JellyfinStatus connections={connections} base={serverUrl} onConnect={address => { setLinkServer(address); setLinkOpen(true); }} onBrowse={setSelectedLibrary} />
+                <button className="lobby-jellyfin-button" type="button" onClick={() => setJellyfinOpen(true)}>Manage connections</button>
               </> : connections.loading ? <p role="status">Checking your Jellyfin connections…</p> : <>
-                <span className="lobby-eyebrow">BRING YOUR LIBRARY</span>
-                <h2>Better together.</h2>
-                <p>{connections.error || 'Connect Jellyfin once to your SameRow account, then find your paired server wherever you sign in.'}</p>
-                <button className="lobby-jellyfin-button" type="button" onClick={() => authUser && !localEdition && serverUrl != null ? setLinkOpen(true) : setJellyfinOpen(true)}><FaFilm aria-hidden="true" /><span>{connections.error ? 'Manage connections' : 'Connect Jellyfin'}</span><FaArrowRight aria-hidden="true" /></button>
-                <small>Plugin, Docker, or your server address</small>
+                <span className="lobby-eyebrow">BRING YOUR LIBRARY</span><h2>Better together.</h2>
+                <p>{connections.clientOffline ? 'You’re offline. Reconnect this device to check your saved libraries.' : connections.error ? 'Connection status unavailable. Your saved bindings are unchanged.' : 'Connect Jellyfin to your account and watch from any network.'}</p>
+                <button className="lobby-jellyfin-button" type="button" onClick={() => setJellyfinOpen(true)}>Manage connections</button>
+                <small>SameRow Connect plugin</small>
               </>}
-
             </section>
             <div className="lobby-auth">
-              {!localEdition && (authUser ? <div className="lobby-profile">{authUser.photoURL ? <img src={authUser.photoURL} alt="" referrerPolicy="no-referrer" /> : <span className="lobby-profile-avatar" aria-hidden="true">{initials}</span>}<div><strong>{authUser.displayName || 'Signed in'}</strong><span>Recent rooms saved to this browser</span><button className="lobby-account-button" type="button" onClick={() => setJellyfinOpen(true)}>Manage account</button></div><button className="lobby-signout" type="button" onClick={handleSignOut} disabled={authBusy} aria-label="Sign out" title="Sign out"><FaSignOutAlt aria-hidden="true" /></button></div> : <><div className="lobby-divider"><span>or save your recent rooms</span></div><button className="lobby-google-button" type="button" onClick={() => handleAuth('google.com')} disabled={authBusy}><FaGoogle aria-hidden="true" />{authBusy ? 'Opening sign-in…' : 'Continue with Google'}</button><button className="lobby-google-button" type="button" onClick={() => handleAuth('github.com')} disabled={authBusy}><FaGithub aria-hidden="true" />Continue with GitHub</button><p className="lobby-guest-note">No account needed to join.</p></>)}
+              {(authUser ? <div className="lobby-profile">{authUser.photoURL ? <img src={authUser.photoURL} alt="" referrerPolicy="no-referrer" /> : <span className="lobby-profile-avatar" aria-hidden="true">{initials}</span>}<div><strong>{authUser.displayName || 'Signed in'}</strong><span>Recent rooms saved to this browser</span><button className="lobby-account-button" type="button" onClick={() => setJellyfinOpen(true)}>Manage account</button></div><button className="lobby-signout" type="button" onClick={handleSignOut} disabled={authBusy} aria-label="Sign out" title="Sign out"><FaSignOutAlt aria-hidden="true" /></button></div> : <><div className="lobby-divider"><span>or save your recent rooms</span></div><button className="lobby-google-button" type="button" onClick={() => handleAuth('google.com')} disabled={authBusy}><FaGoogle aria-hidden="true" />{authBusy ? 'Opening sign-in…' : 'Continue with Google'}</button><button className="lobby-google-button" type="button" onClick={() => handleAuth('github.com')} disabled={authBusy}><FaGithub aria-hidden="true" />Continue with GitHub</button><p className="lobby-guest-note">No account needed to join.</p></>)}
               {feedback && !jellyfinOpen && <p className="lobby-auth-feedback" role="status">{feedback}</p>}
             </div>
           </aside>
@@ -214,28 +209,26 @@ const Lobby = ({ joinRoom, generateRoom, hostedWebOrigin, connectorHosting, host
       </div>
       <Dialog open={jellyfinOpen} title={authUser ? "Your account & Jellyfin" : "Connect Jellyfin"} description={authUser ? "Manage sign-in methods and your connected servers." : "Bring your movie library to SameRow."} onClose={() => { setJellyfinOpen(false); setFeedback(''); }}>
         <div className="lobby-jellyfin-dialog">
-          {!localEdition && authUser && <section aria-label="Account sign-in methods">
+          {authUser && <section aria-label="Account sign-in methods">
             <h3>Sign-in methods</h3><p>{authUser.email || authUser.displayName || 'Your SameRow account'} · Jellyfin servers stay with this account when you link another sign-in method.</p>
             {[['google.com', 'Google'], ['github.com', 'GitHub']].map(([id, name]) => <button key={id} className="lobby-google-button" type="button" disabled={authBusy || providerIds.includes(id)} onClick={() => handleAuth(id, true)}>{id === 'google.com' ? <FaGoogle aria-hidden="true" /> : <FaGithub aria-hidden="true" />}{providerIds.includes(id) ? `${name} linked` : `Link ${name}`}</button>)}
           </section>}
 
-          {authUser && !localEdition && <section aria-label="Linked Jellyfin accounts"><h3>Jellyfin accounts</h3>
+          {authUser && <section aria-label="Linked Jellyfin accounts"><h3>Jellyfin accounts</h3>
             {linkedAccounts.length ? linkedAccounts.map(account => <p key={`${account.serverUrl}:${account.userId}`}><strong>{account.serverName}</strong> · {account.userName}</p>) : <p>A paired server still needs your Jellyfin user sign-in.</p>}
             <button className="sr-button" onClick={() => { setJellyfinOpen(false); setLinkOpen(true); }}>Connect Jellyfin account</button>
           </section>}
           <p>Start a room, then choose <strong>Share something → Your Jellyfin library</strong> to sign in with your server address.</p>
-          {!localEdition && !authUser && <><p>For a paired plugin or Docker connector, sign in to your SameRow account first.</p><button className="sr-button" onClick={() => handleAuth('google.com')} disabled={authBusy}><FaGoogle /> Continue with Google</button><button className="sr-button" onClick={() => handleAuth('github.com')} disabled={authBusy}><FaGithub /> Continue with GitHub</button></>}
-          {!localEdition && authUser && serverUrl != null && <ConnectorPairing key={identity} serverUrl={serverUrl} onPrivateRoom={async () => { if (await makeRoom(true)) setJellyfinOpen(false); }} disabled={!serverConnected || generating} />}
+          {!authUser && <><p>For the SameRow Connect plugin, sign in to your SameRow account first.</p><button className="sr-button" onClick={() => handleAuth('google.com')} disabled={authBusy}><FaGoogle /> Continue with Google</button><button className="sr-button" onClick={() => handleAuth('github.com')} disabled={authBusy}><FaGithub /> Continue with GitHub</button></>}
+          {authUser && serverUrl != null && <ConnectorPairing key={identity} serverUrl={serverUrl} onPrivateRoom={async () => { if (await makeRoom(true)) setJellyfinOpen(false); }} disabled={!serverConnected || generating} />}
           <a href="https://github.com/devpratyushh/Samerow-V2/tree/main/jellyfin-plugin-samerow" target="_blank" rel="noreferrer">Set up the Jellyfin plugin ↗</a>
-            {connectorHosting && <a className="sr-button" href="/?host=online">Host for friends online</a>}
-            {hostedRoom && <a href="/">Back to SameRow Local</a>}
-            {!connectorHosting && hostedWebOrigin && <a href={hostedWebOrigin} target="_blank" rel="noreferrer">Share to SameRow Web</a>}
 
 
           {feedback && <p role="status">{feedback}</p>}
         </div>
       </Dialog>
-      {authUser && !localEdition && serverUrl != null && <JellyfinDialog key={identity} open={linkOpen} onClose={() => { promptedAccount.current = identity; setLinkOpen(false); }} base={serverUrl} connectOnly onPairServer={() => { setLinkOpen(false); setJellyfinOpen(true); }} sameRowAccount={authUser.email || authUser.displayName} />}
+      {authUser && serverUrl != null && <JellyfinDialog key={`${identity}:${linkServer}`} open={linkOpen} onClose={() => { promptedAccount.current = identity; setLinkOpen(false); }} base={serverUrl} initialServerUrl={linkServer} connectOnly onPairServer={() => { setLinkOpen(false); setJellyfinOpen(true); }} sameRowAccount={authUser.email || authUser.displayName} />}
+      {selectedLibrary !== null && <JellyfinDialog key={`${identity}:${selectedLibrary}`} open base={serverUrl} initialServerUrl={selectedLibrary} onClose={() => setSelectedLibrary(null)} onCreatePrivateRoom={async () => { if (await makeRoom(true)) setSelectedLibrary(null); }} />}
     </main>
   );
 };

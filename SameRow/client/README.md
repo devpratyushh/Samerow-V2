@@ -161,13 +161,6 @@ runs with the browser's normal autoplay policy rather than the test override.
 `test:jellyfin:legacy` retains the previous generated HLS fixture coverage.
 ## Google, GitHub, and connected Jellyfin servers
 
-SameRow uses Firebase Authentication's user ID as the owner of paired Jellyfin
-plugin and Docker connectors. The lobby loads that account's paired servers and
-shows connection status instead of the setup promotion. Sign out or change
-accounts to stop displaying the previous account's servers. Direct Jellyfin
-username/password sessions still require their own Jellyfin authentication;
-pairing a server does not grant access to a Jellyfin user account.
-
 To use both Google and GitHub with the same libraries, sign in with the existing
 method, open **Manage account**, then select **Link GitHub** or **Link Google**.
 Linking preserves the Firebase UID. Separate existing accounts are not merged

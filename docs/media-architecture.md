@@ -31,9 +31,6 @@ actual deployed address is environment configuration, not fixed in the source.
 The Render blueprint specifies a Starter plan for each Node service; it does not
 establish a measured sustainable movie bandwidth capacity.
 
-SameRow Local's Docker image instead runs one combined Node service serving both
-the built web UI and backend. Its media gateway runs inside that local container.
-
 ## Public Jellyfin address: two web viewers
 
 ```mermaid
@@ -65,17 +62,6 @@ flowchart LR
     Gateway --> C[Viewer 3]
     Gateway --> D[Viewer 4]
 ```
-
-The plugin maintains outbound authenticated requests to the gateway. When a
-viewer requests media, the gateway hands that work to the plugin. The plugin
-calls Jellyfin's local API and streams the binary response back to the gateway,
-which streams it to that viewer. Media is streamed progressively rather than
-loading an entire movie into memory. The Docker connector provides an alternate
-implementation of the same outbound-relay role.
-
-A viewer on the same LAN as Jellyfin still follows this hosted relay path when
-using hosted SameRow. Use SameRow Local with a reachable local Jellyfin address
-for local gateway delivery.
 
 ## Four viewers: bandwidth and encoding
 
@@ -135,10 +121,6 @@ timestamp and revision. Each browser buffers and decodes its own stream and
 corrects playback drift. Audio, subtitles, volume and quality remain personal.
 Shared play/pause/seek commands update the common timeline.
 
-Hosted cameras, microphones and screens use LiveKit. SameRow Local uses a
-WebRTC peer mesh. YouTube viewers load video from YouTube. These transports
-are separate from Jellyfin movie delivery.
-
 ## Why local pictures can blur
 
 Camera capture requests 1080p at 30 FPS and is never reduced by room size.
@@ -163,14 +145,6 @@ configured shared capacity.
 Open More options → Stats for nerds. Call metrics describe this device's links:
 bitrate, resolution, FPS, codec, loss, jitter and available encoder/RTT reports.
 For an SFU room, uploads go to LiveKit rather than directly to each viewer.
-
-Movie delivery metrics show gateway media bytes per current room member, with
-separate viewer-reported resolution, buffer and dropped/total frames. They work
-through public Jellyfin, Docker connectors and the native plugin. First samples
-establish a baseline; buffered playback can continue at zero delivery throughput.
-Delivery includes prefetch/retries and is not encoded bitrate or proof that all
-bytes were decoded. Viewer reports expire after 20 seconds without updates.
-Only current room members can request the room snapshot.
 
 ## Implementation references
 

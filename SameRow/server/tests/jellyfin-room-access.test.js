@@ -4,7 +4,7 @@ const express = require('express');
 const { MemoryStore } = require('../store');
 const { installJellyfin } = require('../jellyfin');
 
-// Both the native plugin and Docker use a paired relay address.
+// The native plugin uses a paired relay address.
 for (const [name, room, code, message] of [
   ['public room', { ownerUid: 'owner' }, 'JELLYFIN_PRIVATE_ROOM_REQUIRED', /private room/],
   ['another owner’s private room', { ownerUid: 'other', invite: 'secret' }, 'JELLYFIN_ROOM_OWNER_REQUIRED', /room creator/],
@@ -29,7 +29,6 @@ for (const [name, room, code, message] of [
     await events.get('jellyfin-open')({ roomId: 'ROOM', connectionToken: 'connection', itemId: 'movie' }, value => { reply = value; });
     assert.equal(reply.code, code);
     assert.match(reply.error, message);
-    assert.doesNotMatch(reply.error, /Docker/);
     assert.equal(upstreamCalls, 0);
   });
 }

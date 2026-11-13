@@ -8,7 +8,6 @@ const cors = require('cors');
 const { configuration } = require('./config');
 const { MemoryStore } = require('./store');
 const { createIdentity, installIdentity } = require('./auth');
-const { hostOrigins, withConnectorHostIdentity } = require('./connectorHost');
 const { isVideoUrl, isTimestamp, createState, snapshot, updateState } = require('./youtube');
 
 const validRoom = value => typeof value === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(value);
@@ -19,8 +18,7 @@ function createApplication(options = {}) {
   const config = options.config || configuration();
   const store = options.store || new MemoryStore();
   if (config.production && !store.client) throw new Error('Production requires a connected Redis store.');
-  const baseIdentity = options.identity || createIdentity(config);
-  const identity = config.jellyfinRelay ? withConnectorHostIdentity(baseIdentity, store) : baseIdentity;
+  const identity = options.identity || createIdentity(config);
   const mediaService = config.mediaMode === 'livekit' ? options.mediaService || new (require('livekit-server-sdk').RoomServiceClient)(config.livekitUrl, config.livekitApiKey, config.livekitApiSecret) : null;
   const app = express(), server = http.createServer(app);
   const membershipRemovals = new Set();
@@ -28,32 +26,24 @@ function createApplication(options = {}) {
   const infrastructureReady = () => store.ready && (!store.client || redisPub?.isReady && redisSub?.isReady);
   const eventLoop = monitorEventLoopDelay({ resolution: 20 }); eventLoop.enable();
   const stats = { startedAt: Date.now(), events: 0, rejected: 0, errors: 0, storageFailures: 0, disconnects: {} };
-  const localHosts = new Set(config.origins.map(origin => new URL(origin).host));
-  const hostAllowed = req => !config.localEdition || localHosts.has(req.headers.host);
   const originAllowed = origin => !origin || config.origins.includes(origin) || !config.production && !config.origins.length;
-  // The Jellyfin iframe deliberately has an opaque sandbox origin. Only its
-  // scoped gateway accepts Origin:null; account APIs and signaling reject it.
-  const connectorBrowser = origin => config.jellyfinRelay && hostOrigins.includes(origin);
-  const connectorMediaOrigin = req => connectorBrowser(req.get('Origin')) &&
-    /^\/api\/jellyfin(?:-native)?(?:\/|$)/.test(req.path);
   const sandboxOrigin = req => req.get('Origin') === 'null' && req.path.startsWith('/api/jellyfin-native/');
   app.disable('x-powered-by'); app.set('trust proxy', config.production ? 1 : false);
   app.use(helmet({ contentSecurityPolicy: false, crossOriginEmbedderPolicy: false, crossOriginResourcePolicy: { policy: 'cross-origin' }, frameguard: false }));
   app.use((req, res, next) => {
-    if (!hostAllowed(req)) return res.status(403).send('Open SameRow using its configured local address.');
     const requestId = randomUUID(), started = Date.now(); res.set('X-Request-Id', requestId);
     res.on('finish', () => {
       // Raw URLs contain media bearer capabilities; never log them or headers.
       if (config.production && (res.statusCode >= 400 || process.env.ACCESS_LOGS === 'true')) console.log(JSON.stringify({ event: 'http', requestId, method: req.method, status: res.statusCode, durationMs: Date.now() - started }));
     });
-    if (req.get('Origin') && !originAllowed(req.get('Origin')) && !sandboxOrigin(req) && !connectorMediaOrigin(req)) return res.status(403).json({ error: 'This origin is not allowed.' });
+    if (req.get('Origin') && !originAllowed(req.get('Origin')) && !sandboxOrigin(req)) return res.status(403).json({ error: 'This origin is not allowed.' });
     next();
   });
   if (config.serviceRole === 'control') {
     app.use('/api/jellyfin-native', (req, res) => res.sendStatus(404));
     app.use(/^\/api\/jellyfin\/[a-f0-9]{48}(?:\/|$)/, (req, res) => res.sendStatus(404));
   }
-  app.use(cors((req, callback) => callback(null, { origin: originAllowed(req.get('Origin')) || sandboxOrigin(req) || connectorMediaOrigin(req),
+  app.use(cors((req, callback) => callback(null, { origin: originAllowed(req.get('Origin')) || sandboxOrigin(req),
     // Jellyfin Web sends additional cache/device headers. Reflect its preflight
     // headers only on the capability-protected native gateway.
     allowedHeaders: sandboxOrigin(req) ? undefined : ['Content-Type', 'Authorization', 'X-SameRow-Token', 'Range', 'If-Range'],
@@ -78,8 +68,6 @@ function createApplication(options = {}) {
     roomProtocol: 1,
     ...(config.production ? { firebaseProjectId: config.firebaseProjectId, mediaOrigin: config.mediaOrigin } : {}),
     ...(config.jellyfinRelay ? { jellyfinRelay: true } : {}),
-    ...(config.hostedWebOrigin ? { hostedWebOrigin: config.hostedWebOrigin } : {}),
-    ...(config.connectorHost ? { connectorHosting: true } : {}),
   }));
   app.get('/metrics', (req, res) => {
     if (!process.env.METRICS_TOKEN || req.get('Authorization') !== `Bearer ${process.env.METRICS_TOKEN}`) return res.sendStatus(404);
@@ -88,19 +76,18 @@ function createApplication(options = {}) {
   app.use((req, res, next) => {
     if (draining || !infrastructureReady()) return res.status(503).json({ error: 'Server is reconnecting. Try again shortly.' }); next();
   });
-  const stopConnector = config.connectorHost ? require('./connectorSetup').installConnectorSetup(app, config.connectorHost) : () => {};
-  const socketOriginAllowed = origin => originAllowed(origin) || connectorBrowser(origin);
+  const socketOriginAllowed = origin => originAllowed(origin);
   const io = new Server(server, {
     cors: { origin: (origin, callback) => callback(null, socketOriginAllowed(origin)), methods: ['GET', 'POST'] },
     transports: config.production ? ['websocket'] : ['websocket', 'polling'], maxHttpBufferSize: 64 * 1024, serveClient: false,
     pingInterval: 25000, pingTimeout: 30000,
     allowRequest: (req, callback) => {
-      if (draining || !infrastructureReady() || config.serviceRole === 'media' || !hostAllowed(req) || !socketOriginAllowed(req.headers.origin)) return callback('Unavailable', false);
+      if (draining || !infrastructureReady() || config.serviceRole === 'media' || !socketOriginAllowed(req.headers.origin)) return callback('Unavailable', false);
       const ip = config.production ? String(req.headers['x-forwarded-for'] || req.socket.remoteAddress).split(',').at(-1).trim() : req.socket.remoteAddress;
       store.limit(`connect:${ip}`, config.maxConnectionsPerIp || 600, 60).then(ok => callback(ok ? null : 'Too many connections', ok)).catch(() => callback('Unavailable', false));
     },
   });
-  installIdentity(io, app, identity, connectorBrowser);
+  installIdentity(io, app, identity);
   io.use(async (socket, next) => {
     try {
       if (!await store.limit(`authenticated-connect:${socket.data.uid}`, 60, 60)) return next(new Error('Too many reconnect attempts. Please wait.'));
@@ -306,12 +293,8 @@ function createApplication(options = {}) {
   const relay = require('./jellyfinRelay').installJellyfinRelay(app, { config, store, identity, io });
   const networkPolicy = { production: config.production, allowPrivate: config.allowPrivateJellyfin, origins: config.upstreamOrigins };
   const accounts = require('./jellyfinAccounts').installJellyfinAccounts(app, { ...(options.accountOptions || {}), relay, ...(options.store ? { store } : {}), networkPolicy });
-  const jellyfin = require('./jellyfin').installJellyfin(app, io, accounts, { store, canControl, production: config.production, networkPolicy, roomTtl: config.roomTtl, allowedOrigins: config.jellyfinRelay ? [...config.origins, ...hostOrigins] : config.origins, publicOrigin: config.mediaOrigin, quality: config.jellyfinQuality });
+  const jellyfin = require('./jellyfin').installJellyfin(app, io, accounts, { store, canControl, production: config.production, networkPolicy, roomTtl: config.roomTtl, allowedOrigins: config.origins, publicOrigin: config.mediaOrigin, quality: config.jellyfinQuality });
   require('./chat').installChat(io, { store, identity });
-  if (config.localEdition) {
-    const webRoot = require('node:path').resolve(__dirname, '../client/dist');
-    app.use(express.static(webRoot));
-  }
   app.use((error, req, res, next) => {
     if (res.headersSent) { res.destroy(); return; }
     const status = error.type === 'entity.too.large' ? 413 : error instanceof SyntaxError ? 400 : error.status || 500;
@@ -326,7 +309,6 @@ function createApplication(options = {}) {
     }
   })();
   async function close({ closeStore = true } = {}) {
-    stopConnector();
     if (closed) return; closed = true; draining = true;
     clearInterval(heartbeat); eventLoop.disable(); relay?.close(); jellyfin.close(); accounts.close();
     // io.close() alone sends a namespace disconnect, which disables client

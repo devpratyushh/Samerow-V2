@@ -80,10 +80,40 @@ test('Quick Connect links its approved Jellyfin user and revocation removes acco
   assert.deepEqual((await f.request('/connections')).body.connections,[]);
 });
 
-test('expired Jellyfin sign-in is removed after validation fails',async t=>{
+test('expired Jellyfin authorization preserves its binding and requests sign-in',async t=>{
   const f=await fixture(t);
   const login=await f.login();
   f.expire();
   assert.equal((await f.request('/account',{token:login.body.token})).status,401);
-  assert.deepEqual((await f.request('/connections')).body.connections,[]);
+  const linked=(await f.request('/connections')).body.connections;
+  assert.equal(linked.length,1);
+  assert.equal(linked[0].needsSignIn,true);
+  assert.equal(linked[0].token,null);
+  assert.equal(linked[0].account.userName,'Movie fan');
+});
+
+test('offline status keeps a durable binding, isolates owners, and recovers after server restart',async t=>{
+  const f=await fixture(t), id='a'.repeat(32);
+  await f.store.set(`connector:${id}`,{ownerUid:'owner'},0);
+  await f.store.set('user-connectors:owner',[{id,address:f.address}],0);
+  const login=await f.login();
+  const old=Date.now()-90*86400000;
+  await f.store.update(`account:${login.body.token}`,value=>({...value,lastUsed:old}),0);
+  const offline=await f.request('/status');
+  assert.equal(offline.body.servers[0].status,'offline');
+  assert.equal(offline.body.servers[0].bound,true);
+  assert.equal(offline.body.servers[0].account.userName,'Movie fan');
+  assert.equal(f.store.read(`account:${login.body.token}`).expires,0);
+  assert.equal(f.store.read('jellyfin-links:owner').expires,0);
+  assert.deepEqual((await f.request('/status',{user:'other'})).body.servers,[]);
+  await f.store.set(`connector-online:${id}`,{lastSeen:Date.now()},30);
+  await f.store.set(`connector-seen:${id}`,Date.now(),0);
+  assert.equal((await f.request('/status')).body.servers[0].status,'ready');
+  assert.equal((await f.request('/preferences',{body:{defaultServerId:id}})).status,204);
+  assert.equal((await f.request('/preferences',{user:'other',body:{defaultServerId:id}})).status,404);
+  f.restart();
+  assert.equal((await f.request('/status')).body.defaultServerId,id);
+  f.expire();f.restart();
+  assert.equal((await f.request('/status')).body.servers[0].status,'sign_in_required');
+  assert.equal((await f.request('/connections')).body.connections[0].needsSignIn,true);
 });

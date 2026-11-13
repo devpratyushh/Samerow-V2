@@ -37,3 +37,37 @@ test('a valid connector missing from the discovery index is recovered without tr
  assert.equal((await store.get('user-connectors:owner'))[0].id,id);
  assert.equal((await fetch(`${origin}/connectors`,{headers:{'X-SameRow-Token':'owner'}}).then(r=>r.json())).connectors[0].id,id);
 });
+
+test('Redis: durable ownership and guarded indexes have no inactivity expiry', {skip:!process.env.TEST_REDIS_URL}, async t=>{
+ const {createStore}=require('../store');
+ const store=await createStore({redisUrl:process.env.TEST_REDIS_URL,encryptionKey:'a'.repeat(64),prefix:`availability:${require('node:crypto').randomUUID()}`});
+ t.after(()=>store.close());
+ const record={ownerUid:'owner'};
+ await store.set('connector:test',record,1);
+ await store.touch('connector:test',0);
+ assert.equal(await store.client.ttl(store.key('connector:test')),-1);
+ assert.equal(await store.guardedSet('connector:test',record,'index:test',['server'],0),true);
+ await store.guardedUpdate('connector:test',record,'index:test',list=>[...list,'second'],0);
+ assert.equal(await store.client.ttl(store.key('index:test')),-1);
+ await store.set('connector:test',null);
+ assert.equal(await store.guardedUpdate('connector:test',record,'index:test',()=>['resurrected'],0),null);
+ assert.deepEqual(await store.get('index:test'),['server','second']);
+ await store.set('index:test',null);
+});
+
+test('concurrent polls share the worker limit and rejected polls do not renew health',async t=>{
+ const store=new MemoryStore(),app=express(),id='e'.repeat(32),token=`${id}.${'f'.repeat(64)}`;
+ await store.set(`connector:${id}`,{ownerUid:'owner',digest:createHash('sha256').update(token).digest('hex')},0);
+ const relay=installJellyfinRelay(app,{store,config:{jellyfinRelay:true,serviceRole:'media',encryptionKey:'c'.repeat(64)},identity:{verify:async()=>({uid:'owner'})}});
+ const server=http.createServer(app);await new Promise(r=>server.listen(0,'127.0.0.1',r));
+ const controller=new AbortController();
+ t.after(async()=>{controller.abort();relay.close();server.closeAllConnections();await new Promise(r=>server.close(r));});
+ const url=`http://127.0.0.1:${server.address().port}/api/jellyfin-relay/poll`;
+ const workers=Array.from({length:8},()=>fetch(url,{headers:{Authorization:`Bearer ${token}`},signal:controller.signal}).catch(()=>null));
+ await new Promise(r=>setTimeout(r,100));
+ const seen=await store.get(`connector-seen:${id}`);
+ assert.equal(typeof seen,'number');
+ assert.equal((await fetch(url,{headers:{Authorization:`Bearer ${token}`}})).status,429);
+ assert.equal(await store.get(`connector-seen:${id}`),seen);
+ controller.abort();await Promise.all(workers);
+});

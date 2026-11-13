@@ -30,6 +30,12 @@ async function dashboard(uid, binding = false) {
  const context=await browser.newContext({viewport:{width:1280,height:900}});
  const page=await context.newPage(); page.on('pageerror',e=>errors.push(e.message));
  await page.route('https://media.fixture.invalid/api/jellyfin/**', async route => { const response = await route.fetch({url:base + new URL(route.request().url()).pathname + new URL(route.request().url()).search}); await route.fulfill({response}); });
+ await page.route('**/api/jellyfin/status', async route => {
+  if (uid !== 'owner') return route.fulfill({json:{servers:[],checkedAt:Date.now()}});
+  const response = await route.fetch({url:base+'/api/jellyfin/connections'});
+  const links = (await response.json()).connections || [];
+  return route.fulfill({json:{servers:[{id:'a'.repeat(32),address:fixture.url,name:'My Jellyfin',account:links[0]?.account || null,status:links.length?'ready':'sign_in_required',sameRowEmail:'alex@example.com',lastSeen:Date.now()}],checkedAt:Date.now()}});
+ });
  await page.route('**/api/config',route=>route.fulfill({json:{jellyfinRelay:true,mediaOrigin:'https://media.fixture.invalid'}}));
  await page.route('**/api/jellyfin-relay/connectors**',route=>{
   if(route.request().url().startsWith(base))return route.fulfill({status:404,body:'Cannot GET /api/jellyfin-relay/connectors'});
@@ -80,15 +86,15 @@ try {
  await page.screenshot({path:'/tmp/samerow-linked-account-popup.png'});
  await page.setViewportSize({width:1280,height:900});
  await dialog.getByRole('button',{name:'Done',exact:true}).click();
- await page.getByRole('heading',{name:'Library connected',exact:true}).waitFor();
+ await page.getByRole('heading',{name:'Your libraries',exact:true}).waitFor();
  assert.match(await page.locator('.lobby-integration').innerText(),/Viewer/);
  await context.close();
  const fresh=await dashboard('owner');
- await fresh.page.getByRole('heading',{name:'Library connected',exact:true}).waitFor();
+ await fresh.page.getByRole('heading',{name:'Your libraries',exact:true}).waitFor();
  assert.equal(await fresh.page.getByRole('dialog').count(),0,'Fresh browser restores account link without another login');
  const other=await dashboard('different-owner');
- await other.page.getByRole('button',{name:'Connect Jellyfin',exact:true}).waitFor();
- assert.equal(await other.page.getByRole('heading',{name:'Library connected',exact:true}).count(),0);
+ await other.page.getByRole('button',{name:'Manage connections',exact:true}).waitFor();
+ assert.equal(await other.page.getByRole('heading',{name:'Your libraries',exact:true}).count(),0);
  // The room library can recover the server-side link with empty browser storage.
  await fresh.page.evaluate(async ({base})=>{
   const {default:React}=await import('/node_modules/.vite/deps/react.js');

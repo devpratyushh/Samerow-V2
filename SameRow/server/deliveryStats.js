@@ -1,6 +1,6 @@
 const { Transform } = require('node:stream');
 
-// Count media at the gateway boundary, shared by direct, Docker and plugin routes.
+// Count media at the gateway boundary, shared by direct and plugin routes.
 // Redis-backed store updates make snapshots work across control/media replicas.
 function createDeliveryStats(store) {
   const key = (viewer, state) => `delivery:${state.id}:${viewer.socketId}`;

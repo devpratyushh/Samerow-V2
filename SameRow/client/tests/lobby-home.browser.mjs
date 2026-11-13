@@ -20,7 +20,7 @@ assert.ok(chromium, 'Playwright is required');
    const target=document.createElement('div');target.id='lobby-test';document.body.append(target);
    localStorage.setItem('recent_rooms_lobby-test',JSON.stringify(['ONE','TWO','THREE','FOUR','FIVE'].map((code,i)=>({code,timestamp:Date.now()-i*60000}))));
    window.generatedCount=0;window.joined=[];
-   createRoot(target).render(React.createElement(Lobby,{authUser:{uid:'lobby-test',displayName:'Alex'},serverConnected:true,localEdition:false,generateRoom:async()=>{window.generatedCount++;return {code:'HOST'};},joinRoom:async(code)=>window.joined.push(code),toggleMute:()=>{},toggleVideo:()=>{}}));
+   createRoot(target).render(React.createElement(Lobby,{authUser:{uid:'lobby-test',displayName:'Alex'},serverConnected:true,generateRoom:async()=>{window.generatedCount++;return {code:'HOST'};},joinRoom:async(code)=>window.joined.push(code),toggleMute:()=>{},toggleVideo:()=>{}}));
   });
   const lobby=page.locator('#lobby-test');
   await lobby.getByLabel('Room code',{exact:true}).waitFor();

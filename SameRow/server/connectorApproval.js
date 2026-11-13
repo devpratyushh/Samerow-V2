@@ -1,7 +1,7 @@
 const { createHash, createHmac, randomBytes, timingSafeEqual } = require('node:crypto');
 
 const approvalSeconds = 600;
-const pairingSeconds = 30 * 86400;
+const pairingSeconds = 0; // Ownership persists until explicitly disconnected.
 const idPattern = /^[a-f0-9]{32}$/;
 const secretPattern = /^[a-f0-9]{64}$/;
 const hash = value => createHash('sha256').update(value).digest('hex');
@@ -33,7 +33,7 @@ function installConnectorApproval(app, { root, config, store, identity }) {
         if (!current?.claim || current.claimed || current.until <= now) throw Object.assign(new Error(), { status: 410 });
         if (current.ownerUid && current.ownerUid !== user.uid) throw Object.assign(new Error(), { status: 409 });
         return { ...current, ownerUid: user.uid, ownerEmail: typeof user.email === 'string' ? user.email.slice(0, 320) : '', digest: hash(tokenFor(id, current.claim)) };
-      }, pairingSeconds);
+      }, approvalSeconds);
       await store.update(`user-connectors:${user.uid}`, current => {
         const list = Array.isArray(current) ? current.filter(x => x.id !== id) : [];
         list.unshift({ id, address: `https://${id}.samerow-connector.invalid`, createdAt: now });
@@ -56,7 +56,8 @@ function installConnectorApproval(app, { root, config, store, identity }) {
             !timingSafeEqual(Buffer.from(current.claim, 'hex'), Buffer.from(claim, 'hex')))
           throw Object.assign(new Error(), { status: 410 });
         return current.digest ? { ...current, claimed: true } : current;
-      }, pairingSeconds);
+      }, approvalSeconds);
+      if (record.digest) await store.touch(`connector:${id}`, 0);
     } catch (error) {
       if (error.status === 410) return res.sendStatus(410);
       throw error;

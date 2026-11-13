@@ -144,7 +144,7 @@ function installJellyfinAccounts(app, options = {}) {
     fs.mkdirSync(dataDir, { recursive: true, mode: 0o700 });
     const temporary = `${storePath}.${randomBytes(6).toString('hex')}.tmp`;
     try {
-      fs.writeFileSync(temporary, JSON.stringify({ version: 1, connections: [...connections.values()].filter(connection => connection.remember && connection.lastUsed > Date.now() - idleLifetime) }), { mode: 0o600, flag: 'wx' });
+      fs.writeFileSync(temporary, JSON.stringify({ version: 1, connections: [...connections.values()].filter(connection => connection.remember && (connection.accountLinked || connection.lastUsed > Date.now() - idleLifetime)) }), { mode: 0o600, flag: 'wx' });
       fs.renameSync(temporary, storePath); fs.chmodSync(storePath, 0o600);
     } finally { try { fs.unlinkSync(temporary); } catch {} }
   };
@@ -156,7 +156,7 @@ function installJellyfinAccounts(app, options = {}) {
     if (stored.version !== 1 || !Array.isArray(stored.connections)) throw new Error('format');
     fs.chmodSync(storePath, 0o600);
     for (const connection of stored.connections) {
-      if (tokenPattern.test(connection.token) && typeof connection.apiToken === 'string' && upstreamTokenPattern.test(connection.apiToken) && validId(connection.userId) && validId(connection.deviceId) && connection.remember === true && Number.isFinite(connection.lastUsed) && connection.lastUsed > Date.now() - idleLifetime) {
+      if (tokenPattern.test(connection.token) && typeof connection.apiToken === 'string' && upstreamTokenPattern.test(connection.apiToken) && validId(connection.userId) && validId(connection.deviceId) && connection.remember === true && Number.isFinite(connection.lastUsed) && (connection.accountLinked || connection.lastUsed > Date.now() - idleLifetime)) {
         connection.base = validateServerUrl(connection.base);
         connections.set(connection.token, connection);
       }
@@ -178,7 +178,7 @@ function installJellyfinAccounts(app, options = {}) {
   const forget = async connection => {
     if (shared) {
       await shared.set(`account:${connection.token}`, null);
-      if (connection.accountLinked) await shared.update(linkedKey(connection.ownerUid), previous => Array.isArray(previous) ? previous.filter(token => token !== connection.token) : [], idleLifetime / 1000);
+      if (connection.accountLinked) await shared.update(linkedKey(connection.ownerUid), previous => Array.isArray(previous) ? previous.filter(token => token !== connection.token) : [], 0);
     }
     else { connections.delete(connection.token); if (connection.remember) save(); }
   };
@@ -186,17 +186,18 @@ function installJellyfinAccounts(app, options = {}) {
     if (typeof token !== 'string' || !tokenPattern.test(token)) return null;
     const connection = shared ? await shared.get(`account:${token}`) : connections.get(token);
     if (!connection) return null;
+    if (shared && connection.accountLinked) { await shared.touch(`account:${token}`, 0); await shared.touch(linkedKey(connection.ownerUid), 0); }
     if (options.relay && connectorId(connection.base)) {
       try { await options.relay.authorize(connection.base, connection.ownerUid); }
       catch { await forget(connection); return null; }
     }
-    if (connection.lastUsed <= Date.now() - idleLifetime) { await forget(connection); return null; }
+    if (!connection.accountLinked && connection.lastUsed <= Date.now() - idleLifetime) { await forget(connection); return null; }
     if (Date.now() - connection.lastUsed >= 60000) {
       connection.lastUsed = Date.now();
-      if (shared && connection.accountLinked) await shared.touch(linkedKey(connection.ownerUid), idleLifetime / 1000);
+      if (shared && connection.accountLinked) await shared.touch(linkedKey(connection.ownerUid), 0);
       if (shared) {
         // Never resurrect a credential revoked concurrently on another instance.
-        await shared.update(`account:${token}`, current => current ? { ...current, lastUsed: connection.lastUsed } : null, connection.remember ? idleLifetime / 1000 : 43200);
+        await shared.update(`account:${token}`, current => current ? { ...current, lastUsed: connection.lastUsed } : null, connection.accountLinked ? 0 : connection.remember ? idleLifetime / 1000 : 43200);
       } else if (connection.remember) scheduleSave();
     }
     return connection;
@@ -205,7 +206,13 @@ function installJellyfinAccounts(app, options = {}) {
     if (response.ok) return response;
     await response.body?.cancel();
     if (response.status === 401) {
-      if (connection?.token) await forget(connection);
+      if (connection?.token) {
+        if (connection.accountLinked) {
+          connection.authInvalid = true;
+          if (shared) await shared.update(`account:${connection.token}`, current => current ? { ...current, authInvalid: true } : null, 0);
+          else scheduleSave();
+        } else await forget(connection);
+      }
       throw failure(401, auth ? 'Jellyfin did not accept that sign-in. Check your username and password.' : 'Your Jellyfin connection expired. Sign in again.');
     }
     if (response.status === 403) throw failure(403, 'Jellyfin does not allow this action for your account.');
@@ -219,7 +226,7 @@ function installJellyfinAccounts(app, options = {}) {
     const value = { token: mintToken(), ownerUid, accountLinked, sameRowEmail: typeof sameRowEmail === 'string' ? sameRowEmail.slice(0, 320) : '', base: connection.base, apiToken: result.AccessToken, userId: result.User.Id, serverId: safeText(result.ServerId || info.Id, 128), userName: safeText(result.User.Name), serverName: safeText(info.ServerName) || 'Jellyfin', deviceId: connection.deviceId, remember: remember !== false, createdAt: Date.now(), lastUsed: Date.now() };
     if (!shared && connections.size >= 5000) throw failure(503, 'This SameRow server has reached its connection limit.');
     if (!shared) connections.set(value.token, value);
-    try { if (shared) await shared.set(`account:${value.token}`, value, value.remember ? idleLifetime / 1000 : 43200); else if (value.remember) save(); }
+    try { if (shared) await shared.set(`account:${value.token}`, value, value.accountLinked ? 0 : value.remember ? idleLifetime / 1000 : 43200); else if (value.remember) save(); }
     catch { connections.delete(value.token); request(value, '/Sessions/Logout', { method: 'POST', timeoutMs: 5000 }).then(response => response.body?.cancel()).catch(() => {}); throw failure(503, 'SameRow could not remember this connection. Check shared storage or try again shortly.'); }
     try { await addLink(value); }
     catch { await forget(value); throw failure(503, 'SameRow could not save your account link. Try again shortly.'); }
@@ -239,7 +246,7 @@ function installJellyfinAccounts(app, options = {}) {
   const authenticate = async req => {
     const token = /^Bearer ([a-f0-9]{64})$/i.exec(req.headers.authorization || '')?.[1];
     const connection = await getConnection(token);
-    if (!connection || (connection.ownerUid && connection.ownerUid !== req.identity?.uid)) throw failure(401, 'Connect your Jellyfin account to continue.');
+    if (!connection || connection.authInvalid || (connection.ownerUid && connection.ownerUid !== req.identity?.uid)) throw failure(401, 'Connect your Jellyfin account to continue.');
     return connection;
   };
   const wrap = (handler, auth = false) => async (req, res) => {
@@ -272,7 +279,7 @@ function installJellyfinAccounts(app, options = {}) {
     const result = [];
     for (const token of Array.isArray(tokens) ? tokens.slice(0, 20) : []) {
       const connection = await getConnection(token);
-      if (connection?.ownerUid === uid && connection.accountLinked && !result.some(value => value.account.serverUrl === connection.base && value.account.userId === connection.userId)) result.push({ token, account: account(connection) });
+      if (connection?.ownerUid === uid && connection.accountLinked && !result.some(value => value.account.serverUrl === connection.base && value.account.userId === connection.userId)) result.push({ token: connection.authInvalid ? null : token, account: account(connection), needsSignIn: !!connection.authInvalid });
     }
     res.json({ connections: result });
   }));
@@ -282,7 +289,10 @@ function installJellyfinAccounts(app, options = {}) {
     res.json({ account: account(connection) });
   }));
   router.post('/logout', parseJson, wrap(async (req, res) => {
-    const connection = await authenticate(req); await forget(connection);
+    const token = /^Bearer ([a-f0-9]{64})$/i.exec(req.headers.authorization || '')?.[1];
+    const connection = await getConnection(token);
+    if (!connection || connection.ownerUid !== req.identity?.uid) throw failure(401, 'Connect your Jellyfin account to continue.');
+    await forget(connection);
     for (const [key, value] of pending) if (value.result?.token === connection.token) pending.delete(key);
     try { const response = await request(connection, '/Sessions/Logout', { method: 'POST', timeoutMs: 5000 }); await response.body?.cancel(); } catch {}
     res.status(204).end();
@@ -358,11 +368,12 @@ function installJellyfinAccounts(app, options = {}) {
     res.status(error.type === 'entity.too.large' ? 413 : 400).json({ error: error.type === 'entity.too.large' ? 'The sign-in request is too large.' : 'Send a valid JSON request.' });
   });
   app.use('/api/jellyfin', router);
+  require('./jellyfinStatus').installJellyfinStatus(router, { store: shared, relay: options.relay, readLinks, getConnection, account, request, checkResponse, requireAccount, wrap });
   const cleanup = setInterval(() => {
     for (const [key, value] of limits) if (value.until <= Date.now()) limits.delete(key);
     for (const [key, value] of pending) if (value.expiresAt <= Date.now()) pending.delete(key);
     let changed = false;
-    for (const [key, connection] of connections) if (connection.lastUsed <= Date.now() - idleLifetime) { connections.delete(key); changed ||= connection.remember; }
+    for (const [key, connection] of connections) if (!connection.accountLinked && connection.lastUsed <= Date.now() - idleLifetime) { connections.delete(key); changed ||= connection.remember; }
     if (changed) scheduleSave();
   }, 60000); cleanup.unref();
   return { getConnection, request, close() { clearInterval(cleanup); if (saveTimer) save(); pending.clear(); } };

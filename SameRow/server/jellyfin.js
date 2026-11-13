@@ -243,6 +243,7 @@ function installJellyfin(app, io, accounts, options = {}) {
     if (!resolved || resolved.state.connectionToken && !await accounts?.getConnection(resolved.state.connectionToken)) { res.status(403).send('Join the room to watch this video.'); return; }
     req.jellyfin = resolved; next();
   });
+  app.get('/api/jellyfin/:accessToken/health', async (req, res) => res.set('Cache-Control', 'no-store').json(await require('./jellyfinHealth').viewerHealth(accounts, req.jellyfin.state)));
   app.get('/api/jellyfin/:accessToken/quality', async (req, res) => {
     res.set('Cache-Control', 'no-store').json(await quality.describe(req.jellyfin.viewer, req.jellyfin.state, 'original'));
   });

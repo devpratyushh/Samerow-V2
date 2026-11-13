@@ -4,18 +4,6 @@ This report supersedes the earlier baseline failures. It includes the original l
 
 ## Fixes
 
-- Library refresh no longer disables movie cards between pointer-down and click, and a library response cannot overwrite an active share operation.
-- The embedded Jellyfin player handles expected access-revoked responses from its final asynchronous session updates after disposal.
-- C# uploads use application/octet-stream. Original content types remain in relay metadata. The gateway also excludes authenticated relay uploads from JSON parsing, preserving upstream JSON and media bodies.
-- Credentials are encrypted with AES-GCM and a persistent owner-readable key. Legacy plaintext configuration migrates on load. The status API excludes credentials.
-- Pairing claims are atomic and single-use. Rotation saves a proposed encrypted token before the request and supports retry after an interrupted response.
-- The plugin restricts endpoints and HTTP methods, bounds control-message bodies, disables redirects/decompression/cookies, and preserves streaming bodies.
-- Header deadlines are cancelled once headers arrive, preventing cancellation of a long media body after the startup timeout.
-- Connector revocation aborts local queued/active work and notifies media peers through the server adapter. Accounts and ongoing media revalidate grants.
-- Explicit protocol version 1 is carried in jobs, with missing-version compatibility for existing Docker workers.
-- Personal bitrate caps of 4/8/20 Mbps are available. Original video can copy browser-supported audio without a forced stereo limit.
-- Packaging is deterministic and checksums are emitted. A plugin build/test/artifact workflow is added. Catalog generation verifies a genuinely published archive before producing a release entry.
-
 ## Executed checks
 
 | Check | Result |
@@ -57,8 +45,6 @@ From Samerow-V2, Node 24 executed:
 - client ESLint and Vite build
 - client tests/jellyfin-native.browser.mjs
 - client tests/jellyfin-plugin.browser.mjs
-
-The test Redis container was stopped after validation. Docker was started to run these checks. The local Jellyfin sandbox was stopped after the catalog installation/restart check. The original plugin DLL was backed up under jellyfin-sandbox/tmp before upgrading.
 
 ## Public catalog publication checks
 

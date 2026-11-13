@@ -193,6 +193,7 @@ function installJellyfinWeb(app, { resolveViewer, accounts, saveViewer = async (
       } finally { clearInterval(leaseCheck); clearTimeout(timeout); res.off('close', abort); viewer.requests.delete(controller); }
     };
     try {
+      if (resource === '/samerow/health' && req.method === 'GET') { res.set('Cache-Control', 'no-store').json(await require('./jellyfinHealth').viewerHealth(accounts, state)); return; }
       if (resource === '/samerow/quality' && ['GET', 'POST'].includes(req.method)) {
         if (req.method === 'POST') {
           if (!Object.hasOwn(qualityModes, requestBody.mode)) { failure(400, 'Choose a supported quality setting.'); return; }

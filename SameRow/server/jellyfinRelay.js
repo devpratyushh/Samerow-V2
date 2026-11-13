@@ -2,7 +2,6 @@ const { createHash, createHmac, randomBytes } = require('node:crypto');
 const { PassThrough, Readable } = require('node:stream');
 const { pipeline } = require('node:stream/promises');
 
-const { connectorUid, issueHostSession } = require('./connectorHost');
 const { installConnectorApproval } = require('./connectorApproval');
 
 const ROOT = '/api/jellyfin-relay';
@@ -40,22 +39,6 @@ function installJellyfinRelay(app, { config, store, identity, io }) {
     return record?.digest === hash(token) ? { id, record } : null;
   }
 
-  app.post(`${ROOT}/pair`, async (req, res) => {
-    let user;
-    try { user = await identity.verify(req.get('X-SameRow-Token')); }
-    catch { return res.sendStatus(401); }
-    if (user.connectorId || user.firebase?.sign_in_provider === 'anonymous') return res.sendStatus(403);
-    if (!await store.limit(`connector-pair:${user.uid}`, 5, 3600)) return res.sendStatus(429);
-    const id = random(16), token = `${id}.${random(32)}`;
-    await store.set(`connector:${id}`, { ownerUid: user.uid, digest: hash(token), createdAt: Date.now() }, 30 * 86400);
-    await store.update(`user-connectors:${user.uid}`, current => {
-      const list = Array.isArray(current) ? current.filter(x => x.id !== id) : [];
-      list.unshift({ id, address: `https://${id}${suffix}`, createdAt: Date.now() });
-      return list.slice(0, 20);
-    }, 30 * 86400);
-    res.set('Cache-Control', 'no-store').json({ token, address: `https://${id}${suffix}`, gateway: config.mediaOrigin });
-  });
-
   app.delete(`${ROOT}/pair/:id`, async (req, res) => {
     let user;
     const connector = await authenticate(req);
@@ -67,11 +50,12 @@ function installJellyfinRelay(app, { config, store, identity, io }) {
     if (record?.ownerUid !== user.uid) return res.sendStatus(404);
     await store.set(`connector:${id}`, null);
     await store.set(`connector-online:${id}`, null);
+    await store.set(`connector-seen:${id}`, null);
     abortConnector(id);
     if (store.client) io?.serverSideEmit('connector-revoked', id);
     await store.update(`user-connectors:${user.uid}`, current => {
       return Array.isArray(current) ? current.filter(x => x.id !== id) : [];
-    }, 30 * 86400);
+    }, 0);
     res.sendStatus(204);
   });
 
@@ -81,7 +65,7 @@ function installJellyfinRelay(app, { config, store, identity, io }) {
     const result = await store.guardedUpdate(`connector:${id}`, record, `user-connectors:${record.ownerUid}`, current => {
       const entries = Array.isArray(current) ? current : [];
       return [{ ...entries.find(entry => entry.id === id), id, address: `https://${id}${suffix}`, createdAt: record.createdAt || Date.now() }, ...entries.filter(entry => entry.id !== id)].slice(0, 20);
-    }, 30 * 86400);
+    }, 0);
     if (result) { if (indexedAt.size >= 500) indexedAt.delete(indexedAt.keys().next().value); indexedAt.set(id, Date.now()); }
   }
   app.get(`${ROOT}/connectors/:id`, async (req, res) => {
@@ -115,7 +99,7 @@ function installJellyfinRelay(app, { config, store, identity, io }) {
     if (!email && uid && identity.describe) {
       try {
         email = (await identity.describe(uid)).email || '';
-        if (email) await store.update(`connector:${connector.id}`, current => current?.ownerUid === uid ? { ...current, ownerEmail: email } : current, 30 * 86400);
+        if (email) await store.update(`connector:${connector.id}`, current => current?.ownerUid === uid ? { ...current, ownerEmail: email } : current, 0);
       } catch { /* Binding remains usable if profile lookup is unavailable. */ }
     }
     res.json({ sameRowEmail: email, jellyfinAccount: bound });
@@ -131,8 +115,9 @@ function installJellyfinRelay(app, { config, store, identity, io }) {
       for (const entry of list) {
         const record = await store.get(`connector:${entry.id}`);
         if (record && record.ownerUid === user.uid) {
+          await store.touch(`connector:${entry.id}`, 0);
           const online = Boolean(await store.get(`connector-online:${entry.id}`));
-          result.push({ ...entry, online });
+          result.push({ ...entry, online, lastSeen: await store.get(`connector-seen:${entry.id}`) });
         }
       }
     }
@@ -153,7 +138,7 @@ function installJellyfinRelay(app, { config, store, identity, io }) {
         // The proposed token is generated and saved by the connector first.
         // Retrying a lost response therefore cannot strand its credential.
         return { ...current, digest: hash(nextToken), rotatedAt: Date.now() };
-      }, 30 * 86400);
+      }, 0);
     } catch (error) {
       if (error.status === 401) return res.sendStatus(401);
       throw error;
@@ -163,44 +148,37 @@ function installJellyfinRelay(app, { config, store, identity, io }) {
 
   async function authorize(base, uid) {
     const id = connectorId(base);
-    if (uid?.startsWith('connector:') && (!id || uid !== connectorUid(id))) {
-      throw Object.assign(new Error('Use the Jellyfin library paired to this connector.'), { status: 403 });
-    }
     if (!id) return false;
     const record = await store.get(`connector:${id}`);
-    if (!record || (record.ownerUid !== uid && connectorUid(id) !== uid)) throw Object.assign(new Error('This connector is not paired to your SameRow account.'), { status: 403 });
+    if (!record || record.ownerUid !== uid) throw Object.assign(new Error('This connector is not paired to your SameRow account.'), { status: 403 });
     return true;
   }
 
   if (onMedia) {
-    app.post(`${ROOT}/host-session`, async (req, res) => {
-      const authenticated = await authenticate(req);
-      if (!authenticated) return res.sendStatus(401);
-      const { id, record } = authenticated;
-      if (!await store.limit(`connector-host-session:${id}`, 12, 60)) return res.sendStatus(429);
-      if (record.claim) await store.touch(`connector:${id}`, 30 * 86400);
-      res.set('Cache-Control', 'no-store').json(await issueHostSession(store, id));
-    });
     app.get(`${ROOT}/poll`, async (req, res) => {
       const authenticated = await authenticate(req);
       const id = authenticated?.id;
       if (!id) return res.sendStatus(401);
-      await store.set(`connector-online:${id}`, true, 60);
-      await store.touch(`connector:${id}`, 30 * 86400);
+      await store.touch(`connector:${id}`, 0);
       await ensureIndexed(id, authenticated.record);
       if (res.destroyed) return;
-      const next = queues.get(id)?.values().next().value;
-      if (next) return next.send(res);
       const available = polls.get(id) || new Set();
       if (available.size >= 8 || (!polls.has(id) && polls.size >= 500)) return res.sendStatus(429);
+      // Register before awaiting heartbeat writes so simultaneous polls share one set.
       polls.set(id, available);
       available.add(res);
-      const timeout = setTimeout(() => res.sendStatus(204), 18000);
+      const timeout = setTimeout(() => { if (!res.writableEnded) res.sendStatus(204); }, 18000);
       res.on('close', () => {
         clearTimeout(timeout);
         available.delete(res);
         if (!available.size && polls.get(id) === available) polls.delete(id);
       });
+      const now = Date.now();
+      await store.set(`connector-online:${id}`, { lastSeen: now }, 30);
+      await store.set(`connector-seen:${id}`, now, 0);
+      if (res.destroyed || res.writableEnded) return;
+      const next = queues.get(id)?.values().next().value;
+      if (next) { available.delete(res); return next.send(res); }
     });
 
     app.post(`${ROOT}/response/:job`, async (req, res) => {

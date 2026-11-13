@@ -4,11 +4,6 @@ Watch movies and YouTube together while you talk, chat, and share your screen.
 Play, pause, and seek follow the room. Everyone chooses their own volume,
 and Jellyfin viewers can choose their own audio language, subtitles, and quality.
 
-[Open SameRow](https://samerow-v2.vercel.app/) ·
-[Plugin setup](jellyfin-plugin-samerow/README.md) ·
-[Docker setup](docs/jellyfin-pilot.md) ·
-[Self-hosting](docs/production.md)
-
 ![SameRow watch room with shared video, participant tiles, and chat](docs/images/watch-room.jpg)
 
 ## Host from your home Jellyfin server
@@ -105,10 +100,6 @@ encrypted connector credential and reconnects after interruptions. Media
 access is scoped to the room, selected item, and current viewer membership.
 Guests receive playback access without receiving the owner's upstream credential.
 
-This setup works with Jellyfin on a local server through the plugin's outbound
-connection. It requires **no separate Docker connector, inbound Jellyfin port,
-or guest Jellyfin account**.
-
 ### Upload and room capacity
 
 Media is relayed separately to each viewer. Four viewers streaming at 8 Mbps
@@ -135,45 +126,12 @@ buffered viewer can receive zero bytes while playback continues. Viewer reports
 expire after 20 seconds without updates. Only current room members can request
 these stats. Credentials, upstream addresses and access tokens are excluded.
 
-These measurements use the same media gateway for direct Jellyfin, the Docker
-connector, and the native SameRow Connect plugin. Deploy matching web/server
-revisions; rebuild the local Docker image to include the panel. No plugin binary
-or connector protocol update is required. Redis shares counters when the control
-service and media gateway run separately.
+## Supported setup
 
-Camera capture requests 1920×1080 at 30 FPS, subject to device support, and stays
-independent of outgoing limits. SameRow Local uses a peer mesh. Its optional
-**Balanced upload** policy divides a 1.2 Mbps
-camera budget among receivers and lowers outgoing camera video to 320×180 from four
-participants, regardless of LAN speed. Screen sharing similarly divides a
-2.4 Mbps budget. This can cause blur even when all devices are on the same Wi-Fi.
-High quality is the default. Choose **Call quality on this device → High quality** in the stats panel
-to allow 1920×1080 cameras at up to 4 Mbps per receiver and 1920×1080 screen
-sharing at up to 6 Mbps per receiver, up to 30 FPS. Each sender chooses its own
-policy. The browser can still adapt under CPU or network pressure. With several
-peers, these per-receiver uploads add up.
-
-Jellyfin movies use their own **Quality on this device** menu. Auto, manual bitrate
-caps, shared gateway/origin limits, codec support and subtitle burn-in can cause
-conversion independently of call quality. **Original** requests source video when
-supported and within configured capacity. Connecting locally does not bypass a
-hosted gateway: use the local Docker edition for LAN delivery. Camera quality
-settings do not alter Jellyfin or YouTube movies.
-
-## Other ways to use SameRow
-
-| What you want | Setup |
-| --- | --- |
-| YouTube, calls, chat, and screen sharing | Open SameRow Web or deploy the [hosted edition](docs/production.md). |
-| A home Jellyfin server with friends online | Use [SameRow Connect](jellyfin-plugin-samerow/README.md). |
-| The existing Docker connector workflow | Follow the [hosted Jellyfin pilot guide](docs/jellyfin-pilot.md). |
-| Everyone watching on the same home network | Run [SameRow Local](docs/local-edition.md) with Docker Compose. |
-| Work on the code | Follow [local development](#local-development). |
-
-The Docker connector remains supported. In SameRow Local, select
-**Host for friends online**, approve the connection in your browser, then
-share the full room invitation. The [Docker guide](docs/jellyfin-pilot.md)
-covers installation and pairing.
+Use [SameRow Connect](jellyfin-plugin-samerow/README.md) for a home Jellyfin
+library. Open SameRow Web for watch rooms, calls, chat, and screen sharing.
+See [hosted deployment](docs/production.md) or [local development](#local-development)
+when running the application from source.
 
 ## Join a room
 
@@ -188,21 +146,6 @@ The lobby generates a four-letter code when you start a room.
 Read the [movie delivery and quality guide](docs/media-architecture.md) for public
 Jellyfin and plugin paths, the media gateway, four-viewer bandwidth, quality
 selection, synchronization, and local blur troubleshooting.
-
-| Component | Role |
-| --- | --- |
-| React and Vite | Lobby, room layout, library browsing, player controls, and chat |
-| Node.js, Express, and Socket.IO | Room admission, signaling, shared playback state, and chat |
-| Redis | Shared state, membership leases, rate limits, and encrypted Jellyfin connection records |
-| Firebase | Hosted Google and guest authentication, plus Firestore chat history |
-| LiveKit | Hosted camera, microphone, and screen tracks |
-| Jellyfin media gateway | Scoped access to library APIs and media |
-| SameRow Connect | Native C# plugin using Jellyfin's APIs and existing media engine |
-| Docker connector | Alternate outbound relay for existing installations |
-
-Hosted deployments use a LiveKit SFU. SameRow Local uses a small WebRTC peer
-mesh. YouTube viewers load video from YouTube and receive the shared timeline
-from SameRow.
 
 Clients correct playback drift locally. Rejoining tabs refresh their room
 access and can reclaim a seat in a full room. Movie delivery uses the media
@@ -254,15 +197,6 @@ credential backup, rotation, updates, troubleshooting, and uninstallation.
 
 Deploy matching frontend and backend revisions before using the plugin with
 the hosted service.
-
-- **Hosted services.** [render.yaml](render.yaml) defines the control service,
-  media gateway, and Redis. Vercel builds from `SameRow/client` using
-  [vercel.json](SameRow/client/vercel.json).
-- **Jellyfin relay.** Enable `JELLYFIN_RELAY_ENABLED=true` on both hosted services
-  and keep one media replica. The plugin and Docker connector use the same relay.
-- **SameRow Local.** [Dockerfile.local](Dockerfile.local) builds the UI and
-  server into one image. [compose.local.yaml](compose.local.yaml) stores
-  remembered connections in a Docker volume.
 
 Follow the [production runbook](docs/production.md) for Firebase, LiveKit,
 Redis, origins, readiness, and deployment recovery.
@@ -321,17 +255,21 @@ and uploads the plugin artifact.
 
 ## Repository layout
 
-| Path | Contents |
-| --- | --- |
-| [SameRow/client](SameRow/client) | React frontend and browser tests |
-| [SameRow/server](SameRow/server) | Room service, gateway, authentication, and Docker connector |
-| [jellyfin-plugin-samerow](jellyfin-plugin-samerow) | Plugin source, dashboard settings, packaging, and installation guide |
-| [jellyfin-plugin-samerow.tests](jellyfin-plugin-samerow.tests) | Plugin tests and local relay integration harness |
-| [docs](docs) | Local setup, hosted pilot guide, and production runbook |
-| [firestore.rules](firestore.rules) | Firebase chat access rules |
-
 ## License and release status
 
 The SameRow web application and backend use an [All Rights Reserved license](LICENSE). **SameRow Connect and its build/test files are GPL-3.0-or-later**; see the [plugin license](jellyfin-plugin-samerow/LICENSE) and [scope](jellyfin-plugin-samerow/LICENSING.md).
 
 The plugin is a public beta for Jellyfin 12.3. Local and CI verification passed; full hosted approval and playback across separate networks with three guests still require acceptance testing. The published catalog points to a verified GitHub Release ZIP and its matching source.
+
+## Jellyfin availability and saved accounts
+
+Use the SameRow Connect Jellyfin plugin to pair your server, then authorize your
+Jellyfin user with your signed-in SameRow account. Sign into the same account on
+another device to restore the library, including from another network.
+
+The dashboard distinguishes Ready, Offline, Reconnecting, Sign-in required,
+Jellyfin unavailable, and Status unavailable. It shows each server and Jellyfin
+user, the bound account, and when the server was last reached. Set a default if
+you have multiple servers. Binding survives shutdowns and inactivity; explicitly
+disconnect it to remove access. Lost device connectivity does not mark the home
+server offline. Playback retains the room timeline while reconnecting.
