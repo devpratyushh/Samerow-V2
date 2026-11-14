@@ -54,6 +54,7 @@ public static class Program
         await RunTestAsync("Relay Protocol: Range request with 206 Partial Content and binary body", () => TestRelayRangeRequestStreaming(false));
         await RunTestAsync("Relay Protocol: JSON is carried as opaque bytes", () => TestRelayRangeRequestStreaming(true));
         await RunTestAsync("Relay Lifecycle: 401 Unauthorized enters AuthFailed state", TestRelayAuthFailure);
+        await RunTestAsync("Relay lifecycle: a healthy poll keeps the connector online during worker failures", TestRelayWorkerFailures);
         await RunTestAsync("Relay lifecycle: duplicate start and disposal are safe", TestDuplicateLifecycle);
         await RunTestAsync("Controller: Pairing flow (Start, Claim, Status, Disconnect)", TestControllerPairingWorkflow);
         await RunTestAsync("Controller: Settings update and friendly name persistence", TestControllerSettings);
@@ -341,6 +342,52 @@ public static class Program
 
         AssertEqual(ConnectorConnectionState.AuthenticationFailed, observedState, "Service state must be AuthenticationFailed upon 401");
         Assert(!string.IsNullOrEmpty(observedError), "LastError should explain auth failure");
+    }
+
+    private static async Task TestRelayWorkerFailures()
+    {
+        InitMockPlugin("https://cloud.example.com", "0123456789abcdef0123456789abcdef.invalid");
+        Plugin.Instance!.Configuration.WorkerCount = 3;
+        var upload = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var refusedPoll = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        int polls = 0;
+        var handler = new MockHttpMessageHandler(async request =>
+        {
+            if (request.Method == HttpMethod.Post)
+            {
+                upload.SetResult();
+                return new HttpResponseMessage(HttpStatusCode.NotFound);
+            }
+            int poll = Interlocked.Increment(ref polls);
+            if (poll == 1) return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = JsonContent.Create(new { job = new string('a', 32), method = "GET", resource = "/System/Info/Public" })
+            };
+            await upload.Task.WaitAsync(TimeSpan.FromSeconds(2));
+            if (poll == 2)
+            {
+                refusedPoll.SetResult();
+                return new HttpResponseMessage(HttpStatusCode.TooManyRequests);
+            }
+            await Task.Delay(400);
+            return new HttpResponseMessage(HttpStatusCode.ServiceUnavailable);
+        });
+        var factory = new MockHttpClientFactory(new Dictionary<string, HttpMessageHandler>
+        {
+            { "SameRowCloud", handler },
+            { "SameRowLoopback", new MockHttpMessageHandler(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK))) }
+        });
+        var host = DuckProxy.Create<IServerApplicationHost>(p => p.Returns["get_HttpPort"] = 8096);
+        using var service = new SameRowConnectorService(host, factory, NullLogger<SameRowConnectorService>.Instance);
+        await service.StartAsync(CancellationToken.None);
+        try
+        {
+            await refusedPoll.Task.WaitAsync(TimeSpan.FromSeconds(2));
+            await Task.Delay(550);
+            AssertEqual(ConnectorConnectionState.Connected, service.State, "Recent successful poll keeps the relay connected");
+            AssertEqual<string?>(null, service.LastError, "Individual worker failures are not connection errors");
+        }
+        finally { await service.StopAsync(CancellationToken.None); }
     }
 
     private static async Task TestDuplicateLifecycle()

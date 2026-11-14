@@ -39,6 +39,7 @@ public enum ConnectorConnectionState
 public class SameRowConnectorService : IHostedService, IDisposable
 {
     private const string RelayPath = "/api/jellyfin-relay";
+    private static readonly TimeSpan PollHealthWindow = TimeSpan.FromSeconds(30);
     private static readonly string[] AllowedResponseHeaders = new[]
     {
         "content-type",
@@ -55,7 +56,8 @@ public class SameRowConnectorService : IHostedService, IDisposable
     private CancellationTokenSource _cts = new();
     private bool _stopped;
     private int _disposed;
-    private int _reportedConnected;
+    private readonly object _pollHealthLock = new();
+    private long? _lastSuccessfulPoll;
 
     private readonly List<Task> _workers = new();
     private readonly SemaphoreSlim _stateLock = new(1, 1);
@@ -103,7 +105,7 @@ public class SameRowConnectorService : IHostedService, IDisposable
         try
         {
             _stopped = true;
-            State = ConnectorConnectionState.Stopped;
+            lock (_pollHealthLock) State = ConnectorConnectionState.Stopped;
             _cts.Cancel();
 
             try
@@ -136,7 +138,7 @@ public class SameRowConnectorService : IHostedService, IDisposable
             _cts.Dispose();
             _cts = new CancellationTokenSource();
             LastError = null;
-            Interlocked.Exchange(ref _reportedConnected, 0);
+            _lastSuccessfulPoll = null;
 
             var config = Plugin.Instance?.Configuration;
             if (config != null && config.IsPaired)
@@ -274,6 +276,13 @@ public class SameRowConnectorService : IHostedService, IDisposable
                     await ProcessJobAsync(job, config, stoppingToken).ConfigureAwait(false);
                     Interlocked.Increment(ref _totalJobsHandled);
                 }
+                catch (Exception ex) when (!stoppingToken.IsCancellationRequested)
+                {
+                    // A viewer can cancel a job while its response is being uploaded.
+                    // The authenticated poll still confirms that the relay is reachable.
+                    _logger.LogDebug("Relay job on worker {Index} failed ({ErrorType}, HTTP {Status}).",
+                        workerIndex, ex.GetType().Name, (ex as HttpRequestException)?.StatusCode);
+                }
                 finally
                 {
                     Interlocked.Decrement(ref _activeJobCount);
@@ -285,24 +294,26 @@ public class SameRowConnectorService : IHostedService, IDisposable
             }
             catch (HttpRequestException ex) when (ex.StatusCode == HttpStatusCode.Unauthorized)
             {
-                State = ConnectorConnectionState.AuthenticationFailed;
-                LastError = "Authentication failed: Connector token was revoked or expired. Please re-pair from the Jellyfin dashboard.";
+                lock (_pollHealthLock)
+                {
+                    if (State == ConnectorConnectionState.Stopped) break;
+                    State = ConnectorConnectionState.AuthenticationFailed;
+                    LastError = "Authentication failed: Connector token was revoked or expired. Please re-pair from the Jellyfin dashboard.";
+                }
                 _logger.LogWarning("SameRow Cloud rejected connector token (401). Worker {Index} backing off.", workerIndex);
                 break; // A new pairing explicitly restarts workers; a revoked token cannot recover by polling.
             }
             catch (HttpRequestException ex) when (ex.StatusCode == HttpStatusCode.TooManyRequests)
             {
-                _logger.LogWarning("SameRow Cloud returned 429 Too Many Requests. Worker {Index} backing off.", workerIndex);
+                _logger.LogDebug("SameRow Cloud returned 429 Too Many Requests. Worker {Index} backing off.", workerIndex);
                 failureCount++;
-                State = ConnectorConnectionState.Reconnecting;
-                LastError = "The gateway is busy. Retrying automatically.";
+                ReportPollFailure("The gateway is busy. Retrying automatically.", ex);
                 await Task.Delay(Math.Min(30000, 5000 * Math.Min(failureCount, 6)) + rnd.Next(1000, 4000), stoppingToken).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
                 failureCount++;
-                State = ConnectorConnectionState.Reconnecting;
-                LastError = "The relay connection was interrupted. Reconnecting automatically.";
+                ReportPollFailure("The relay connection was interrupted. Reconnecting automatically.", ex);
                 int delayMs = Math.Min(30000, (int)Math.Pow(2, Math.Min(failureCount, 5)) * 1000) + rnd.Next(500, 2000);
                 _logger.LogDebug(ex, "Worker {Index} encountered error. Backing off for {Delay}ms", workerIndex, delayMs);
                 await Task.Delay(delayMs, stoppingToken).ConfigureAwait(false);
@@ -312,12 +323,33 @@ public class SameRowConnectorService : IHostedService, IDisposable
 
     private void ReportConnected()
     {
-        State = ConnectorConnectionState.Connected;
-        LastError = null;
-        if (Interlocked.Exchange(ref _reportedConnected, 1) == 0)
+        lock (_pollHealthLock)
         {
-            LastConnectedAt = DateTime.UtcNow;
-            _logger.LogInformation("SameRow relay connection established: gateway accepted an authenticated poll.");
+            if (State is ConnectorConnectionState.AuthenticationFailed or ConnectorConnectionState.Stopped) return;
+            _lastSuccessfulPoll = Stopwatch.GetTimestamp();
+            if (State != ConnectorConnectionState.Connected)
+            {
+                LastConnectedAt = DateTime.UtcNow;
+                _logger.LogInformation("SameRow relay connection established: gateway accepted an authenticated poll.");
+            }
+            LastError = null;
+            State = ConnectorConnectionState.Connected;
+        }
+    }
+
+    private void ReportPollFailure(string message, Exception exception)
+    {
+        lock (_pollHealthLock)
+        {
+            if (State is ConnectorConnectionState.AuthenticationFailed or ConnectorConnectionState.Stopped) return;
+            if (_lastSuccessfulPoll is long lastPoll && Stopwatch.GetElapsedTime(lastPoll) < PollHealthWindow) return;
+            if (State != ConnectorConnectionState.Reconnecting)
+            {
+                _logger.LogWarning("SameRow relay polls are failing ({ErrorType}, HTTP {Status}). Retrying automatically.",
+                    exception.GetType().Name, (exception as HttpRequestException)?.StatusCode);
+            }
+            LastError = message;
+            State = ConnectorConnectionState.Reconnecting;
         }
     }
 
@@ -329,7 +361,7 @@ public class SameRowConnectorService : IHostedService, IDisposable
         using var request = new HttpRequestMessage(HttpMethod.Get, gateway);
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", config.ConnectorToken);
 
-        // 25-second poll timeout matches SameRow relay gateway expectation
+        // Allow for the gateway's 18-second hold plus network latency.
         using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         linkedCts.CancelAfter(TimeSpan.FromSeconds(28));
 
