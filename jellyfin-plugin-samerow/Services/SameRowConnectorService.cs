@@ -161,7 +161,7 @@ public class SameRowConnectorService : IHostedService, IDisposable
         State = ConnectorConnectionState.Connecting;
 
         var generationToken = _cts.Token;
-        if (Environment.GetEnvironmentVariable("SAMEROW_DIRECT_ENABLED") == "true")
+        if (!string.Equals(Environment.GetEnvironmentVariable("SAMEROW_DIRECT_ENABLED"), "false", StringComparison.OrdinalIgnoreCase))
         {
             _workers.Add(Task.Run(() => RunDirectSenderAsync(config, generationToken)));
         }

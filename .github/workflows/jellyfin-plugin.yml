@@ -76,7 +76,7 @@ jobs:
         with:
           name: SameRow-Connect
           path: dist
-      - name: Publish the opt-in plugin and corresponding source
+      - name: Publish the plugin and corresponding source
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -85,5 +85,5 @@ jobs:
           git archive --format=tar.gz --prefix="SameRow-Connect-$version/" -o "dist/$source" HEAD \
             jellyfin-plugin-samerow jellyfin-plugin-samerow.tests .github/workflows/jellyfin-plugin.yml
           (cd dist && sha256sum "$source" > "$source.sha256")
-          gh release create "$GITHUB_REF_NAME" --verify-tag --prerelease --title "SameRow Connect $version (V3 pilot)" \
-            --notes 'Opt-in WebRTC pilot. Install manually and set SAMEROW_DIRECT_ENABLED=true on the Jellyfin service. The existing HTTPS relay remains available.' dist/*
+          gh release create "$GITHUB_REF_NAME" --verify-tag --prerelease --title "SameRow Connect $version (beta)" \
+            --notes 'Direct WebRTC starts automatically on paired Jellyfin servers. Upgrade the plugin and restart Jellyfin. Playback falls back to HTTPS when direct delivery is unavailable.' dist/*

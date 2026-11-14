@@ -44,10 +44,11 @@ Browser support for HLS.js and its Media Source path determines eligibility.
    process architecture is next to `SameRow.Plugin.dll`. The package includes
    the sender dependency notices. Keep the `sender/` directory and Go module
    lock files in the corresponding source release.
-2. Set `SAMEROW_DIRECT_ENABLED=true` on the Jellyfin service and restart
-   Jellyfin. Existing pairing is sufficient. Set `JELLYFIN_DIRECT_ENABLED=true`
-   on the control and media services together. Keep `JELLYFIN_RELAY_ENABLED`
-   and the existing shared Redis and media origin configured.
+2. Restart Jellyfin after updating the plugin to 1.0.4.0 or newer. The sender
+   starts automatically on a paired server. Operators of the SameRow backend
+   enable `JELLYFIN_DIRECT_ENABLED=true` on the control and media services
+   together and keep `JELLYFIN_RELAY_ENABLED`, shared Redis and the media
+   origin configured.
 3. Leave outbound UDP enabled for ICE and media. Optional comma-separated
    STUN origins can be configured with `SAMEROW_DIRECT_STUN` on Jellyfin and
    `VITE_JELLYFIN_DIRECT_STUN` at web build time. A restrictive network can
@@ -57,8 +58,9 @@ Browser support for HLS.js and its Media Source path determines eligibility.
    delivery when it is exhausted. Zero disables the threshold. It counts
    gateway movie response payloads, so allow separately for connector ingress,
    manifests, other requests and platform billing overhead.
-5. To roll back, turn off the flags on control, media and Jellyfin and restart
-   those services. Keep the account binding intact.
+5. To disable direct playback globally, turn off `JELLYFIN_DIRECT_ENABLED`
+   on control and media and redeploy both services. To disable the sender on
+   one Jellyfin server, set `SAMEROW_DIRECT_ENABLED=false` and restart Jellyfin.
 
 The channel is the playback generation. The selected movie, authenticated
 browser socket and connector credential bind it during signaling. Request
@@ -101,6 +103,3 @@ with decoded playback, byte-range integrity and simulated fallback. In
 Playwright Firefox, the same fixture delivered and buffered HLS resources
 over both WebRTC and HTTPS but produced no decoded frames. Firefox playback
 requires further verification on a regular desktop Firefox installation.
-
-The V3 pilot plugin is released separately from catalog updates. Install
-version 1.0.3.0 manually for the opt-in test.

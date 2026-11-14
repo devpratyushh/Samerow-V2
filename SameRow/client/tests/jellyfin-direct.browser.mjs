@@ -83,8 +83,9 @@ const relayWorker = async () => {
 };
 const pluginHarness = process.env.SAMEROW_PLUGIN_TEST_DLL;
 const workers = pluginHarness ? null : Promise.allSettled(Array.from({ length: 3 }, () => relayWorker()));
+const { SAMEROW_DIRECT_ENABLED: _, ...pluginEnv } = process.env;
 const sender = pluginHarness ? spawn(process.env.DOTNET_PATH || 'dotnet', [pluginHarness, '--relay'], {
-  env: { ...process.env, SAMEROW_DIRECT_ENABLED: 'true', SAMEROW_TEST_GATEWAY: mediaOrigin,
+  env: { ...pluginEnv, SAMEROW_TEST_GATEWAY: mediaOrigin,
     SAMEROW_TEST_CONNECTOR: connectorToken, SAMEROW_TEST_JELLYFIN: fixture.url },
   stdio: ['ignore', 'ignore', 'inherit'],
 }) : spawn(senderPath, { stdio: ['pipe', 'inherit', 'inherit'] });
