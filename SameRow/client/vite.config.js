@@ -8,6 +8,7 @@ export default defineConfig({
   ],
   server: {
     host: true, // Expose to network
+    headers: { 'Permissions-Policy': 'picture-in-picture=()' },
     proxy: {
       '/socket.io': {
         target: 'http://localhost:3000',
@@ -16,5 +17,8 @@ export default defineConfig({
       },
       '/api': 'http://localhost:3000'
     }
+  },
+  preview: {
+    headers: { 'Permissions-Policy': 'picture-in-picture=()' }
   }
 })

@@ -1,6 +1,6 @@
 # SameRow
 
-Watch movies and YouTube together while you talk, chat, and share your screen.
+Watch movies and YouTube together while you talk and share your screen.
 Play, pause, and seek follow the room. Everyone chooses their own volume,
 and Jellyfin viewers can choose their own audio language, subtitles, and quality.
 
@@ -39,10 +39,13 @@ https://raw.githubusercontent.com/devpratyushh/Samerow-V2/main/jellyfin-plugin-s
 6. Browse your library and select a movie.
 7. Use **Invite friends** and send the full invitation link.
 
-Friends open the invitation, enter their names, and join. The hosted Jellyfin
-pilot supports **one host and up to three guests**. Guests can join with their
-camera and microphone off and receive access to the selected movie through
-the room.
+Friends open the invitation, sign in with Google or GitHub, and request to join.
+The host must approve each member before they can access room content
+or calls. Anonymous guest access is disabled. Leaving and joining again requires
+fresh approval; reconnecting after a network interruption retains approval.
+The hosted Jellyfin pilot supports **one host and up to three members**. Members
+can join with their camera and microphone off and receive access to the selected
+movie through the room.
 
 Your home server, Jellyfin, and internet connection must stay running during
 the party. Once pairing is complete, you can close Jellyfin's dashboard.
@@ -92,7 +95,7 @@ flowchart LR
     Plugin <-->|Local Jellyfin API| Jellyfin
     Plugin <-->|Outbound HTTPS relay| Gateway
     Browser <-->|Library requests and binary video| Gateway
-    Browser <-->|Play, pause, seek and chat| Control
+    Browser <-->|Play, pause and seek| Control
 ```
 
 Pairing links the server to the owner's SameRow account. The plugin stores an
@@ -129,7 +132,7 @@ these stats. Credentials, upstream addresses and access tokens are excluded.
 ## Supported setup
 
 Use [SameRow Connect](jellyfin-plugin-samerow/README.md) for a home Jellyfin
-library. Open SameRow Web for watch rooms, calls, chat, and screen sharing.
+library. Open SameRow Web for watch rooms, calls, and screen sharing.
 See [hosted deployment](docs/production.md) or [local development](#local-development)
 when running the application from source.
 

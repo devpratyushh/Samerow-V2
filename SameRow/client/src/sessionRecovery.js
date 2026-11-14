@@ -9,7 +9,7 @@ export function maintainSession({ socket, getToken, onError, retryDelay = attemp
       const token = await getToken();
       if (disposed) return;
       if (!token) throw Error('Sign in again to reconnect.');
-      socket.auth = { token, ...(socket.clientId ? { clientId: socket.clientId } : {}) };
+      socket.auth = { ...socket.auth, token, ...(socket.clientId ? { clientId: socket.clientId } : {}) };
       if (socket.connected) {
         await new Promise((resolve, reject) => socket.timeout(10000).emit('auth-refresh', token, (error, reply) => error || reply?.error ? reject(Error('Sign-in refresh interrupted. Retrying…')) : resolve()));
       } else socket.connect();

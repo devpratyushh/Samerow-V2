@@ -20,7 +20,17 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
     for (let i = 0; i < count; i++) {
       const socket = io(target, { transports: ['websocket'], auth: { token: localIdentities ? `dev:load-${i}` : tokens[i] }, forceNew: true, reconnection: false }); sockets.push(socket);
       await new Promise((resolve, reject) => { socket.once('connect', resolve); socket.once('connect_error', reject); });
-      await acknowledge(socket, 'join-room', `load-${Math.floor(start)}-${Math.floor(i / roomSize)}`, `Load ${i}`);
+      const roomId = `load-${Math.floor(start)}-${Math.floor(i / roomSize)}`;
+      let reply = await acknowledge(socket, 'join-room', roomId, `Load ${i}`);
+      if (reply.pending) {
+        const host = sockets[Math.floor(i / roomSize) * roomSize];
+        const { requests } = await acknowledge(host, 'room-requests', roomId);
+        const request = requests.find(value => value.name === `Load ${i}`);
+        if (!request) throw Error('Missing join request');
+        await acknowledge(host, 'room-request-answer', roomId, request.id, true);
+        reply = await acknowledge(socket, 'join-room', roomId, `Load ${i}`);
+      }
+      if (!reply.ok) throw Error('Room admission was not confirmed');
       // Stagger connection attempts instead of triggering the anti-abuse burst limit.
       await delay(550);
     }

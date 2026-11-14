@@ -8,7 +8,6 @@ import YouTubePlayer from './YouTubePlayer';
 import { parseYouTubeUrl } from './youtube';
 import { preloadYouTube } from './youtubePreload';
 import { connectYouTubeRoom } from './youtubeRoom';
-import Chat from './Chat';
 import JellyfinNativePlayer from './JellyfinNativePlayer';
 import JellyfinPlayer from './JellyfinPlayer';
 
@@ -17,6 +16,7 @@ import { useJellyfinRoom } from './jellyfinRoom';
 import { tunePeer } from './peerQuality';
 import RoomView from './components/RoomView';
 import Dialog from './components/Dialog';
+import RoomAdmission from './components/RoomAdmission';
 import NerdStats from './components/NerdStats';
 const PEER_CONFIG = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:global.stun.twilio.com:3478' }] };
 
@@ -60,6 +60,12 @@ export default function Room({ socket, roomId, roomInvite, inviteOrigin, jellyfi
   const [videoOff, setVideoOff] = useState(initialVideoOff);
   const [peerStates, setPeerStates] = useState({});
   const [connected, setConnected] = useState(false);
+  const [isOwner, setIsOwner] = useState(socket.roomConfig?.isOwner === true);
+  const [admission, setAdmission] = useState(socket.roomConfig?.pending ? 'Waiting for the host to accept your request.' : '');
+  const [preparation, setPreparation] = useState(null);
+  const [joinStatus, setJoinStatus] = useState(null);
+  const [hasJoined, setHasJoined] = useState(false);
+  const confirmPlayback = useRef(null);
   const [mediaMode, setMediaMode] = useState(socket.roomConfig?.mediaMode || null);
   const groupCallRef = useRef(null);
   const [callQuality, setCallQuality] = useState('high');
@@ -70,14 +76,14 @@ export default function Room({ socket, roomId, roomInvite, inviteOrigin, jellyfi
   const [urlError, setUrlError] = useState('');
   const [showShare, setShowShare] = useState(false);
   const [showUrlInput, setShowUrlInput] = useState(false);
-  const [showChat, setShowChat] = useState(false);
-  const [unread, setUnread] = useState(0);
   const [notification, setNotification] = useState('');
   const toastTimer = useRef(null);
   const [myScreenStream, setMyScreenStream] = useState(null);
   const screenStreamRef = useRef(null);
   const [showJellyfinInput, setShowJellyfinInput] = useState(false);
-  const jellyfin = useJellyfinRoom(socket, roomId);
+  const jellyfin = useJellyfinRoom(socket, roomId, preparation?.mediaBase, state => {
+    if (!state) confirmPlayback.current?.({});
+  });
   const notify = (message) => {
     clearTimeout(toastTimer.current); setNotification(message);
     toastTimer.current = setTimeout(() => setNotification(''), 5000);
@@ -114,7 +120,7 @@ export default function Room({ socket, roomId, roomInvite, inviteOrigin, jellyfi
     socket.emit('update-user-state', { roomId, type: 'video', enabled: !videoOff });
   });
   const onSignal = useEffectEvent(payload => {
-    if (mediaMode !== 'mesh' || payload.from === socket.id) return;
+    if ((socket.roomConfig?.mediaMode || mediaMode) !== 'mesh' || payload.from === socket.id) return;
     const screen = !!payload.isScreenShare;
     const existing = peersRef.current.find(person => person.peerID === payload.from && person.isScreenShare === screen && (
       !screen || person.screenOwner === (payload.screenOwner || payload.from) ||
@@ -124,12 +130,28 @@ export default function Room({ socket, roomId, roomInvite, inviteOrigin, jellyfi
     else if (payload.signal.type === 'offer') addConnection(payload.from, payload.userName, activeStream, screen, payload.signal, false, screen ? payload.screenOwner || payload.from : null);
   });
   const onRoomReady = useEffectEvent(reply => {
-    setMediaMode(reply.mediaMode); setConnected(true);
+    confirmPlayback.current = null;
+    setPreparation(null); setJoinStatus(null); setHasJoined(true);
+    setMediaMode(reply.mediaMode); setConnected(true); setIsOwner(reply.isOwner === true); setAdmission('');
+    jellyfin.sync();
     socket.emit('sync-request', roomId);
     socket.emit('room-joined');
     socket.emit('update-user-state', { roomId, type: 'audio', enabled: !muted });
     socket.emit('update-user-state', { roomId, type: 'video', enabled: !videoOff });
   });
+  const onPreparing = useEffectEvent((reply, confirm) => {
+    confirmPlayback.current = confirm;
+    setPreparation(reply);
+    setAdmission('The host accepted. Loading shared playback and matching the room position…');
+    jellyfin.sync();
+  });
+  const onJoinStatus = status => {
+    if (status.phase === 'ready') {
+      const { sessionId, revision, accessToken } = status.state;
+      confirmPlayback.current?.({ sessionId, revision, accessToken });
+    }
+    else setJoinStatus(status);
+  };
 
   useEffect(() => {
     const room = connectYouTubeRoom({
@@ -163,7 +185,17 @@ export default function Room({ socket, roomId, roomInvite, inviteOrigin, jellyfi
     socket.on('disconnect', disconnected);
     socket.on('user-connected', userConnected); socket.on('user-disconnected', userDisconnected); socket.on('signal', signal); socket.on('user-state-updated', stateUpdated);
     const stopMembership = maintainRoomMembership({ socket, roomId, userName, invite: roomInvite,
-      onReady: reply => onRoomReady(reply), onWaiting: () => setConnected(false), onError: message => notify(message),
+      onReady: reply => onRoomReady(reply),
+      onWaiting: () => {
+        confirmPlayback.current = null;
+        setPreparation(null); setJoinStatus(null); setConnected(false);
+      },
+      onPending: () => setAdmission('Waiting for the host to accept your request.'),
+      onPreparing: (reply, confirm) => onPreparing(reply, confirm),
+      onError: message => {
+        confirmPlayback.current = null;
+        setPreparation(null); setJoinStatus(null); setAdmission(message); notify(message);
+      },
     });
     return () => {
       clearTimeout(toastTimer.current);
@@ -265,11 +297,12 @@ export default function Room({ socket, roomId, roomInvite, inviteOrigin, jellyfi
   const participants = [{ id: 'self', name: userName, stream: activeStream, muted: muted || !userStream, videoOff: videoOff || !userStream, isSelf: true }, ...peers.filter(person => !person.isScreenShare).map(person => ({ id: person.peerID, name: person.userName, stream: person.stream, sfuTracks: person.sfuTracks, muted: person.sfu ? person.muted : peerStates[person.peerID]?.audio === false, videoOff: person.sfu ? person.videoOff : peerStates[person.peerID]?.video === false }))];
   const screenShares = [...(myScreenStream ? [{ id: 'screen-self', name: userName, stream: myScreenStream, isSelf: true }] : []), ...peers.filter(person => person.isScreenShare && !person.outgoingScreen).map(person => ({ id: `screen-${person.peerID}`, name: person.userName, stream: person.stream, sfuTracks: person.sfuTracks }))];
 
+  const playable = Boolean(jellyfin.state && (hasJoined || preparation));
   return <>
-    <RoomView roomId={roomId} userName={userName} connected={connected} participants={participants} screenShares={screenShares} muted={muted} videoOff={videoOff} onToggleMute={toggleMute} onToggleVideo={toggleVideo} onShare={() => setShowShare(true)} onLeave={leaveRoom} onInvite={invite} onStopScreen={stopScreenShare} notification={notification} chatOpen={showChat} onChatToggle={socket.legacyRooms ? undefined : () => setShowChat(value => !value)} unread={unread}
-      chat={socket.legacyRooms ? null : <Chat socket={socket} roomId={roomId} userName={userName} open={showChat} onClose={() => setShowChat(false)} onUnreadChange={setUnread} />}
+    <RoomAdmission socket={socket} roomId={roomId} isOwner={isOwner} connected={connected} waiting={admission} preparing={Boolean(preparation)} playbackStatus={joinStatus} onLeave={leaveRoom} />
+    <RoomView roomId={roomId} userName={userName} connected={connected} participants={participants} screenShares={screenShares} muted={muted} videoOff={videoOff} onToggleMute={toggleMute} onToggleVideo={toggleVideo} onShare={() => setShowShare(true)} onLeave={leaveRoom} onInvite={invite} onStopScreen={stopScreenShare} notification={notification}
       youtube={{ active: Boolean(youtubeState?.url), node: focused => youtubeState?.url ? <YouTubePlayer key={youtubeState.sessionId} state={youtubeState} socket={socket} roomId={roomId} focused={focused} onClose={() => youtubeRoomRef.current.close()} /> : null }}
-      jellyfin={{ active: Boolean(jellyfin.state), node: focused => jellyfin.state ? <RoomJellyfinPlayer key={jellyfin.state.sessionId} state={jellyfin.state} base={jellyfin.base} command={jellyfin.command} connected={connected} focused={focused} onPlaybackStats={stats => { if (socket.connected && stats) socket.emit('jellyfin-playback-stats', { roomId, sessionId: jellyfin.state.sessionId, stats }); }} onBrowse={jellyfin.state.native ? () => setShowJellyfinInput(true) : undefined} /> : null }}
+      jellyfin={{ active: playable, node: focused => playable ? <RoomJellyfinPlayer key={jellyfin.state.sessionId} state={jellyfin.state} base={jellyfin.base} command={connected ? jellyfin.command : undefined} connected={connected || Boolean(preparation)} focused={hasJoined && focused && !preparation} onJoinStatus={preparation ? onJoinStatus : undefined} onPlaybackStats={stats => { if (connected && socket.connected && stats) socket.emit('jellyfin-playback-stats', { roomId, sessionId: jellyfin.state.sessionId, stats }); }} onBrowse={connected && jellyfin.state.native ? () => setShowJellyfinInput(true) : undefined} /> : null }}
       diagnostics={() => <NerdStats socket={socket} roomId={roomId} mediaMode={mediaMode} peersRef={peersRef} groupCallRef={groupCallRef} localStream={activeStream} qualityMode={callQuality} onQualityChange={setCallQuality} />} />
     <Dialog open={showShare} title="Share with the room" description="Choose what to share." onClose={() => setShowShare(false)}><div className="room-share-options"><button onClick={myScreenStream ? () => { stopScreenShare(); setShowShare(false); } : startScreenShare}><FaDesktop /><span><strong>{myScreenStream ? 'Stop sharing your screen' : 'Your screen'}</strong><small>Share a tab, an app, or your desktop.</small></span></button><button onPointerEnter={preloadYouTube} onFocus={preloadYouTube} onClick={() => { preloadYouTube(); setShowShare(false); setShowUrlInput(true); }}><FaYoutube /><span><strong>A YouTube video</strong><small>Watch a video together.</small></span></button>{!socket.legacyRooms && <button onClick={() => { setShowShare(false); setShowJellyfinInput(true); }}><FaPlayCircle /><span><strong>Your Jellyfin library</strong><small>Stream a video from your server.</small></span></button>}</div></Dialog>
     <Dialog open={showUrlInput} title="Share a YouTube video" description="Paste a YouTube link. Playback controls are shared with the room." onClose={() => setShowUrlInput(false)}><form onSubmit={submitUrl}><label className="room-field">YouTube video link<input type="url" data-autofocus disabled={isSubmittingUrl} placeholder="https://youtube.com/watch?v=…" value={inputUrl} onChange={event => { setInputUrl(event.target.value); setUrlError(''); }} aria-describedby={urlError ? 'youtube-url-error' : undefined} required /></label>{urlError && <p id="youtube-url-error" className="room-field-error" role="alert">{urlError}</p>}<button className="sr-button sr-button--primary" type="submit" disabled={!inputUrl.trim() || !connected || isSubmittingUrl}>{isSubmittingUrl ? 'Opening video…' : 'Watch together'}</button></form></Dialog>

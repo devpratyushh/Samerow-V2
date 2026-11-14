@@ -19,7 +19,7 @@ const next = (socket, event) => new Promise((resolve, reject) => {
   socket.once(event, receive);
 });
 async function start(t, options = {}) {
-  const application = createApplication({ config: config(options.config), store: options.store || new MemoryStore(), identity, mediaService: options.mediaService });
+  const application = createApplication({ config: config(options.config), store: options.store || new MemoryStore(), identity: options.identity || identity, mediaService: options.mediaService });
   await application.ready;
   await new Promise(resolve => application.server.listen(0, '127.0.0.1', resolve));
   application.url = `http://127.0.0.1:${application.server.address().port}`;
@@ -30,9 +30,23 @@ async function join(t, application, room = 'movie', user = randomUUID()) {
   const socket = connect(application.url, { transports: ['websocket'], auth: { token: `test:${user}` }, reconnection: false });
   t.after(() => socket.disconnect());
   await next(socket, 'connect');
-  const reply = await ack(socket, 'join-room', room, 'Viewer');
+  let reply = await ack(socket, 'join-room', room, 'Viewer');
+  t.roomHosts ||= new Map();
+  if (reply.isOwner) t.roomHosts.set(room, socket);
+  if (reply.pending) {
+    const record = await application.store.get(`room:${room}`);
+    const request = record.admissions.find(value => value.uid === user && value.clientId === socket.id);
+    assert.equal((await ack(t.roomHosts.get(room), 'room-request-answer', room, request.id, true)).ok, true);
+    reply = await ack(socket, 'join-room', room, 'Viewer');
+  }
   return { socket, reply };
 }
+
+test('local responses disable picture-in-picture at the document level', async t => {
+  const application = await start(t);
+  const response = await fetch(application.url + '/api/config');
+  assert.equal(response.headers.get('permissions-policy'), 'picture-in-picture=()');
+});
 
 test('production fails closed on missing services, development auth, unsafe origins and emulator configuration', () => {
   assert.throws(() => configuration({ NODE_ENV: 'production' }), /Production requires/);
@@ -101,22 +115,14 @@ test('host policy rejects guest playback commands, preserves state over reconnec
   assert.equal(snapshot.sessionId, state.sessionId); assert.ok(snapshot.timestamp >= 30); assert.equal(leaked, false);
 });
 
-test('chat checks membership, limits history, paginates, authenticates senders and deduplicates retries', async t => {
+test('room chat is unavailable and existing history is retained', async t => {
   const application = await start(t), host = (await join(t, application, 'movie', 'owner')).socket;
-  const guest = (await join(t, application, 'movie', 'guest')).socket;
-  const id = randomUUID(), messageEvent = next(guest, 'chat-message');
-  const sent = await ack(host, 'chat-send', { roomId: 'movie', id, text: 'Hello', sender: 'Forged' });
-  const message = await messageEvent;
-  assert.equal(message.senderId, 'owner'); assert.equal(message.sender, 'Viewer');
-  assert.equal((await ack(host, 'chat-send', { roomId: 'movie', id, text: 'Changed retry' })).message.text, 'Hello');
-  assert.equal((await ack(guest, 'chat-history', { roomId: 'movie' })).messages.length, 1);
-  assert.match((await ack(host, 'chat-send', { roomId: 'movie', id: randomUUID(), text: 'a'.repeat(4001) })).error, /4,000/);
-  const history = Array.from({ length: 80 }, (_, index) => ({ id: `message-${index}`, createdAt: index, text: 'Message' }));
+  const history = [{ id: 'past-message', text: 'Saved history' }];
   await application.store.set('chat:movie', history);
-  const page = await ack(host, 'chat-history', { roomId: 'movie' });
-  assert.equal(page.messages.length, 50); assert.equal(page.hasMore, true);
-  assert.equal((await ack(host, 'chat-history', { roomId: 'movie', before: page.messages[0].id })).messages.length, 30);
-  assert.equal(sent.message.id, message.id);
+  const expected = { error: 'Room chat is currently unavailable.' };
+  assert.deepEqual(await ack(host, 'chat-history', { roomId: 'movie' }), expected);
+  assert.deepEqual(await ack(host, 'chat-send', { roomId: 'movie', id: randomUUID(), text: 'New message' }), expected);
+  assert.deepEqual(await application.store.get('chat:movie'), history);
 });
 
 const redisUrl = process.env.TEST_REDIS_URL;
@@ -230,7 +236,8 @@ test('20 viewers survive brief storage faults; prolonged faults trigger recovera
   }
   const store = new FaultStore();
   const application = await start(t, { store, config: { maxRoomSize: 25 } });
-  const viewers = await Promise.all(Array.from({ length: 20 }, (_, i) => join(t, application, 'crowded', `viewer-${i}`)));
+  const host = await join(t, application, 'crowded', 'viewer-0');
+  const viewers = [host, ...await Promise.all(Array.from({ length: 19 }, (_, i) => join(t, application, 'crowded', `viewer-${i + 1}`)))];
   assert.ok(viewers.every(viewer => viewer.reply.ok));
   store.presenceWrites = 0;
   await application.renewMemberships();
@@ -271,7 +278,8 @@ test('a reconnect reclaims its authenticated tab seat in a full room without evi
     t.after(() => socket.disconnect()); await next(socket, 'connect'); return socket;
   };
   const impostor = await connectAs('another-user');
-  assert.equal((await ack(impostor, 'join-room', 'full-room', 'Other')).status, 409, 'Client ID alone cannot reclaim another identity’s seat');
+  assert.equal((await ack(impostor, 'join-room', 'full-room', 'Other')).pending, true, 'Client ID alone cannot reclaim another identity’s seat');
+  await app.store.update('room:full-room', room => { room.admissions.push({ id: randomUUID(), uid: 'owner', clientId, status: 'approved' }); return room; });
   const owner = await connectAs('owner');
   assert.equal((await ack(owner, 'join-room', 'full-room', 'Owner')).ok, true);
   assert.equal(await app.store.get('member:full-room:crashed-socket'), null);
@@ -279,26 +287,44 @@ test('a reconnect reclaims its authenticated tab seat in a full room without evi
   assert.equal(presence.length, 2); assert.ok(presence.some(member => member.uid === 'guest'));
 });
 
-test('generated codes are reserved and private rooms require the full invite link', async t => {
+test('all rooms require host acceptance for codes and invite links', async t => {
   const application = await start(t);
   const makeSocket = async user => {
-    const socket = connect(application.url, { transports: ['websocket'], auth: { token: `test:${user}` } });
-    t.after(() => socket.disconnect());
-    await next(socket, 'connect');
-    return socket;
+    const socket = connect(application.url, { transports: ['websocket'], auth: { token: `test:${user}`, clientId: randomUUID() } });
+    t.after(() => socket.disconnect()); await next(socket, 'connect'); return socket;
   };
-  const [host, guest] = await Promise.all([makeSocket('host'), makeSocket('guest')]);
-  const privateRoom = await ack(host, 'generate-room', true);
-  const publicRoom = await ack(host, 'generate-room', false);
-  assert.match(privateRoom.code, /^[A-Z]{4}$/);
-  assert.match(publicRoom.code, /^[A-Z]{4}$/);
-  assert.notEqual(privateRoom.code, publicRoom.code);
-  assert.match(privateRoom.invite, /^[a-f0-9]{48}$/);
-  assert.equal(publicRoom.invite, undefined);
-  assert.equal((await ack(guest, 'join-room', privateRoom.code, 'Guest')).status, 403);
-  assert.equal((await ack(guest, 'join-room', privateRoom.code, 'Guest', 'wrong-secret')).status, 403);
-  assert.equal((await ack(host, 'join-room', privateRoom.code, 'Host')).ok, true);
-  assert.equal((await ack(guest, 'join-room', privateRoom.code, 'Guest', privateRoom.invite)).ok, true);
+  const [host, guest, outsider] = await Promise.all(['host', 'guest', 'outsider'].map(makeSocket));
+  const room = await ack(host, 'generate-room', false);
+  const other = await ack(host, 'generate-room', true);
+  assert.match(room.invite, /^[a-f0-9]{48}$/);
+  assert.notEqual(room.code, other.code);
+  assert.equal((await ack(host, 'join-room', room.code, 'Host')).isOwner, true);
+  assert.equal((await ack(guest, 'join-room', room.code, 'Guest', room.invite)).pending, true);
+  assert.equal(await application.store.get(`member:${room.code}:${guest.id}`), null);
+  let leakedToken = false;
+  guest.emit('media-token', room.code, () => { leakedToken = true; });
+  await ack(guest, 'join-room', room.code, 'Guest');
+  assert.equal(leakedToken, false);
+  const { requests } = await ack(host, 'room-requests', room.code);
+  assert.equal(requests.length, 1); assert.equal(requests[0].name, 'Guest');
+  assert.equal((await ack(outsider, 'room-requests', room.code)).status, 403);
+  assert.equal((await ack(outsider, 'room-request-answer', room.code, requests[0].id, true)).status, 403);
+  assert.equal((await ack(guest, 'join-room', room.code, 'Guest')).pending, true);
+  assert.equal((await ack(host, 'room-requests', room.code)).requests.length, 1);
+  assert.equal((await ack(host, 'room-request-answer', room.code, requests[0].id, true)).ok, true);
+  assert.equal((await ack(guest, 'join-room', room.code, 'Guest')).ok, true);
+  await ack(guest, 'leave-room', room.code);
+  assert.equal((await ack(guest, 'join-room', room.code, 'Guest')).pending, true, 'Explicitly leaving requires fresh approval');
+  await ack(guest, 'leave-room', room.code);
+  assert.equal((await ack(outsider, 'join-room', room.code, 'Outsider')).pending, true);
+  const pending = (await ack(host, 'room-requests', room.code)).requests[0];
+  await ack(host, 'room-request-answer', room.code, pending.id, false);
+  assert.equal((await ack(outsider, 'join-room', room.code, 'Outsider')).status, 403);
+  await ack(outsider, 'leave-room', room.code);
+  assert.equal((await ack(outsider, 'join-room', room.code, 'Outsider')).pending, true);
+  await ack(outsider, 'leave-room', room.code);
+  assert.equal((await ack(host, 'room-requests', room.code)).requests.length, 0, 'Canceled requests disappear');
+  assert.equal((await ack(host, 'room-request-answer', room.code, pending.id, true)).status, 410);
 });
 
 test('the Jellyfin pilot admits only four participants across control replicas', {
@@ -415,4 +441,55 @@ test('pairing claims are single-use under concurrency, expire, and tokens rotate
   const expiring = await (await post('/approval/start', { claim: createHash('sha256').update(secret).digest('hex') })).json();
   await store.update('connector:' + expiring.id, current => ({ ...current, until: Date.now() - 1 }));
   assert.equal((await post('/approval/claim', { id: expiring.id, secret })).status, 410);
+});
+
+
+test('anonymous identities cannot connect, refresh sessions, or access account APIs', async t => {
+  const application = await start(t, { identity: { verify: async token => {
+    const user = await identity.verify(token);
+    return { ...user, firebase: { sign_in_provider: token === 'test:anonymous' ? 'anonymous' : 'google.com' } };
+  } } });
+  const anonymous = connect(application.url, { transports: ['websocket'], auth: { token: 'test:anonymous' }, reconnection: false });
+  t.after(() => anonymous.disconnect());
+  assert.equal((await next(anonymous, 'connect_error')).data.code, 'UNAUTHENTICATED');
+  assert.equal((await fetch(`${application.url}/api/jellyfin/login`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-SameRow-Token': 'test:anonymous' }, body: '{}' })).status, 401);
+  const { socket } = await join(t, application, 'account-only', 'member');
+  assert.equal((await ack(socket, 'auth-refresh', 'test:anonymous')).status, 401);
+});
+
+
+test('every member needs host approval, including invite holders and members returning after leaving', async t => {
+  const application = await start(t);
+  const { socket: host } = await join(t, application, 'approval', 'host');
+  const { invite } = await application.store.get('room:approval');
+  const member = connect(application.url, { transports: ['websocket'], auth: { token: 'test:member', clientId: randomUUID() }, reconnection: false });
+  t.after(() => member.disconnect());
+  await next(member, 'connect');
+  assert.equal((await ack(member, 'join-room', 'approval', 'Member', invite)).pending, true);
+  assert.equal(await application.store.get(`member:approval:${member.id}`), null);
+  let leakedToken = false;
+  member.emit('media-token', 'approval', () => { leakedToken = true; });
+  await ack(member, 'join-room', 'approval', 'Member');
+  assert.equal(leakedToken, false);
+  let requests = (await ack(host, 'room-requests', 'approval')).requests;
+  assert.equal(requests.length, 1);
+  assert.equal((await ack(member, 'room-request-answer', 'approval', requests[0].id, true)).status, 403);
+  assert.equal((await ack(member, 'room-requests', 'approval')).status, 403);
+  await ack(host, 'room-request-answer', 'approval', requests[0].id, true);
+  assert.equal((await ack(member, 'join-room', 'approval', 'Member', invite)).ok, true);
+  assert.equal((await ack(member, 'join-room', 'approval', 'Member')).ok, true);
+  await ack(member, 'leave-room', 'approval');
+  assert.equal((await ack(member, 'join-room', 'approval', 'Member')).pending, true);
+  requests = (await ack(host, 'room-requests', 'approval')).requests;
+  await ack(host, 'room-request-answer', 'approval', requests[0].id, false);
+  assert.equal((await ack(member, 'join-room', 'approval', 'Member')).status, 403);
+  await ack(member, 'leave-room', 'approval');
+  assert.equal((await ack(host, 'room-requests', 'approval')).requests.length, 0);
+});
+
+test('development authentication requires an explicit identity token', async () => {
+  const { createIdentity } = require('../auth');
+  const development = createIdentity({ authMode: 'development' });
+  for (const token of [undefined, '', ' ', 'dev:']) await assert.rejects(development.verify(token));
+  assert.equal((await development.verify('dev:member')).uid, 'member');
 });

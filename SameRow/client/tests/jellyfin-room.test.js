@@ -12,8 +12,22 @@ test('Jellyfin shared controls, late join, private tracks, scoped media access a
   const {server,io}=backend;
   await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
   const base=`http://127.0.0.1:${server.address().port}`;
-  const users=[];
-  const join=async(room='movie')=>{const socket=connect(base,{transports:['websocket']});users.push(socket);await next(socket,'connect');socket.emit('join-room',room,'Viewer');await ack(socket,'jellyfin-sync-request',room);return socket;};
+  const users=[], hosts=new Map();
+  const join=async(room='movie')=>{
+    const name=`member-${users.length}`;
+    const socket=connect(base,{transports:['websocket'],auth:{token:`dev:${name}`}});
+    users.push(socket);await next(socket,'connect');
+    let reply=await ack(socket,'join-room',room,name);
+    if(reply.isOwner) hosts.set(room,socket);
+    if(reply.pending){
+      const host=hosts.get(room);
+      const request=(await ack(host,'room-requests',room)).requests.find(request=>request.name===name);
+      await ack(host,'room-request-answer',room,request.id,true);
+      reply=await ack(socket,'join-room',room,name);
+    }
+    assert.equal(reply.ok,true);
+    await ack(socket,'jellyfin-sync-request',room);return socket;
+  };
   try{
     const host=await join(),guest=await join(),outsider=await join('other');
     fixture.controls.delay=200;
@@ -28,8 +42,8 @@ test('Jellyfin shared controls, late join, private tracks, scoped media access a
     assert.equal(JSON.stringify(state).includes('fixture-token'),false);
     let changed=next(host,'jellyfin-sync');guest.emit('jellyfin-command',{roomId:'movie',sessionId:state.sessionId,action:'pause'});
     state=await changed;assert.equal(state.playing,false);
-    changed=next(host,'jellyfin-sync');guest.emit('jellyfin-command',{roomId:'movie',sessionId:state.sessionId,action:'seek',time:25});
-    state=await changed;assert.equal(state.timestamp,25);
+    changed=next(host,'jellyfin-sync');guest.emit('jellyfin-command',{roomId:'movie',sessionId:state.sessionId,action:'seek',time:25,commandId:'scrub-25'});
+    state=await changed;assert.equal(state.timestamp,25);assert.equal(state.commandId,'scrub-25');
     const late=await join();const lateState=(await ack(late,'jellyfin-sync-request','movie')).state;
     assert.equal(lateState.timestamp,25);assert.equal(lateState.playing,false);assert.equal(lateState.revision,state.revision);
     outsider.emit('jellyfin-command',{roomId:'movie',sessionId:state.sessionId,action:'seek',time:2});
@@ -66,7 +80,7 @@ test('Jellyfin shared controls, late join, private tracks, scoped media access a
     assert.equal((await fetch(`${url}/subtitle/4`)).status,200);
     assert.equal((await fetch(`${url}/subtitle/99`)).status,404);
     assert.equal((await fetch(`${url}/stream.m3u8?audio=99`)).status,400);
-    assert.equal((await fetch(`${base}/api/jellyfin/invalid/stream.m3u8`)).status,403);
+    assert.equal((await fetch(`${base}/api/jellyfin/invalid/stream.m3u8`, { headers: { 'X-SameRow-Token': 'dev:member-0' } })).status,403);
     fixture.controls.external=true;
     assert.equal((await fetch(`${url}/stream.m3u8?audio=1`)).status,502,'Do not proxy external manifest URLs');fixture.controls.external=false;
     fixture.controls.redirect=true;

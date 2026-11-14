@@ -52,20 +52,21 @@ try {
   await page.close();
   const first=await context.newPage();const second=await context.newPage();
   for(const target of [first,second])target.on('pageerror',error=>errors.push(error.message));
-  await first.goto(`${base}/tests/room-integration.html?server=${encodeURIComponent(address)}&name=Alex`);
-  await first.waitForFunction(()=>window.socketEmissions.some(event=>event.name==='join-room'));
-  await second.goto(`${base}/tests/room-integration.html?server=${encodeURIComponent(address)}&name=Jamie`);
+  await first.goto(`${base}/tests/room-integration.html?server=${encodeURIComponent(address)}&name=Alex&token=dev:alex`);
+  await first.waitForFunction(()=>window.fixtureSocket.roomConfig?.isOwner);
+  await second.goto(`${base}/tests/room-integration.html?server=${encodeURIComponent(address)}&name=Jamie&token=dev:jamie`);
+  await first.getByRole('button',{name:'Accept',exact:true}).click();
   await first.locator('.participant-grid .media-tile').nth(1).waitFor({timeout:20000});
   await second.locator('.participant-grid .media-tile').nth(1).waitFor({timeout:20000});
   await first.evaluate(()=>window.completeMediaPermission());await second.evaluate(()=>window.completeMediaPermission());
   await first.waitForFunction(()=>document.querySelectorAll('.participant-grid video')[1]?.srcObject?.getVideoTracks().length>0,{timeout:20000});
   await second.waitForFunction(()=>document.querySelectorAll('.participant-grid video')[1]?.srcObject?.getVideoTracks().length>0,{timeout:20000});
   await first.evaluate(()=>{window.remoteVideo=document.querySelectorAll('.participant-grid video')[1];window.remoteStream=window.remoteVideo.srcObject;});
-  await first.getByRole('button',{name:'Open chat',exact:true}).click();await first.keyboard.press('Escape');
+  assert.equal(await first.getByRole('button',{name:'Open chat',exact:true}).count(),0);
   await first.setViewportSize({width:1440,height:900});
   assert.ok(await first.evaluate(()=>window.remoteVideo===document.querySelectorAll('.participant-grid video')[1] && window.remoteStream===window.remoteVideo.srcObject));
   assert.equal(await first.evaluate(()=>window.socketEmissions.filter(event=>event.name==='join-room').length),1);
-  console.log('PASS two real WebRTC peers keep streams/connections across chat and viewport changes');
+  console.log('PASS room chat is hidden and two real WebRTC peers keep streams/connections across viewport changes');
   assert.deepEqual(errors,[]);
   console.log('PASS Room integration; no browser page errors');
 } finally {await context.close();await browser.close();await new Promise(resolve=>io.close(resolve));}

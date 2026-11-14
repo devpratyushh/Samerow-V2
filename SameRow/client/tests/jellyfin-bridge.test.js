@@ -16,7 +16,7 @@ class Target {
   dispatchEvent(event) { this.handlers.get(event.type)?.forEach(callback => callback(event)); }
 }
 
-async function fixture({ directToggle = false, playError = null, queue = [] } = {}) {
+async function fixture({ directToggle = false, playError = null, queue = [], delayedAudio = false } = {}) {
   let now = 10000;
   const messages = [];
   const timers = new Map();
@@ -53,6 +53,7 @@ async function fixture({ directToggle = false, playError = null, queue = [] } = 
   const callbacks = new Map();
   const calls = [];
   let active = false;
+  let finishAudioReload;
   let activeQueue = queue;
   const manager = {
     getCurrentPlayer: () => active ? {} : null,
@@ -72,7 +73,13 @@ async function fixture({ directToggle = false, playError = null, queue = [] } = 
       else this.pause();
     },
     setMaxStreamingBitrate(options) { calls.push(['quality', options]); this.pause(); this.seek(video.currentTime * tick); this.unpause(); },
-    setAudioStreamIndex() { this.pause(); this.seek(0); this.unpause(); },
+    setAudioStreamIndex() {
+      this.pause();
+      if (delayedAudio) return new Promise(resolve => {
+        finishAudioReload = () => { this.pause(); this.seek(0); this.unpause(); resolve(); };
+      });
+      this.seek(0); this.unpause();
+    },
     getPlaylist: () => Promise.resolve(activeQueue),
     removeFromPlaylist(ids) { activeQueue = activeQueue.filter(item => !ids.includes(item.PlaylistItemId)); calls.push(['removeFromPlaylist', ids]); return Promise.resolve(); },
   };
@@ -86,6 +93,7 @@ async function fixture({ directToggle = false, playError = null, queue = [] } = 
   await flush();
   return {
     window, document, video, manager, calls, messages, timers, callbacks, flush,
+    finishAudioReload: () => finishAudioReload(),
     commands: () => messages.filter(message => message.type === 'command'),
     input() { document.dispatchEvent({ type: 'click', isTrusted: true }); },
     advance(ms) { now += ms; },
@@ -157,6 +165,25 @@ test('shared revisions settle user commands and bound drift without repeatedly s
   f.poll(); f.poll();
   assert.equal(f.calls.filter(call => call[0] === 'seek').length, count);
   assert.equal(f.commands().length, 1);
+});
+
+test('new shared scrubs bypass drift cooldown and retain the latest target during a seek', async () => {
+  const f = await fixture();
+  f.receive({ type: 'sync', state: { revision: 1, timestamp: 40, playing: false } });
+  f.advance(100);
+  f.receive({ type: 'sync', state: { revision: 2, timestamp: 40.2, playing: false } });
+  assert.equal(f.video.currentTime, 40.2, 'Small deliberate scrubs apply immediately');
+  f.video.seeking = true;
+  f.receive({ type: 'sync', state: { revision: 3, timestamp: 60, playing: false } });
+  f.receive({ type: 'sync', state: { revision: 4, timestamp: 80, playing: false } });
+  assert.equal(f.video.currentTime, 40.2);
+  f.video.seeking = false;
+  f.advance(100); f.poll();
+  assert.equal(f.video.currentTime, 80, 'Latest scrub applies as soon as the previous seek completes');
+  const count = f.calls.filter(call => call[0] === 'seek').length;
+  f.poll(); f.poll();
+  assert.equal(f.calls.filter(call => call[0] === 'seek').length, count);
+  assert.equal(f.commands().length, 0, 'Room corrections do not echo as user commands');
 });
 
 test('autoplay rejection reports a local join action without changing shared playback', async () => {
@@ -243,4 +270,19 @@ test('sustained Auto buffering reduces only local bitrate, bounds retries and re
   assert.equal(message.stats.buffer, 40);
   assert.equal(message.stats.dropped, 2);
   assert.equal(f.commands().length, 0);
+});
+
+test('slow audio reloads stay local and apply the latest room controls after completion', async () => {
+  const f = await fixture({ delayedAudio: true });
+  f.receive({ type: 'sync', state: { revision: 1, timestamp: 40, playing: true } });
+  f.input();
+  const reload = f.manager.setAudioStreamIndex(2);
+  f.advance(2500);
+  f.receive({ type: 'sync', state: { revision: 2, timestamp: 60, playing: false } });
+  // Another trusted input must not turn delayed reload callbacks into room commands.
+  f.input(); f.finishAudioReload(); await reload; await f.flush();
+  f.poll();
+  assert.equal(f.commands().length, 0);
+  assert.equal(f.video.currentTime, 60);
+  assert.equal(f.video.paused, true);
 });

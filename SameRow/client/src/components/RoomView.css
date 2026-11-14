@@ -1547,12 +1547,12 @@
 .is-fullscreen.is-watching .room-toolbar { position: absolute; z-index: 15; bottom: max(18px,env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); width: max-content; min-height: 0; padding: 8px 10px; border: 1px solid #ffffff20; border-radius: 12px; background: #17191bdf; backdrop-filter: blur(8px); }
 .is-fullscreen.is-watching .toolbar-note,
 .is-fullscreen.is-watching .toolbar-end { display: none; }
-.is-fullscreen.is-watching .player-controls { bottom: 88px; left: 140px; right: 20px; padding: 28px 12px 8px; border-radius: 8px; background: linear-gradient(transparent,#08090ce6); }
+.is-fullscreen.is-watching { --fullscreen-playback-offset: 80px; --fullscreen-playback-right: 12px; }
 .is-fullscreen.is-watching .screen-share-actions { top: 20px; left: 145px; right: 230px; }
 .is-fullscreen.is-watching .sr-chat-container { position: absolute; top: 0; right: 0; bottom: 0; z-index: 40; box-shadow: -12px 0 36px #0005; }
 @media (min-width: 1100px) {
   .is-fullscreen.is-watching.has-open-chat .fullscreen-topbar { right: 364px; }
-  .is-fullscreen.is-watching.has-open-chat .player-controls { right: 360px; }
+  .is-fullscreen.is-watching.has-open-chat { --fullscreen-playback-right: 360px; }
 }
 @media (max-width: 600px) {
   .fullscreen-topbar { top: max(12px,env(safe-area-inset-top)); left: 14px; right: 14px; }
@@ -1565,7 +1565,7 @@
   .is-fullscreen.is-watching .participant-grid > .media-tile[data-self] { left: 16px; bottom: 168px; width: 56px; height: 56px; min-height: 56px; }
   .is-fullscreen.is-watching .tile-avatar span { font-size: 19px; }
   .is-fullscreen.is-watching .room-toolbar { bottom: max(12px,env(safe-area-inset-bottom)); padding: 7px; }
-  .is-fullscreen.is-watching .player-controls { bottom: 82px; left: 10px; right: 10px; padding: 22px 4px 5px; }
+  .is-fullscreen.is-watching { --fullscreen-playback-offset: 74px; }
   .is-fullscreen.is-watching .screen-share-actions { top: 64px; left: 90px; right: 12px; }
 }
 @media (max-height: 540px) and (orientation: landscape) {
@@ -1575,7 +1575,7 @@
   .is-fullscreen.is-watching .participant-grid > .media-tile { flex-basis: 56px; width: 56px; height: 56px; min-height: 56px; max-width: 56px; }
   .is-fullscreen.is-watching .participant-grid > .media-tile[data-self] { left: 18px; bottom: 20px; width: 56px; height: 56px; min-height: 56px; }
   .is-fullscreen.is-watching .tile-avatar span { font-size: 19px; }
-  .is-fullscreen.is-watching .player-controls { left: 100px; right: 12px; bottom: 72px; padding-top: 20px; }
+  .is-fullscreen.is-watching { --fullscreen-playback-offset: 66px; }
   .is-fullscreen.is-watching .room-toolbar { bottom: 10px; padding: 5px 8px; }
 }
 .media-status--action { z-index: 8; max-height: calc(100% - 104px); overflow-y: auto; }

@@ -1,4 +1,5 @@
 .player-controls {
+  container-type: inline-size;
   position: absolute;
   inset: auto 0 0;
   z-index: 5;
@@ -51,28 +52,49 @@
 .player-control-note { color: #b5b6b8; font-size: 10px; margin-right: 10px; }
 .player-controls .icon-button { width: 44px; height: 44px; background: transparent; border: 0; color: #eee; }
 .player-controls button:focus-visible, .player-controls input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-@media (max-width: 900px) { .player-control-note { display: none; }.player-volume input { width: 48px; } }
-@media (max-width: 600px) {
-  .player-controls { padding: 22px 10px 8px; }
+/* Use the control bar's width after fullscreen insets and chat are applied. */
+@container (max-width: 720px) {
+  .player-control-note { display: none; }
+  .player-volume input { width: 48px; }
+}
+@container (max-width: 520px) {
   .player-skip, .player-volume input { display: none; }
   .player-controls-row { gap: 0; }
-  .player-clock { font-size: 10px; margin-left: 3px; }
-  .player-control { flex-basis: 44px; }
+  .player-clock { font-size: 11px; margin-left: 2px; }
 }
-/* Adapt to the player's available width, including when desktop chat is docked. */
-.source-pane { container-type: inline-size; }
-.player-controls-row { flex-wrap: wrap; }
-@container (max-width: 600px) {
-  .player-controls { padding: 22px 10px 8px; }
-  .player-skip, .player-volume input, .player-control-note { display: none; }
-  .player-controls-row { gap: 0; }
-  .player-clock { font-size: 10px; margin-left: 3px; }
+@container (max-width: 320px) {
+  .player-clock > span { display: none; }
 }
-@container (max-width: 360px) { .player-clock > span { display: none; } }
-@media (max-width: 360px) { .player-clock > span { display: none; } }
+@container (max-width: 265px) {
+  .player-controls-row { flex-wrap: wrap; }
+}
+
+.is-fullscreen.is-watching .player-controls {
+  position: absolute;
+  bottom: calc(var(--fullscreen-playback-offset) + env(safe-area-inset-bottom));
+  left: max(12px, env(safe-area-inset-left));
+  right: max(var(--fullscreen-playback-right), env(safe-area-inset-right));
+  max-width: 960px;
+  margin-inline: auto;
+  padding: clamp(10px, 3dvh, 24px) clamp(8px, 2vw, 20px) 8px;
+  border-radius: 12px;
+  background: linear-gradient(transparent, rgb(10 11 12 / 93%));
+}
+.is-fullscreen .player-controls .player-control { font-size: 18px; }
+.is-fullscreen .player-controls .player-skip { font-size: 22px; }
+.is-fullscreen .player-seek { height: 32px; }
+.is-fullscreen .player-seek input {
+  height: 28px;
+  background: linear-gradient(to right, var(--accent) var(--played), #ffffff50 var(--played)) center / 100% 4px no-repeat;
+}
+.is-fullscreen .player-seek input::-webkit-slider-thumb { width: 14px; height: 14px; }
+.is-fullscreen .player-seek input::-moz-range-thumb { width: 14px; height: 14px; }
+@media (max-height: 540px) and (orientation: landscape) {
+  .is-fullscreen .player-seek { height: 28px; }
+}
 
 /* Keep the hit area over iframe media so pointer activity reaches our controls. */
 .playback-hit-area { position: absolute; inset: 0; z-index: 2; touch-action: manipulation; }
 .player-controls.is-hidden { opacity: 0; transform: translateY(8px); pointer-events: none; }
-.player-controls:has(:focus-visible) { opacity: 1; transform: none; pointer-events: auto; }
+.player-controls:has(:focus-visible, details[open]) { opacity: 1; transform: none; pointer-events: auto; }
 @media (prefers-reduced-motion: reduce) { .player-controls { transition: none; } }

@@ -129,7 +129,13 @@ function installJellyfinWeb(app, { resolveViewer, accounts, saveViewer = async (
       const controller = new AbortController(); viewer.requests.add(controller);
       const abort = () => controller.abort(); res.on('close', abort);
       const timeout = setTimeout(abort, 20000);
-      const leaseCheck = setInterval(() => { Promise.all([resolveViewer(viewer.token), accounts.getConnection(state.connectionToken)]).then(([valid, connection]) => { if (!valid || !connection) abort(); }).catch(abort); }, 15000); leaseCheck.unref();
+      let deliveringVideo = false;
+      const leaseCheck = setInterval(() => {
+        Promise.all([resolveViewer(viewer.token), accounts.getConnection(state.connectionToken)]).then(([valid, connection]) => {
+          if (!valid || !connection) return abort();
+          if (deliveringVideo) return quality?.renew(viewer, state);
+        }).catch(abort);
+      }, 15000); leaseCheck.unref();
       const headers = { Authorization: authorization(connection, viewer), Accept: req.get('Accept') || '*/*' };
       if (req.get('Range')) headers.Range = req.get('Range');
       if (req.get('If-Range')) headers['If-Range'] = req.get('If-Range');
@@ -189,7 +195,9 @@ function installJellyfinWeb(app, { resolveViewer, accounts, saveViewer = async (
         for (const header of ['accept-ranges', 'content-range', 'last-modified', 'etag']) if (response.headers.has(header)) res.set(header, response.headers.get(header));
         if (!response.headers.has('content-encoding') && response.headers.has('content-length')) res.set('Content-Length', response.headers.get('content-length'));
         if (web) res.set('Cache-Control', 'private, max-age=3600');
-        await pipeline(Readable.fromWeb(response.body), ...(!web && /^\/Videos\//i.test(route) && !/subtitle/i.test(route) && delivery ? [delivery.meter(viewer, state)] : []), res);
+        deliveringVideo = !web && /^\/Videos\//i.test(route) && !/subtitle/i.test(route);
+        if (deliveringVideo) await quality?.renew(viewer, state);
+        await pipeline(Readable.fromWeb(response.body), ...(deliveringVideo && delivery ? [delivery.meter(viewer, state)] : []), res);
       } finally { clearInterval(leaseCheck); clearTimeout(timeout); res.off('close', abort); viewer.requests.delete(controller); }
     };
     try {

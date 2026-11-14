@@ -43,6 +43,14 @@ const ack = (socket, event, ...args) => new Promise((resolve, reject) => socket.
       socket.on('connect_error', error => { joinErrors[error.message] = (joinErrors[error.message] || 0) + 1; });
       socket.on('connect', () => reconnects++); sockets.push(socket);
       stops.push(maintainRoomMembership({ socket, roomId: `room-${Math.floor(i / roomSize)}`, userName: `Viewer ${i}`,
+        onPending: () => {
+          const host = sockets[Math.floor(i / roomSize) * roomSize], roomId = `room-${Math.floor(i / roomSize)}`;
+          if (!ready.has(Math.floor(i / roomSize) * roomSize)) return;
+          ack(host, 'room-requests', roomId).then(({ requests }) => {
+            const request = requests.find(value => value.name === `Viewer ${i}`);
+            if (request) return ack(host, 'room-request-answer', roomId, request.id, true);
+          }).catch(error => { joinErrors[error.message] = (joinErrors[error.message] || 0) + 1; });
+        },
         onReady: () => ready.add(i), onWaiting: () => ready.delete(i), onError: message => { joinErrors[message] = (joinErrors[message] || 0) + 1; }, retryDelay: attempt => Math.min(100 * 2 ** attempt, 1000) }));
     }
     await waitFor(() => ready.size === count);

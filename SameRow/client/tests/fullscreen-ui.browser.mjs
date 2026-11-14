@@ -30,6 +30,33 @@ try {
   await page.evaluate(() => { window.originalVideos = [...document.querySelectorAll('.participant-grid video')]; });
   await page.getByRole('button', {name: 'Enter fullscreen', exact: true}).click();
   await panel.waitFor();
+  const controls = page.getByRole('group', { name: 'Preview video playback controls' });
+  const hitArea = page.locator('.source-pane:not([hidden]) .playback-hit-area');
+  await page.mouse.move(720, 460);
+  await controls.locator('xpath=self::*[contains(@class,"is-hidden")]').waitFor();
+  await page.mouse.move(730, 470);
+  await page.waitForFunction(() => {
+    const bar = document.querySelector('.source-pane:not([hidden]) .player-controls');
+    return !bar.classList.contains('is-hidden') && getComputedStyle(bar).opacity === '1';
+  });
+  const playbackTouch = await page.context().newCDPSession(page);
+  for (const hidden of [true, false]) {
+    await playbackTouch.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: 730, y: 470 }] });
+    await playbackTouch.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    assert.equal(await controls.evaluate(el => el.classList.contains('is-hidden')), hidden);
+    assert.ok(await controls.getByRole('button', { name: 'Pause preview video', exact: true }).count());
+  }
+  for (const viewport of [{width: 1920,height: 1080}, {width: 320,height: 700}, {width: 844,height: 390}]) {
+    await page.setViewportSize(viewport);
+    await hitArea.dispatchEvent('pointermove', { pointerType: 'mouse' });
+    await settle();
+    const box = await controls.boundingBox();
+    const row = controls.locator('.player-controls-row');
+    assert.ok(box.width <= 961 && box.x >= 10 && box.x + box.width <= viewport.width - 10);
+    assert.ok(Math.abs(box.x - (viewport.width - box.x - box.width)) < 2, 'Playback bar is centered');
+    assert.ok(await row.evaluate(el => el.scrollWidth <= el.clientWidth), 'Playback controls fit their bar');
+  }
+  await page.setViewportSize({width: 1440,height: 900});
   assert.ok(await panel.evaluate(el => el.classList.contains('floating-participants--strip')));
   for (const mode of ['strip', 'vertical', 'circles']) {
     await layout.selectOption(mode);

@@ -72,7 +72,7 @@ const Lobby = ({ joinRoom, generateRoom, serverUrl, initialRoom, userStream, tog
   const hasVideo = Boolean(userStream?.getVideoTracks().some((track) => track.readyState === 'live'));
   const showVideo = hasVideo && !isVideoOff;
   const initials = trimmedName ? trimmedName.split(/\s+/).slice(0, 2).map((word) => word[0]).join('').toUpperCase() : 'YOU';
-  const canJoin = serverConnected && !joining && validRoomCode(trimmedRoom) && Boolean(trimmedName);
+  const canJoin = Boolean(authUser) && serverConnected && !joining && validRoomCode(trimmedRoom) && Boolean(trimmedName);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -99,7 +99,7 @@ const Lobby = ({ joinRoom, generateRoom, serverUrl, initialRoom, userStream, tog
   };
 
   const rememberAndJoin = async (code) => {
-    if (!serverConnected || joining || !validRoomCode(code) || !trimmedName) return;
+    if (!authUser || !serverConnected || joining || !validRoomCode(code) || !trimmedName) return;
     setJoining(true);
     setJoinError('');
     if (authUser) {
@@ -123,7 +123,7 @@ const Lobby = ({ joinRoom, generateRoom, serverUrl, initialRoom, userStream, tog
   };
 
   const makeRoom = async privateRoom => {
-    if (generating || joining || !serverConnected) return;
+    if (!authUser || generating || joining || !serverConnected) return;
     setGenerating(true);
     setJoinError('');
     setAttempted(false);
@@ -177,13 +177,13 @@ const Lobby = ({ joinRoom, generateRoom, serverUrl, initialRoom, userStream, tog
             <div className="lobby-join-heading"><span className="lobby-eyebrow">GET TOGETHER</span><h2 id="join-heading">Start or join a room</h2></div>
             <form className="lobby-form" onSubmit={handleSubmit} noValidate>
               <div className="lobby-field"><label htmlFor="lobby-name">Your name</label><input ref={nameRef} id="lobby-name" autoComplete="nickname" placeholder="Your name" maxLength={64} value={userName} onChange={(event) => setNameDraft({ identity, value: event.target.value })} aria-invalid={Boolean(nameError)} aria-describedby={nameError ? 'lobby-name-error' : undefined} required />{nameError && <span className="lobby-field-error" id="lobby-name-error">{nameError}</span>}</div>
-              {generateRoom && <><button className="lobby-host-button" type="button" onClick={() => makeRoom(true)} disabled={!serverConnected || generating || joining}><FaPlus aria-hidden="true" />{generating ? 'Creating room…' : 'Host a room'}</button><div className="lobby-divider"><span>or join with a code</span></div></>}
+              {generateRoom && <><button className="lobby-host-button" type="button" onClick={() => makeRoom(true)} disabled={!authUser || !serverConnected || generating || joining}><FaPlus aria-hidden="true" />{generating ? 'Creating room…' : 'Host a room'}</button><div className="lobby-divider"><span>or join with a code</span></div></>}
               <div className="lobby-field"><label htmlFor="lobby-room">Room code</label><input id="lobby-room" autoComplete="off" autoCapitalize="none" spellCheck={false} placeholder="Enter a room code" value={roomId} onChange={(event) => setRoomDraft(event.target.value)} aria-invalid={Boolean(roomError)} aria-describedby={roomError ? 'lobby-room-error' : 'lobby-room-hint'} required />{roomError ? <span className="lobby-field-error" id="lobby-room-error">{roomError}</span> : <span className="lobby-field-hint" id="lobby-room-hint">{generated?.code === trimmedRoom ? 'Your room code is ready. Enter the room, then invite friends.' : 'Enter a code from your friend, or select Host a room.'}</span>}</div>
-              <button className="lobby-join-button" type="submit" disabled={!canJoin}>{joining ? 'Joining…' : serverConnected ? 'Enter room' : 'Connecting…'}<FaArrowRight aria-hidden="true" /></button>
+              <button className="lobby-join-button" type="submit" disabled={!canJoin}>{joining ? 'Joining…' : !authUser ? 'Sign in to join' : serverConnected ? 'Request to join' : 'Connecting…'}<FaArrowRight aria-hidden="true" /></button>
               {joinError && <p className="lobby-auth-feedback" role="alert">{joinError}</p>}
               {!serverConnected && <p className="lobby-server-help" role="status">{connectionError || 'Connecting to the room server…'}</p>}
             </form>
-            {generated?.invite && generated.code === trimmedRoom && <p>Private room. Invite guests using the link inside the room.</p>}
+            {generated?.invite && generated.code === trimmedRoom && <p>Private room. You approve each member before they can join.</p>}
 
           </section>
           <aside className="lobby-sidebar" aria-label="Jellyfin and account">
@@ -201,7 +201,7 @@ const Lobby = ({ joinRoom, generateRoom, serverUrl, initialRoom, userStream, tog
               </>}
             </section>
             <div className="lobby-auth">
-              {(authUser ? <div className="lobby-profile">{authUser.photoURL ? <img src={authUser.photoURL} alt="" referrerPolicy="no-referrer" /> : <span className="lobby-profile-avatar" aria-hidden="true">{initials}</span>}<div><strong>{authUser.displayName || 'Signed in'}</strong><span>Recent rooms saved to this browser</span><button className="lobby-account-button" type="button" onClick={() => setJellyfinOpen(true)}>Manage account</button></div><button className="lobby-signout" type="button" onClick={handleSignOut} disabled={authBusy} aria-label="Sign out" title="Sign out"><FaSignOutAlt aria-hidden="true" /></button></div> : <><div className="lobby-divider"><span>or save your recent rooms</span></div><button className="lobby-google-button" type="button" onClick={() => handleAuth('google.com')} disabled={authBusy}><FaGoogle aria-hidden="true" />{authBusy ? 'Opening sign-in…' : 'Continue with Google'}</button><button className="lobby-google-button" type="button" onClick={() => handleAuth('github.com')} disabled={authBusy}><FaGithub aria-hidden="true" />Continue with GitHub</button><p className="lobby-guest-note">No account needed to join.</p></>)}
+              {(authUser ? <div className="lobby-profile">{authUser.photoURL ? <img src={authUser.photoURL} alt="" referrerPolicy="no-referrer" /> : <span className="lobby-profile-avatar" aria-hidden="true">{initials}</span>}<div><strong>{authUser.displayName || 'Signed in'}</strong><span>Recent rooms saved to this browser</span><button className="lobby-account-button" type="button" onClick={() => setJellyfinOpen(true)}>Manage account</button></div><button className="lobby-signout" type="button" onClick={handleSignOut} disabled={authBusy} aria-label="Sign out" title="Sign out"><FaSignOutAlt aria-hidden="true" /></button></div> : <><div className="lobby-divider"><span>Sign in to host or join</span></div><button className="lobby-google-button" type="button" onClick={() => handleAuth('google.com')} disabled={authBusy}><FaGoogle aria-hidden="true" />{authBusy ? 'Opening sign-in…' : 'Continue with Google'}</button><button className="lobby-google-button" type="button" onClick={() => handleAuth('github.com')} disabled={authBusy}><FaGithub aria-hidden="true" />Continue with GitHub</button><p className="lobby-signin-note">An account is required. The host approves each member before they join.</p></>)}
               {feedback && !jellyfinOpen && <p className="lobby-auth-feedback" role="status">{feedback}</p>}
             </div>
           </aside>

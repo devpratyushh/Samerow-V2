@@ -8,12 +8,15 @@ import './JellyfinPlayer.css';
 import { useJellyfinQuality } from './useJellyfinQuality';
 import JellyfinQuality from './JellyfinQuality';
 import { playbackStats } from './playbackStats';
+import { createPlaybackNetwork, diagnosticLoader, networkDiagnosis } from './playbackNetwork';
+import PlaybackNetworkDetails from './components/PlaybackNetworkDetails';
 import PlayerNerdStats from './components/PlayerNerdStats';
 import { hlsFailure, mediaFailure, mediaReadiness } from './playbackDiagnostics';
 
-export default function JellyfinPlayer({ state, base, command, connected, focused, onBrowse, onOpenNative, onPlaybackStats }) {
+export default function JellyfinPlayer({ state, base, command, connected, focused, onBrowse, onOpenNative, onPlaybackStats, onJoinStatus }) {
   const videoRef = useRef(null);
   const hlsRef = useRef(null);
+  const networkRef = useRef(null);
   const [audio, setAudio] = useState(() => state.audioTracks.find(track => track.default)?.index ?? state.audioTracks[0]?.index ?? -1);
   const [subtitle, setSubtitle] = useState(-1);
   const [volume, setVolume] = useState(1);
@@ -27,11 +30,16 @@ export default function JellyfinPlayer({ state, base, command, connected, focuse
   const [attempt, setAttempt] = useState(0);
   const [drift] = useState(createDriftController);
   const loading = useRef(true);
+  const pendingRoomSeek = useRef(true);
   const blocked = useRef(false);
   const playPending = useRef(false);
+  const queuedSeek = useRef(null);
+  const seekTimer = useRef(null);
+  const recoveredAt = useRef(-Infinity);
   const selectedSubtitle = state.subtitleTracks.find(track => track.index === subtitle);
   const burnSubtitle = selectedSubtitle && !selectedSubtitle.text ? subtitle : -1;
   const root = `${base}/api/jellyfin/${state.accessToken}`;
+  // A capacity change should only affect a new playback request.
   const quality = useJellyfinQuality(`${root}/quality`);
   const qualityMode = quality.policy?.mode;
   const maxBitrate = quality.policy?.maxBitrate;
@@ -55,9 +63,14 @@ export default function JellyfinPlayer({ state, base, command, connected, focuse
     if (!policyReady) quality.retry();
     setAttempt(value => value + 1);
   };
-  const recovery = useJellyfinRecovery(`${root}/health`, retry);
+  const unlock = () => { blocked.current = false; play(); };
+  const recovery = useJellyfinRecovery(`${root}/health`, () => {
+    const video = videoRef.current;
+    if ((phase === 'playing' || phase === 'paused') && video?.readyState >= 3 && !loading.current) return;
+    retry();
+  });
   useEffect(() => {
-    const update = () => setTelemetry({ ...playbackStats(videoRef.current), elapsed: Math.floor((performance.now() - startedAt.current) / 1000) });
+    const update = () => setTelemetry({ ...playbackStats(videoRef.current), network: networkRef.current?.snapshot(), elapsed: Math.floor((performance.now() - startedAt.current) / 1000) });
     update();
     const timer = setInterval(update, 1000);
     return () => clearInterval(timer);
@@ -71,21 +84,49 @@ export default function JellyfinPlayer({ state, base, command, connected, focuse
     }).finally(() => { playPending.current = false; });
   }, []);
   const synchronize = useEffectEvent((force = false) => {
+    if (force) pendingRoomSeek.current = true;
     const video = videoRef.current;
     if (!video || !connected) return;
     const target = jellyfinTime(state);
     if (!state.playing) video.pause();
-    if (loading.current || video.readyState < 1) return;
+    // Metadata is enough to retarget a stream that is buffering after a track change.
+    // Waiting for canplay here leaves HLS fetching the obsolete room position.
+    if (video.readyState < 1) return;
     // Never repeatedly seek past the final frame and restart an ended video.
-    if (video.ended && target >= state.duration - 0.3) return;
-    const correction = drift.correction({ currentTime: video.currentTime, target, playing: state.playing, now: performance.now(), force, suspended: video.seeking, rates: [0.97, 1, 1.03] });
+    if (video.ended && target >= state.duration - 0.3) {
+      onJoinStatus?.({ phase: 'ready', state });
+      return;
+    }
+    const now = performance.now();
+    const recovering = state.playing && now - recoveredAt.current < 1500;
+    let bufferedTarget = false;
+    if (recovering) {
+      const buffered = video.buffered;
+      for (let index = 0; index < buffered.length; index++) {
+        if (target >= buffered.start(index) && target + 0.25 <= buffered.end(index)) bufferedTarget = true;
+      }
+    }
+    const suspended = video.seeking || queuedSeek.current !== null ||
+      (!pendingRoomSeek.current && (loading.current || (recovering && !bufferedTarget)));
+    const correction = drift.correction({ currentTime: video.currentTime, target, playing: state.playing, now, force: pendingRoomSeek.current, suspended, rates: [0.97, 1, 1.03] });
+    if (!suspended) pendingRoomSeek.current = false;
     video.playbackRate = correction.rate;
     if (correction.seek !== undefined) video.currentTime = Math.min(correction.seek, Math.max(0, state.duration - 0.05));
-    if (state.playing && video.paused && !blocked.current) play();
+    if (state.playing && video.paused && !blocked.current && !loading.current) play();
+    if (onJoinStatus && !video.seeking && correction.seek === undefined && Math.abs(target - video.currentTime) <= 0.75 &&
+      video.readyState >= 3 && !loading.current && video.paused === !state.playing) {
+      onJoinStatus({ phase: 'ready', state });
+    }
   });
+  const reportJoinStatus = useEffectEvent(() => {
+    if (policyFailed || phase === 'error') onJoinStatus?.({ phase: 'error', retry });
+    else if (phase === 'blocked') onJoinStatus?.({ phase: 'blocked', retry: unlock });
+    else onJoinStatus?.({ phase: 'loading' });
+  });
+  useEffect(() => { reportJoinStatus(); }, [phase, policyFailed, state.sessionId]);
   useEffect(() => { synchronize(true); }, [state.revision, state.sessionId, connected]);
   useEffect(() => {
-    const timer = setInterval(() => { synchronize(); if (videoRef.current) setTime(videoRef.current.currentTime); }, 400);
+    const timer = setInterval(() => { synchronize(); if (videoRef.current && queuedSeek.current === null) setTime(videoRef.current.currentTime); }, 400);
     return () => clearInterval(timer);
   }, []);
   const reportPlayback = useEffectEvent(() => onPlaybackStats?.(playbackStats(videoRef.current)));
@@ -117,7 +158,8 @@ export default function JellyfinPlayer({ state, base, command, connected, focuse
         bufferingSince = 0;
       }
     }, 2000);
-    loading.current = true; blocked.current = false; drift.reset();
+    networkRef.current = createPlaybackNetwork();
+    loading.current = true; blocked.current = false; recoveredAt.current = -Infinity; drift.reset();
     const reportLoading = () => { startedAt.current = performance.now(); setPhase('loading'); setError(''); setDiagnostics(previous => ({ stage: 'Loading browser player…', lastError: previous.lastError })); };
     reportLoading();
     const url = `${root}/stream.m3u8?audio=${audio}&subtitle=${burnSubtitle}&${original ? `original=1&audioCopy=${audioCopy ? 1 : 0}` : `bitrate=${playbackBitrate}`}`;
@@ -133,7 +175,7 @@ export default function JellyfinPlayer({ state, base, command, connected, focuse
           else { setPhase('error'); setError('This browser cannot play this video. Try a current browser with HLS support.'); }
           return;
         }
-        hls = new Hls({ maxBufferLength: 20, maxMaxBufferLength: 40, backBufferLength: 20, maxBufferSize: 40 * 1000 * 1000, startPosition: initialTime(), enableWorker: true });
+        hls = new Hls({ loader: diagnosticLoader(Hls.DefaultConfig.loader, networkRef.current), maxBufferLength: 20, maxMaxBufferLength: 40, backBufferLength: 20, maxBufferSize: 40 * 1000 * 1000, startPosition: initialTime(), enableWorker: true });
         hlsRef.current = hls;
         const stage = text => { if (!disposed) setDiagnostics(previous => ({ ...previous, stage: text })); };
         hls.on(Hls.Events.MANIFEST_LOADING, () => stage('Requesting stream playlist…'));
@@ -154,7 +196,12 @@ export default function JellyfinPlayer({ state, base, command, connected, focuse
         hls.loadSource(url); hls.attachMedia(video);
       }
     };
-    const onReady = () => { ready = true; bufferingSince = 0; loading.current = false; setPhase(video.paused ? 'paused' : 'playing'); synchronize(true); };
+    const onReady = () => {
+      if (bufferingSince) recoveredAt.current = performance.now();
+      ready = true; bufferingSince = 0; loading.current = false;
+      setPhase(video.paused ? 'paused' : 'playing');
+      synchronize();
+    };
     const onPlaying = () => { bufferingSince = 0; loading.current = false; setPhase('playing'); };
     const onWaiting = () => { bufferingSince ||= performance.now(); loading.current = true; if (!blocked.current) setPhase('buffering'); };
     const onError = () => {
@@ -162,7 +209,7 @@ export default function JellyfinPlayer({ state, base, command, connected, focuse
       if (original) switchToCompatibleStream('Original video could not play on this device.');
       else { setPhase('error'); setError('This stream could not be played. Reconnect playback or choose another track.'); }
     };
-    const onMetadata = () => setDiagnostics(previous => ({ ...previous, stage: 'Waiting for playable video frames…' }));
+    const onMetadata = () => { setDiagnostics(previous => ({ ...previous, stage: 'Waiting for playable video frames…' })); synchronize(true); };
     const onPause = () => { if (!loading.current && !blocked.current) setPhase(video.ended ? 'ended' : 'paused'); };
     video.addEventListener('loadedmetadata', onMetadata);
     video.addEventListener('canplay', onReady); video.addEventListener('playing', onPlaying);
@@ -182,13 +229,31 @@ export default function JellyfinPlayer({ state, base, command, connected, focuse
     };
   }, [root, audio, audioCopy, burnSubtitle, attempt, drift, playbackBitrate, original, policyReady, streamKey]);
   useEffect(() => { videoRef.current.volume = volume; }, [volume]);
+  useEffect(() => () => {
+    clearTimeout(seekTimer.current);
+    queuedSeek.current = null;
+  }, [root, connected]);
+  const commitSeek = () => {
+    clearTimeout(seekTimer.current);
+    const value = queuedSeek.current;
+    queuedSeek.current = null;
+    if (value === null || !command) return;
+    if (videoRef.current) videoRef.current.currentTime = value;
+    command('seek', value);
+  };
   const togglePlay = () => {
     if (blocked.current) { blocked.current = false; play(); return; }
-    const restart = time >= state.duration - 0.1;
+    const restart = (queuedSeek.current ?? time) >= state.duration - 0.1;
+    commitSeek();
     if (state.playing && !restart) videoRef.current?.pause(); else play();
-    command(state.playing && !restart ? 'pause' : 'play');
+    command?.(state.playing && !restart ? 'pause' : 'play');
   };
-  const seek = value => { if (videoRef.current) videoRef.current.currentTime = value; setTime(value); command('seek', value); };
+  const seek = value => {
+    queuedSeek.current = value;
+    setTime(value);
+    clearTimeout(seekTimer.current);
+    seekTimer.current = setTimeout(commitSeek, 180);
+  };
   const subtitleUrl = selectedSubtitle?.text ? `${root}/subtitle/${subtitle}` : null;
   return <div className="jellyfin-player" data-phase={phase} data-delivery={original ? 'original' : 'compatible'}>
     {recovery && <p className="jellyfin-recovery" role="status">{recovery}</p>}
@@ -199,20 +264,21 @@ export default function JellyfinPlayer({ state, base, command, connected, focuse
       <p role="status">{policyFailed ? quality.error : phase === 'loading' ? !policyReady ? 'Requesting playback settings…' : diagnostics.stage : phase === 'buffering' ? `Buffering · ${diagnostics.stage}` : phase === 'blocked' ? 'Press Play to watch with the room.' : error}</p>
       {phase !== 'blocked' && <>
         <small>{telemetry.elapsed}s elapsed · {Number(telemetry.buffer || 0).toFixed(1)}s buffered</small>
-        <details className="jellyfin-playback-details"><summary>Playback details</summary><dl>
+        <p className="jellyfin-network-status">{telemetry.network?.requests?.length ? networkDiagnosis(telemetry.network) : !policyReady ? 'Waiting for playback settings from the media gateway.' : 'Starting the browser media engine. Native HLS request timing may be unavailable.'}</p>
+        <details className="jellyfin-playback-details"><summary>Playback &amp; network details</summary><dl>
           <dt>Last stage</dt><dd>{policyReady ? diagnostics.stage : 'Playback settings request'}</dd>
           <dt>Browser</dt><dd>{mediaReadiness(telemetry.readyState)}</dd>
           <dt>Delivery requested</dt><dd>{!policyReady ? 'Waiting for settings' : original ? 'Original video · fragmented MP4' : 'Compatible HLS'}</dd>
           <dt>Source</dt><dd>{quality.policy?.source?.height ? `${quality.policy.source.height}p` : 'Not reported'}</dd>
           <dt>Audio</dt><dd>{audioCodec || 'Not reported'}</dd>
           <dt>Last error</dt><dd>{policyFailed ? quality.error : diagnostics.lastError || 'None reported'}</dd>
-        </dl></details>
+        </dl><PlaybackNetworkDetails network={telemetry.network} endpoint={root} /></details>
       </>}
       {phase === 'blocked' && <button className="sr-button" onClick={() => { blocked.current = false; play(); }}>Play on this device</button>}
       {(policyFailed || phase === 'error') && <button className="sr-button" onClick={retry}>{policyFailed ? 'Retry playback settings' : 'Reconnect playback'}</button>}
     </div>}
     {fallbackReason && <p className="jellyfin-fallback-note" role="status">Using compatible playback. {fallbackReason}</p>}
-    <PlaybackControls label="for everyone" playing={state.playing && phase !== 'blocked' && time < state.duration - 0.1} currentTime={time} duration={state.duration} onTogglePlay={togglePlay} onSeek={seek} disabled={!connected || ['loading', 'error'].includes(phase)} volume={volume} muted={muted} onMute={() => setMuted(value => !value)} onVolumeChange={value => { setVolume(value); setMuted(value === 0); }} note={connected ? 'Everyone can control playback' : 'Reconnecting to room…'}>
+    <PlaybackControls docked label="for everyone" playing={state.playing && phase !== 'blocked' && time < state.duration - 0.1} currentTime={time} duration={state.duration} onTogglePlay={togglePlay} onSeek={seek} disabled={!command || ['loading', 'error'].includes(phase)} volume={volume} muted={muted} onMute={() => setMuted(value => !value)} onVolumeChange={value => { setVolume(value); setMuted(value === 0); }} note={connected ? 'Everyone can control playback' : 'Reconnecting to room…'}>
       <details className="player-track-menu" onKeyDown={event => { if (event.key === 'Escape') { event.currentTarget.open = false; event.currentTarget.querySelector('summary').focus(); event.stopPropagation(); } }}>
         <summary className="player-control" aria-label="Audio and subtitles" title="Audio and subtitles"><FaCog /></summary>
         <div className="player-track-panel">
@@ -225,9 +291,9 @@ export default function JellyfinPlayer({ state, base, command, connected, focuse
         </div>
       </details>
       {onBrowse && <button className="player-control" onClick={onBrowse} title="Browse Jellyfin library" aria-label="Browse Jellyfin library"><FaFilm /></button>}
-      <button className="player-control" aria-label="Stop movie for everyone" title="Stop movie for everyone" onClick={() => command('stop')} disabled={!connected}><FaStop /></button>
+    <button className="player-control" aria-label="Stop movie for everyone" title="Stop movie for everyone" onClick={() => command?.('stop')} disabled={!command}><FaStop /></button>
     </PlaybackControls>
-    <PlayerNerdStats videoRef={videoRef} hlsRef={hlsRef} policy={quality.policy} phase={policyFailed ? 'error' : phase}
+    <PlayerNerdStats network={telemetry.network} endpoint={root} videoRef={videoRef} hlsRef={hlsRef} policy={quality.policy} phase={policyFailed ? 'error' : phase}
       stage={policyReady ? diagnostics.stage : 'Playback settings request'} failure={policyFailed ? quality.error : diagnostics.lastError || error}
       delivery={policyReady ? original ? 'Original video · fragmented MP4' : 'Compatible HLS' : 'Waiting for settings'}
       audio={state.audioTracks.find(track => track.index === audio)?.title || 'No audio'} subtitle={selectedSubtitle?.title || 'Off'}

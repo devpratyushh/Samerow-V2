@@ -13,12 +13,22 @@ test('room synchronizes start, seek, pause, late join, replace and close; reject
     const { server, io } = backend;
     await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
     const address = `http://127.0.0.1:${server.address().port}`;
-    const users = [];
+    const users = [], hosts = new Map();
+    const ack = (socket, event, ...args) => socket.timeout(3000).emitWithAck(event, ...args);
     const join = async (room) => {
-        const user = connect(address, { transports: ['websocket'], forceNew: true });
+        const name = `member-${users.length}`;
+        const user = connect(address, { transports: ['websocket'], forceNew: true, auth: { token: `dev:${name}` } });
         users.push(user);
         await next(user, 'connect');
-        user.emit('join-room', room, 'Test user');
+        let reply = await ack(user, 'join-room', room, name);
+        if (reply.isOwner) hosts.set(room, user);
+        if (reply.pending) {
+            const host = hosts.get(room);
+            const request = (await ack(host, 'room-requests', room)).requests.find(request => request.name === name);
+            await ack(host, 'room-request-answer', room, request.id, true);
+            reply = await ack(user, 'join-room', room, name);
+        }
+        assert.equal(reply.ok, true);
         const state = next(user, 'youtube-sync');
         user.emit('sync-request', room);
         await state;

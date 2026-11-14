@@ -20,7 +20,7 @@ function installJellyfin(app, io, accounts, options = {}) {
   const request = accounts?.request || upstreamRequest;
   const member = (socket, roomId) => typeof roomId === 'string' && socket.rooms.has(roomId);
   const permitted = (socket, roomId) => options.canControl ? options.canControl(socket, roomId) : member(socket, roomId);
-  const snapshot = state => ({ sessionId: state.id, native: !!state.connectionToken, itemId: state.itemId, title: state.title, duration: state.duration, audioTracks: state.audioTracks, subtitleTracks: state.subtitleTracks, playing: state.playing, timestamp: position(state), updatedAt: Date.now(), revision: state.revision });
+  const snapshot = state => ({ sessionId: state.id, native: !!state.connectionToken, itemId: state.itemId, title: state.title, duration: state.duration, audioTracks: state.audioTracks, subtitleTracks: state.subtitleTracks, playing: state.playing, timestamp: position(state), updatedAt: Date.now(), revision: state.revision, commandId: state.commandId });
   const requestsFor = viewer => {
     let active = activeRequests.get(viewer.token);
     if (!active) { active = { sessionId: viewer.sessionId, requests: new Set() }; activeRequests.set(viewer.token, active); }
@@ -30,7 +30,6 @@ function installJellyfin(app, io, accounts, options = {}) {
     const key = `viewer-index:${roomId}:${socket.id}:${state.id}`;
     const accessToken = await store.update(key, value => value || token(), roomTtl);
     await store.update(`viewer:${accessToken}`, value => value || { token: accessToken, socketId: socket.id, roomId, sessionId: state.id, playSessionId: null, deviceId: randomUUID() }, roomTtl);
-    await quality.renew({ token: accessToken }, state);
     return accessToken;
   };
   const saveViewer = async (viewer, patch) => {
@@ -70,7 +69,9 @@ function installJellyfin(app, io, accounts, options = {}) {
       ack(state && !state.stopped ? await delivery.snapshot(state, await io.in(roomId).fetchSockets()) : null);
     });
     on('jellyfin-sync-request', async (roomId, ack) => {
-      if (!member(socket, roomId) || typeof ack !== 'function') return;
+      if (typeof ack !== 'function') return;
+      const preparing = socket.data.preparingRoom === roomId;
+      if (!member(socket, roomId) && !preparing) return;
       const serverReceivedAt = Date.now();
       let state = await store.get(`jellyfin-room:${roomId}`);
       if (state?.connectionToken && !await accounts?.getConnection(state.connectionToken)) {
@@ -78,7 +79,9 @@ function installJellyfin(app, io, accounts, options = {}) {
         await store.update(`jellyfin-room:${roomId}`, current => current?.id === expiredId ? { id: null, stopped: true, revision: current.revision + 1 } : current, roomTtl);
         revoke(state); state = await store.get(`jellyfin-room:${roomId}`);
       }
-      ack({ revision: state?.revision, state: state && !state.stopped ? { ...snapshot(state), accessToken: await accessFor(socket, roomId, state) } : null, serverReceivedAt, serverSentAt: Date.now() });
+      const playback = state && !state.stopped ? { ...snapshot(state), accessToken: await accessFor(socket, roomId, state) } : null;
+      if (preparing && socket.connected) await store.touch(`jellyfin-preparing:${roomId}:${socket.id}`, options.preparationTtl);
+      ack({ revision: state?.revision, state: playback, serverReceivedAt, serverSentAt: Date.now() });
     });
     on('jellyfin-open', async (payload = {}, ack = () => {}) => {
       if (typeof ack !== 'function' || !payload || !member(socket, payload.roomId) || !await permitted(socket, payload.roomId)) return;
@@ -178,9 +181,9 @@ function installJellyfin(app, io, accounts, options = {}) {
     if (typeof accessToken !== 'string' || !/^[a-f0-9]{48}$/.test(accessToken)) return null;
     const viewer = await store.get(`viewer:${accessToken}`);
     const state = viewer && await store.get(`jellyfin-room:${viewer.roomId}`);
-    const belongs = viewer && (options.store ? await store.get(`member:${viewer.roomId}:${viewer.socketId}`) : io.sockets.sockets.get(viewer.socketId)?.rooms.has(viewer.roomId));
+    const belongs = viewer && (await store.get(`jellyfin-preparing:${viewer.roomId}:${viewer.socketId}`) ||
+      (options.store ? await store.get(`member:${viewer.roomId}:${viewer.socketId}`) : io.sockets.sockets.get(viewer.socketId)?.rooms.has(viewer.roomId)));
     if (!state || state.id !== viewer.sessionId || !belongs) return null;
-    await quality.renew(viewer, state);
     viewer.requests = requestsFor(viewer);
     viewer.assets = new Map();
     return { viewer, state };
@@ -230,6 +233,7 @@ function installJellyfin(app, io, accounts, options = {}) {
         const output = lines.join('\n');
         res.type('application/vnd.apple.mpegurl').send(output);
       } else {
+        if (!/subtitle/i.test(parsed.pathname)) await quality.renew(viewer, state);
         res.status(response.status);
         for (const key of ['content-type', 'content-length', 'content-range', 'accept-ranges']) if (response.headers.has(key)) res.set(key, response.headers.get(key));
         if (response.body) await pipeline(Readable.fromWeb(response.body), ...(/subtitle/i.test(parsed.pathname) ? [] : [delivery.meter(viewer, state)]), res);

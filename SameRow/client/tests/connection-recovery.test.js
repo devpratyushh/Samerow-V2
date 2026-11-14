@@ -86,3 +86,15 @@ test('leaving while an SFU connection is pending closes the late result without 
   controller.close(); const call = fakeCall(); finish(call); await flush();
   assert.equal(call.closed, true); assert.equal(attempts, 1);
 });
+
+
+test('pending admission waits without marking the room ready and cancels on disposal', async () => {
+  const socket = new Socket(); let pending = 0, ready = 0, errors = 0;
+  const stop = maintainRoomMembership({ socket, roomId: 'private', userName: 'Guest',
+    onReady: () => ready++, onWaiting() {}, onPending: () => pending++, onError: () => errors++ });
+  socket.requests[0].ack(null, { pending: true });
+  assert.equal(pending, 1); assert.equal(ready, 0); assert.equal(errors, 0);
+  stop();
+  await new Promise(resolve => setTimeout(resolve, 2050));
+  assert.equal(socket.requests.length, 1);
+});

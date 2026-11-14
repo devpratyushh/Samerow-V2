@@ -9,16 +9,15 @@ import './App.css';
 
 import { auth, accountActions } from './firebase';
 import { accountAuthError } from './accountAuth';
-import { onIdTokenChanged, signInAnonymously } from 'firebase/auth';
+import { onIdTokenChanged } from 'firebase/auth';
 import { configureSession } from './session';
 import { maintainSession } from './sessionRecovery';
-import { isLegacyRoomServer, joinLegacyRoom, legacyControlOrigin } from './legacyRooms';
+import { legacyControlOrigin } from './legacyRooms';
 
 const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || (import.meta.env.DEV ? window.location.origin : legacyControlOrigin);
 const clientId = browserId();
 
-let developmentToken = '';
-configureSession(forceRefresh => developmentToken || auth.currentUser?.getIdToken(forceRefresh) || '');
+configureSession(forceRefresh => auth.currentUser && !auth.currentUser.isAnonymous ? auth.currentUser.getIdToken(forceRefresh) : '');
 
 function createRoomSocket(origin) {
   const socket = io(origin, {
@@ -44,11 +43,7 @@ function subscribeToConnection(socket, callback) {
 }
 
 function generateRoom(socket, privateRoom) {
-  if (socket.legacyRooms) {
-    const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
-    const random = crypto.getRandomValues(new Uint8Array(4));
-    return Promise.resolve({ code: Array.from(random, value => alphabet[value % alphabet.length]).join('') });
-  }
+  if (socket.legacyRooms) return Promise.reject(new Error('Update the room server to create private rooms.'));
   return new Promise((resolve, reject) => {
     socket.timeout(10000).emit('generate-room', privateRoom, (error, reply) => {
       if (error || !reply?.code) reject(new Error(reply?.error || 'Could not generate a room code.'));
@@ -65,7 +60,7 @@ function RoomApp({ socket = defaultSocket }) {
   const [connectionError, setConnectionError] = useState('');
   const subscribe = useCallback(callback => subscribeToConnection(socket, callback), [socket]);
   const serverConnected = useSyncExternalStore(subscribe, () => socket.connected);
-  const reserveRoom = useCallback(privateRoom => generateRoom(socket, privateRoom), [socket]);
+  const reserveRoom = useCallback(() => generateRoom(socket, true), [socket]);
   const [initialRoomFromUrl] = useState(() => new URLSearchParams(window.location.search).get('room') || '');
 
   // Media State
@@ -75,23 +70,7 @@ function RoomApp({ socket = defaultSocket }) {
   const [streamError, setStreamError] = useState(null);
 
   useEffect(() => {
-    let disposed = false, signingIn = false;
-    const connectDevelopmentGuest = async () => {
-      // Local development must work without enabling a Firebase guest provider.
-      // Production bundles and Firebase-mode servers never accept this fallback.
-      if (!import.meta.env.DEV) return false;
-      try {
-        const response = await fetch(`${SOCKET_URL}/api/config`, { signal: AbortSignal.timeout(5000) });
-        if (!response.ok || (await response.json()).auth !== 'development' || disposed || auth.currentUser) return false;
-        let uid = sessionStorage.getItem('samerow.development.uid');
-        if (!uid) { uid = browserId(); sessionStorage.setItem('samerow.development.uid', uid); }
-        developmentToken = `dev:${uid}`;
-        socket.auth = { clientId, token: developmentToken }; socket.sessionUid = uid;
-        setUser({ uid, isAnonymous: true }); setConnectionError(''); socket.connect();
-        return true;
-      } catch { return false; }
-    };
-    const stopRecovery = maintainSession({ socket, getToken: async () => developmentToken || auth.currentUser?.getIdToken(true), onError: setConnectionError });
+    let disposed = false, stopRecovery = () => {};
     const connected = () => setConnectionError('');
     const failed = error => {
       setConnectionError(error.data?.code === 'UNAUTHENTICATED' ? 'Sign in again to connect.' : 'The room server is reconnecting.');
@@ -99,38 +78,28 @@ function RoomApp({ socket = defaultSocket }) {
     socket.on('connect', connected); socket.on('connect_error', failed);
     let unsubscribe = () => {};
     const connectHosted = async () => {
-      if (SOCKET_URL === legacyControlOrigin) {
-        const config = await fetch(SOCKET_URL + '/api/config', { cache: 'no-store', redirect: 'error', signal: AbortSignal.timeout(5000) }).catch(() => null);
-        if (config && await isLegacyRoomServer(SOCKET_URL, config)) {
-          if (disposed) return;
-          socket.legacyRooms = true;
-          socket.auth = {};
-          unsubscribe = onIdTokenChanged(auth, setUser);
-          socket.connect();
-          return;
-        }
-      }
       if (disposed) return;
       unsubscribe = onIdTokenChanged(auth, async currentUser => {
         if (disposed) return;
-        if (!currentUser) {
-          socket.disconnect(); setUser(null);
-          if (!signingIn) {
-            signingIn = true;
-            try { if (!await connectDevelopmentGuest()) await signInAnonymously(auth); }
-            catch { if (!await connectDevelopmentGuest() && !disposed) setConnectionError('Guest sign-in is unavailable. Sign in with Google or GitHub to join.'); }
-            finally { signingIn = false; }
-          }
+        stopRecovery();
+        if (!currentUser || currentUser.isAnonymous) {
+          socket.disconnect(); socket.auth = {}; delete socket.sessionUid;
+          setUser(null); setRoomId(null); setRoomInvite('');
+          setConnectionError('Sign in with Google or GitHub to host or join a room.');
           return;
         }
         setUser(currentUser);
-        developmentToken = '';
+        setConnectionError('');
+        stopRecovery = maintainSession({ socket, getToken: async () => {
+          const account = auth.currentUser;
+          return account && !account.isAnonymous ? account.getIdToken(true) : '';
+        }, onError: setConnectionError });
         if (currentUser.displayName) setUserName(currentUser.displayName);
         try {
           const token = await currentUser.getIdToken();
           if (disposed || auth.currentUser?.uid !== currentUser.uid) return;
           const previousUid = socket.sessionUid;
-          socket.auth = { clientId, token }; socket.sessionUid = currentUser.uid;
+          socket.auth = { clientId, token, prepareJellyfin: true }; socket.sessionUid = currentUser.uid;
           if (previousUid && previousUid !== currentUser.uid) socket.disconnect();
           if (socket.connected) socket.emit('auth-refresh', token);
           else socket.connect();
@@ -191,10 +160,9 @@ function RoomApp({ socket = defaultSocket }) {
   const joinRoom = async (id, name, generatedInvite) => {
     const linkedInvite = id === initialRoomFromUrl ? new URLSearchParams(window.location.hash.slice(1)).get('invite') : '';
     const invite = generatedInvite || linkedInvite;
-    if (socket.legacyRooms && invite) throw new Error('Private rooms need the updated room server.');
+    if (socket.legacyRooms) throw new Error('Update the room server to use private rooms with host approval.');
     let reply;
-    if (socket.legacyRooms) reply = await joinLegacyRoom(socket, id, name);
-    else try {
+    try {
       reply = await socket.timeout(10000).emitWithAck('join-room', id, name, ...(invite ? [invite] : []));
     } catch {
       const config = await fetch(`${SOCKET_URL}/api/config`, { signal: AbortSignal.timeout(3000), cache: 'no-store' }).catch(() => null);
@@ -202,8 +170,9 @@ function RoomApp({ socket = defaultSocket }) {
       if (config?.status === 503 || !socket.connected) throw new Error('Lost connection to the room server. Try again when it reconnects.');
       throw new Error('The room server did not confirm your join. Try again.');
     }
-    if (!reply?.ok) throw Object.assign(new Error(reply?.error || 'Could not join this room.'), { status: reply?.status });
-    socket.roomConfig = reply; setRoomInvite(reply.invite || ''); setRoomId(id); setUserName(name);
+    if (!reply?.ok && !reply?.pending && !reply?.preparing) throw Object.assign(new Error(reply?.error || 'Could not join this room.'), { status: reply?.status });
+    Object.assign(socket, { roomConfig: reply });
+    setRoomInvite(reply.invite || ''); setRoomId(id); setUserName(name);
   };
 
   const createPrivateRoom = async () => {
@@ -214,8 +183,8 @@ function RoomApp({ socket = defaultSocket }) {
     window.location.assign(url.href);
   };
 
-  const leaveRoom = () => {
-    socket.emit('leave-room', roomId);
+  const leaveRoom = async () => {
+    if (socket.connected) await socket.timeout(2000).emitWithAck('leave-room', roomId).catch(() => {});
     setRoomId(null);
     setUserName('');
     window.location.reload();

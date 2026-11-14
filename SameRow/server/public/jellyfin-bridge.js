@@ -106,7 +106,9 @@
   let lastInputAt = -Infinity;
   let lastLocalCommand = null;
   let lastSeekAt = -Infinity;
+  let pendingRoomSeek = false;
   let changingTrackUntil = 0;
+  let trackChanges = 0;
   let lastStatus = '';
   let lastStatusAt = 0;
   let blocked = false;
@@ -203,7 +205,7 @@
     const now = clock();
     // Only native controls operated by the viewer send room commands. Native
     // track reloads, autoplay, buffering and room corrections are local work.
-    if (now - lastInputAt > 1800 || now < changingTrackUntil) return;
+    if (now - lastInputAt > 1800 || now < changingTrackUntil || trackChanges > 0) return;
     if (lastLocalCommand && lastLocalCommand.action === action && Math.abs(lastLocalCommand.time - time) < 0.05 && now - lastLocalCommand.at < 100) return;
     blocked = false;
     lastLocalCommand = { action, time: clamp(time), at: now, revision: latest?.revision ?? -1 };
@@ -247,7 +249,7 @@
   }
 
   function synchronize() {
-    if (disposed || !roomConnected || !started || opening || !latest || !manager?.getCurrentPlayer()) return;
+    if (disposed || !roomConnected || !started || opening || trackChanges > 0 || !latest || !manager?.getCurrentPlayer()) return;
     bindVideo();
     const now = clock();
     if (lastLocalCommand && latest.revision <= lastLocalCommand.revision && now - lastLocalCommand.at < 1800) return;
@@ -258,8 +260,11 @@
     const expected = targetTime();
     const drift = expected - time;
     const paused = !!state.PlayState.IsPaused;
-    const needsSeek = Math.abs(drift) > (latest.playing ? 1.5 : 0.35);
-    if (needsSeek && now - lastSeekAt >= 1800 && (!video || !video.seeking)) {
+    const needsSeek = Math.abs(drift) > (pendingRoomSeek ? 0.08 : latest.playing ? 1.5 : 0.35);
+    const canSeek = !video || !video.seeking;
+    if (pendingRoomSeek && !needsSeek && canSeek) pendingRoomSeek = false;
+    if (needsSeek && (pendingRoomSeek || now - lastSeekAt >= 1800) && canSeek) {
+      pendingRoomSeek = false;
       lastSeekAt = now;
       suppress(() => manager.seek(Math.round(expected * TICKS)));
     }
@@ -343,7 +348,22 @@
           const original = manager[name];
           manager[name] = function (...args) {
             changingTrackUntil = clock() + 1500;
-            return suppress(() => original.apply(this, args));
+            pendingRoomSeek = true;
+            trackChanges += 1;
+            const settled = () => {
+              trackChanges -= 1;
+              // Apply the newest room position after the replacement stream is ready.
+              changingTrackUntil = clock() + 1500;
+              if (!disposed) synchronize();
+            };
+            let result;
+            try { result = suppress(() => original.apply(this, args)); }
+            catch (error) { settled(); throw error; }
+            if (result && typeof result.then === 'function') {
+              return Promise.resolve(result).then(value => { settled(); return value; }, error => { settled(); throw error; });
+            }
+            settled();
+            return result;
           };
           cleanup.push(() => { manager[name] = original; });
         }
@@ -377,6 +397,7 @@
       const state = message.state;
       if (!state || !Number.isFinite(state.timestamp) || !Number.isFinite(state.revision) || typeof state.playing !== 'boolean') return;
       if (latest && state.revision < latest.revision) return;
+      if (!latest || state.revision > latest.revision) pendingRoomSeek = true;
       latest = { ...state, timestamp: clamp(state.timestamp) }; receivedAt = clock();
       synchronize();
     } else if (message.type === 'quality') {

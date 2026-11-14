@@ -9,6 +9,7 @@ export function useJellyfinQuality(endpoint) {
     const controller = new AbortController();
     const versionRef = generation;
     let running = false;
+    let timer;
     const refresh = async () => {
       if (running || pending.current === generation.current) return;
       running = true;
@@ -18,7 +19,10 @@ export function useJellyfinQuality(endpoint) {
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const policy = await response.json();
         if (!policy || typeof policy.mode !== 'string' || !Number.isFinite(policy.maxBitrate) || policy.maxBitrate <= 0) throw new Error('Invalid playback settings');
-        if (version === generation.current) setResult(previous => previous?.endpoint === endpoint && JSON.stringify(previous.policy) === JSON.stringify(policy) ? previous : { endpoint, policy, error: '', saving: false });
+        if (version === generation.current) {
+          clearInterval(timer);
+          setResult(previous => previous?.endpoint === endpoint && JSON.stringify(previous.policy) === JSON.stringify(policy) ? previous : { endpoint, policy, error: '', saving: false });
+        }
       } catch (error) {
         if (!controller.signal.aborted && version === generation.current) setResult(previous => {
           // A refresh failure must not interrupt an already loaded stream.
@@ -30,7 +34,7 @@ export function useJellyfinQuality(endpoint) {
       finally { running = false; }
     };
     void refresh();
-    const timer = setInterval(refresh, 10000);
+    timer = setInterval(refresh, 10000);
     return () => { controller.abort(); clearInterval(timer); versionRef.current++; };
   }, [endpoint, refreshCount]);
   const select = async mode => {

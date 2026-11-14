@@ -7,7 +7,7 @@ const helmet = require('helmet');
 const cors = require('cors');
 const { configuration } = require('./config');
 const { MemoryStore } = require('./store');
-const { createIdentity, installIdentity } = require('./auth');
+const { createIdentity, installIdentity, requireAccount } = require('./auth');
 const { isVideoUrl, isTimestamp, createState, snapshot, updateState } = require('./youtube');
 
 const validRoom = value => typeof value === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(value);
@@ -31,6 +31,7 @@ function createApplication(options = {}) {
   app.disable('x-powered-by'); app.set('trust proxy', config.production ? 1 : false);
   app.use(helmet({ contentSecurityPolicy: false, crossOriginEmbedderPolicy: false, crossOriginResourcePolicy: { policy: 'cross-origin' }, frameguard: false }));
   app.use((req, res, next) => {
+    res.set('Permissions-Policy', 'picture-in-picture=()');
     const requestId = randomUUID(), started = Date.now(); res.set('X-Request-Id', requestId);
     res.on('finish', () => {
       // Raw URLs contain media bearer capabilities; never log them or headers.
@@ -123,15 +124,14 @@ function createApplication(options = {}) {
     socket.emit('me', socket.id);
     socket.handle('auth-refresh', async (token, ack) => {
       if (!await store.limit(`auth-refresh:${socket.data.uid}`, 10, 60)) throw failure(429, 'Please wait before refreshing your sign-in.');
-      const user = await identity.verify(token);
+      const user = requireAccount(await identity.verify(token));
       if (user.uid !== socket.data.uid) { socket.disconnect(true); return; }
       socket.identityToken = token; socket.data.expiresAt = user.exp * 1000; if (typeof ack === 'function') ack({ ok: true });
     });
     socket.handle('generate-room', async (privateRoom, ack) => {
       if (typeof ack !== 'function') return;
-      if (socket.data.connectorId && privateRoom !== true) throw failure(403, 'Online hosts must create a private room.');
       if (!await store.limit(`generate-room:${socket.data.uid}`, 10, 60)) throw failure(429, 'Wait before generating another room code.');
-      const invite = privateRoom === true ? randomBytes(24).toString('hex') : undefined;
+      const invite = randomBytes(24).toString('hex');
       for (let attempt = 0; attempt < 12; attempt++) {
         const code = Array.from({ length: 4 }, () => String.fromCharCode(65 + randomInt(26))).join('');
         try {
@@ -146,20 +146,51 @@ function createApplication(options = {}) {
       }
       throw failure(503, 'Could not reserve a room code. Try again.');
     });
-    socket.handle('join-room', async (roomId, userName, invite, ack) => {
-      if (typeof invite === 'function') { ack = invite; invite = undefined; }
+    const joinRoom = async (roomId, userName, ack, playbackReady) => {
       if (!validRoom(roomId) || typeof userName !== 'string' || !userName.trim() || userName.length > 80) throw failure(400, 'Use a valid room code and a name of at most 80 characters.');
       if (socket.data.roomId && socket.data.roomId !== roomId) throw failure(409, 'Leave the current room before joining another.');
-      const reserved = await store.update(`room:${roomId}`, current => {
-        if (socket.data.connectorId && (!current?.invite || current.ownerUid !== socket.data.uid)) {
-          throw failure(403, 'Start a private room from your connector.');
-        }
-        if (current?.invite && current.ownerUid !== socket.data.uid && current.invite !== invite) {
-          throw failure(403, 'This room requires an invite link.');
-        }
-        return current || { ownerUid: socket.data.uid, createdAt: Date.now() };
-      }, config.roomTtl);
+      if (socket.data.preparingRoom && socket.data.preparingRoom !== roomId) throw failure(409, 'Cancel the current join before joining another room.');
       const name = userName.trim().replace(/[\u0000-\u001f\u007f]/g, '');
+      const requestId = randomUUID(), newInvite = randomBytes(24).toString('hex');
+      const reserved = await store.update(`room:${roomId}`, current => {
+        if (socket.data.connectorId && (!current || current.ownerUid !== socket.data.uid)) {
+          throw failure(403, 'Start a room from your connector.');
+        }
+        const room = current || { ownerUid: socket.data.uid, createdAt: Date.now(), invite: newInvite };
+        room.invite ||= newInvite;
+        room.admissions = (room.admissions || []).filter(value => value.status === 'approved' || value.until > Date.now());
+        if (room.ownerUid !== socket.data.uid) {
+          const existing = room.admissions.find(value => value.uid === socket.data.uid && value.clientId === socket.data.clientId);
+          if (!existing) {
+            if (room.admissions.length >= 100) throw failure(429, 'Too many join requests. Try again later.');
+            room.admissions.push({ id: requestId, uid: socket.data.uid, clientId: socket.data.clientId, name, status: 'pending', until: Date.now() + 300000 });
+          }
+        }
+        return room;
+      }, config.roomTtl);
+      if (reserved.ownerUid !== socket.data.uid) {
+        const admission = reserved.admissions.find(value => value.uid === socket.data.uid && value.clientId === socket.data.clientId);
+        if (admission.status === 'denied') throw failure(403, 'The host declined your join request.');
+        if (admission.status !== 'approved') {
+          socket.data.waitingRoom = roomId;
+          if (typeof ack === 'function') ack({ pending: true });
+          return;
+        }
+        if (socket.handshake.auth?.prepareJellyfin === true && !socket.rooms.has(roomId)) {
+          const state = await store.get(`jellyfin-room:${roomId}`);
+          const viewerToken = state?.id && playbackReady?.sessionId === state.id && playbackReady.revision === state.revision
+            ? await store.get(`viewer-index:${roomId}:${socket.id}:${state.id}`) : null;
+          if (state?.id && !state.stopped && (!viewerToken || playbackReady?.accessToken !== viewerToken)) {
+            socket.data.preparingRoom = roomId;
+            socket.data.preparingName = name;
+            await store.set(`jellyfin-preparing:${roomId}:${socket.id}`, true, LEASE_SECONDS);
+            if (!socket.connected) await clearPreparation(socket);
+            else if (typeof ack === 'function') ack({ preparing: true, mediaBase: config.mediaOrigin });
+            return;
+          }
+        }
+      }
+      delete socket.data.waitingRoom;
       const now = Date.now();
       const sameClient = value => value.uid === socket.data.uid && value.clientId === socket.data.clientId;
       const previousPresence = await store.get(`presence:${roomId}`) || [];
@@ -183,9 +214,34 @@ function createApplication(options = {}) {
       }
       const alreadyJoined = socket.rooms.has(roomId);
       socket.data.roomId = roomId; socket.data.userName = name; socket.membershipRenewedAt = now; await socket.join(roomId);
-      if (!alreadyJoined) socket.to(roomId).emit('user-connected', { userId: socket.id, userName: name });
-      const reply = { ok: true, mediaMode: config.mediaMode, mediaBase: config.mediaOrigin, canControl: config.controlPolicy === 'everyone' || reserved.ownerUid === socket.data.uid, invite: reserved.invite, maxRoomSize: config.maxRoomSize };
+      await clearPreparation(socket, false).catch(() => { stats.storageFailures++; });
+      const reply = { ok: true, isOwner: reserved.ownerUid === socket.data.uid, mediaMode: config.mediaMode, mediaBase: config.mediaOrigin, canControl: config.controlPolicy === 'everyone' || reserved.ownerUid === socket.data.uid, invite: reserved.invite, maxRoomSize: config.maxRoomSize };
       if (typeof ack === 'function') ack(reply); socket.emit('room-ready', reply);
+      if (!alreadyJoined) socket.to(roomId).emit('user-connected', { userId: socket.id, userName: name });
+    };
+    socket.handle('join-room', (roomId, userName, invite, ack) => joinRoom(roomId, userName, typeof invite === 'function' ? invite : ack));
+    socket.handle('room-playback-ready', (roomId, playback, ack) => {
+      if (validRoom(roomId) && socket.rooms.has(roomId)) return joinRoom(roomId, socket.data.userName, ack);
+      if (!validRoom(roomId) || socket.data.preparingRoom !== roomId || !playback || typeof ack !== 'function') {
+        throw failure(409, 'Playback preparation ended. Rejoin the room to continue.');
+      }
+      return joinRoom(roomId, socket.data.preparingName, ack, playback);
+    });
+    socket.handle('room-requests', async (roomId, ack) => {
+      const room = validRoom(roomId) && await store.get(`room:${roomId}`);
+      if (!socket.rooms.has(roomId) || room?.ownerUid !== socket.data.uid) throw failure(403, 'Only the host can review join requests.');
+      if (typeof ack === 'function') ack({ requests: (room.admissions || []).filter(value => value.status === 'pending' && value.until > Date.now()).map(({ id, name }) => ({ id, name })) });
+    });
+    socket.handle('room-request-answer', async (roomId, requestId, accept, ack) => {
+      if (!validRoom(roomId) || !socket.rooms.has(roomId) || typeof accept !== 'boolean') throw failure(403, 'Only the host can review join requests.');
+      await store.update(`room:${roomId}`, room => {
+        if (room?.ownerUid !== socket.data.uid) throw failure(403, 'Only the host can review join requests.');
+        const request = room.admissions?.find(value => value.id === requestId && value.status === 'pending' && value.until > Date.now());
+        if (!request) throw failure(410, 'This join request has expired.');
+        request.status = accept ? 'approved' : 'denied';
+        return room;
+      }, config.roomTtl);
+      if (typeof ack === 'function') ack({ ok: true });
     });
     socket.handle('sync-request', async (roomId, ack) => {
       if (!validRoom(roomId) || !socket.rooms.has(roomId)) return;
@@ -226,15 +282,31 @@ function createApplication(options = {}) {
       ack({ mode: 'livekit', url: config.livekitUrl, token: await access.toJwt() });
     });
     socket.handle('leave-room', async (roomId, ack) => {
+      if (validRoom(roomId) && (socket.data.waitingRoom === roomId || socket.data.preparingRoom === roomId || socket.data.roomId === roomId)) {
+        await store.update(`room:${roomId}`, room => {
+          if (room) room.admissions = (room.admissions || []).filter(value => value.uid !== socket.data.uid || value.clientId !== socket.data.clientId);
+          return room;
+        }, config.roomTtl);
+        delete socket.data.waitingRoom;
+      }
       if (socket.data.roomId === roomId) { await removeMembership(socket); await socket.leave(roomId); delete socket.data.roomId; }
+      if (socket.data.preparingRoom === roomId) await clearPreparation(socket);
       if (typeof ack === 'function') ack({ ok: true });
     });
     socket.on('disconnecting', () => {
       const roomId = socket.data.roomId; if (roomId) socket.to(roomId).emit('user-disconnected', socket.id);
-      const removal = removeMembership(socket).catch(() => {}).finally(() => membershipRemovals.delete(removal));
+      const removal = Promise.allSettled([removeMembership(socket), clearPreparation(socket)]).finally(() => membershipRemovals.delete(removal));
       membershipRemovals.add(removal);
     });
   });
+  async function clearPreparation(socket, release = true) {
+    const roomId = socket.data.preparingRoom;
+    if (!roomId) return;
+    delete socket.data.preparingRoom;
+    delete socket.data.preparingName;
+    await store.set(`jellyfin-preparing:${roomId}:${socket.id}`, null);
+    if (release) await jellyfin.releaseSocket(socket, roomId);
+  }
   async function removeMembership(socket) {
     const roomId = socket.data.roomId; if (!roomId) return;
     if (mediaService) mediaService.removeParticipant(`${config.prefix}:${roomId}`, socket.id).catch(() => {});
@@ -293,8 +365,14 @@ function createApplication(options = {}) {
   const relay = require('./jellyfinRelay').installJellyfinRelay(app, { config, store, identity, io });
   const networkPolicy = { production: config.production, allowPrivate: config.allowPrivateJellyfin, origins: config.upstreamOrigins };
   const accounts = require('./jellyfinAccounts').installJellyfinAccounts(app, { ...(options.accountOptions || {}), relay, ...(options.store ? { store } : {}), networkPolicy });
-  const jellyfin = require('./jellyfin').installJellyfin(app, io, accounts, { store, canControl, production: config.production, networkPolicy, roomTtl: config.roomTtl, allowedOrigins: config.origins, publicOrigin: config.mediaOrigin, quality: config.jellyfinQuality });
-  require('./chat').installChat(io, { store, identity });
+  const jellyfin = require('./jellyfin').installJellyfin(app, io, accounts, { store, canControl, production: config.production, networkPolicy, roomTtl: config.roomTtl, allowedOrigins: config.origins, publicOrigin: config.mediaOrigin, quality: config.jellyfinQuality, preparationTtl: LEASE_SECONDS });
+  io.on('connection', socket => {
+    const chatUnavailable = (_payload, ack) => {
+      if (typeof ack === 'function') ack({ error: 'Room chat is currently unavailable.' });
+    };
+    socket.handle('chat-history', chatUnavailable);
+    socket.handle('chat-send', chatUnavailable);
+  });
   app.use((error, req, res, next) => {
     if (res.headersSent) { res.destroy(); return; }
     const status = error.type === 'entity.too.large' ? 413 : error instanceof SyntaxError ? 400 : error.status || 500;

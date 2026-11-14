@@ -88,6 +88,11 @@ test('native Jellyfin gateway limits guests to the shared item, rewrites credent
     await ack(other, 'jellyfin-open', { roomId: 'other-room', connectionToken: connection.token, itemId: 'movie' });
     const fourth = await join('fourth-room');
     await ack(fourth, 'jellyfin-open', { roomId: 'fourth-room', connectionToken: connection.token, itemId: 'movie' });
+    assert.equal((await (await fetch(`${gateway}/samerow/quality`)).json()).maxBitrate, 50000000, 'Receiving a playback token does not consume a bandwidth share');
+    for (const [socket, roomId] of [[other, 'other-room'], [fourth, 'fourth-room']]) {
+      const viewer = (await ack(socket, 'jellyfin-sync-request', roomId)).state;
+      await negotiate(`${base}/api/jellyfin-native/${viewer.accessToken}`);
+    }
     const limited = await (await fetch(`${gateway}/samerow/quality`)).json();
     assert.equal(limited.maxBitrate, 40000000, '200 Mbps with 20% headroom is shared by four viewers across rooms');
     assert.equal(limited.capacityLimited, true);

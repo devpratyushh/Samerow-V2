@@ -15,3 +15,13 @@
 @media (min-width: 1100px) { .room-shell.is-fullscreen.is-watching.has-open-chat .jellyfin-player > .player-nerd-stats { right: 360px; } }
 .jellyfin-player:has(> .player-nerd-stats) > .jellyfin-player-status { position: relative; inset: auto; grid-area: 1 / 1; min-height: 0; overflow: auto; }
 .room-shell.is-fullscreen.is-watching .jellyfin-player > .jellyfin-player-status { position: absolute; inset: 0 0 174px; }
+.playback-network-details { min-width: 0; text-align: left; }
+.playback-network-details dl { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr)); gap: 12px; margin: 10px 0; }
+.playback-network-details dt { color: #aaa; }
+.playback-network-details dd { margin: 4px 0 0; overflow-wrap: anywhere; }
+.playback-network-table { max-width: 100%; overflow-x: auto; margin: 12px 0; }
+.playback-network-table table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; font-size: 12px; }
+.playback-network-table caption { text-align: left; color: #bbb; padding-bottom: 8px; }
+.playback-network-table th, .playback-network-table td { text-align: left; vertical-align: top; padding: 8px; border-bottom: 1px solid #ffffff20; }
+.playback-network-table small { display: block; color: #aaa; margin-top: 4px; }
+.player-nerd-stats h3 { font-size: 13px; margin: 12px 0; }
