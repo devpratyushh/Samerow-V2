@@ -6,7 +6,7 @@ import PlaybackNetworkDetails from './PlaybackNetworkDetails';
 
 const number = (value, suffix = '', digits = 1) => Number.isFinite(value) ? `${value.toFixed(digits)}${suffix}` : 'Not reported';
 
-export default function PlayerNerdStats({ videoRef, hlsRef, reported, policy, phase, stage, failure, delivery, audio, subtitle, targetTime, network, endpoint }) {
+export default function PlayerNerdStats({ videoRef, hlsRef, reported, policy, phase, stage, failure, delivery, audio, subtitle, targetTime, network, endpoint, transport, transportError, direct, firstFrame }) {
   const [open, setOpen] = useState(false);
   const [sample, setSample] = useState(null);
   const previous = useRef(null);
@@ -45,6 +45,19 @@ export default function PlayerNerdStats({ videoRef, hlsRef, reported, policy, ph
     ['Sync offset', Number.isFinite(sample?.drift) ? `${sample.drift >= 0 ? '+' : ''}${sample.drift.toFixed(2)} s (device − room)` : 'Not reported'],
     ['Playback speed', number(sample?.playbackRate, '×', 2)],
     ['Delivery requested', delivery || 'Not reported'],
+    ...(transport ? [
+      ['Movie transport', transport],
+      ['First frame', number(firstFrame, ' ms', 0)],
+      ...(transportError ? [['Transport error', transportError]] : []),
+      ...(direct ? [
+        ['Received', number(direct.bytes, ' bytes', 0)],
+        ['Current transfer speed', number(direct.speed / 1e6, ' Mbps', 2)],
+        ['Segments completed / requested', `${direct.segmentsCompleted} / ${direct.segmentsRequested}`],
+        ['First byte', number(direct.firstByte, ' ms', 0)],
+        ['ICE route', direct.route || 'Not reported'],
+        ['WebRTC RTT', number(direct.rtt * 1000, ' ms', 0)],
+      ] : []),
+    ] : []),
     ['Source video', policy?.source?.width && policy?.source?.height ? `${policy.source.width} × ${policy.source.height}` : 'Not reported'],
     ['Source bitrate', number(policy?.source?.bitrate ? policy.source.bitrate / 1e6 : null, ' Mbps')],
     ['Quality / bitrate cap', policy ? `${policy.mode} · ${number(policy.maxBitrate / 1e6, ' Mbps')}${policy.capacityLimited ? ' · shared capacity limit' : ''}` : 'Waiting for settings'],

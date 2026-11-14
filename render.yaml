@@ -61,6 +61,9 @@ envVarGroups:
         value: everyone
       - key: JELLYFIN_RELAY_ENABLED
         value: 'true'
+      - key: JELLYFIN_DIRECT_ENABLED
+        value: 'true'
+      # JELLYFIN_RELAY_DAILY_BYTES sets the optional UTC-day gateway movie budget.
       - key: MAX_ROOM_SIZE
         value: '4'
       - key: ROOM_TTL_SECONDS

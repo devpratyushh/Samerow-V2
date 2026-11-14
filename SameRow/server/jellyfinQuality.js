@@ -12,15 +12,18 @@ function sourceInfo(state) {
 }
 function createQualityPolicy(store, { originMbps = 0, gatewayMbps = 0 } = {}) {
   const scopes = state => ['jellyfin-gateway', `jellyfin-origin:${new URL(state.base).origin}`];
+  const renewOrigin = (viewer, state) => store.leaseCount(scopes(state)[1], viewer.token);
   const renew = async (viewer, state) => Promise.all(scopes(state).map(scope => store.leaseCount(scope, viewer.token)));
   return {
-    renew,
+    renew, renewOrigin,
     release: async (viewer, state) => Promise.all(scopes(state).map(scope => store.releaseLease(scope, viewer.token))),
-    async describe(viewer, state, defaultMode = 'auto') {
-      const [gatewayViewers, originViewers] = await renew(viewer, state);
+    async describe(viewer, state, defaultMode = 'auto', direct = false) {
+      const [gatewayViewers, originViewers] = direct
+        ? [1, await renewOrigin(viewer, state)]
+        : await renew(viewer, state);
       // Reserve 20% for bitrate peaks and HTTP overhead. Both limits are shared
       // across rooms and replicas using the same Redis namespace.
-      const capacity = Math.min(gatewayMbps ? gatewayMbps * 800000 / gatewayViewers : MAX_BITRATE,
+      const capacity = Math.min(!direct && gatewayMbps ? gatewayMbps * 800000 / gatewayViewers : MAX_BITRATE,
         originMbps ? originMbps * 800000 / originViewers : MAX_BITRATE);
       const source = sourceInfo(state);
       const originalBitrate = Math.min(MAX_BITRATE, source.bitrate ? Math.ceil(source.bitrate * 1.25) : MAX_BITRATE);

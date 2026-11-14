@@ -23,6 +23,9 @@ export async function jellyfinFixture({ media = false } = {}) {
     const authorized = req.headers['x-emby-token'] === 'fixture-token' || /(?:^|[,\s])Token="fixture-token"(?:,|\s|$)/.test(req.headers.authorization || '');
     requests.push({path:url.pathname,query:Object.fromEntries(url.searchParams),authorized,method:req.method});
     if(!authorized){res.writeHead(401).end();return;}
+    if(url.pathname==='/Users/Me'){
+      res.setHeader('Content-Type','application/json');res.end(JSON.stringify({Id:'fixture-user'}));return;
+    }
     if(url.pathname==='/Items'){
       await new Promise(resolve=>setTimeout(resolve,controls.delay));
       res.setHeader('Content-Type','application/json');
@@ -46,7 +49,15 @@ export async function jellyfinFixture({ media = false } = {}) {
     const file=url.pathname.match(/^\/Videos\/fixture-video\/hls\/([12])\/(main\.m3u8|segment\d+\.ts|init\.mp4|original\d+\.m4s)$/);
     if(file){
       res.setHeader('Content-Type',file[2].endsWith('.m3u8')?'application/vnd.apple.mpegurl':file[2].endsWith('.ts')?'video/mp2t':'video/mp4');
-      res.end(media?await readFile(join(directory,file[1],file[2])):file[2].endsWith('.m3u8')?'#EXTM3U\n#EXT-X-TARGETDURATION:4\n#EXTINF:4,\nsegment0.ts\n#EXT-X-ENDLIST\n':Buffer.from([0x47,0,0,0]));return;
+      const data = media ? await readFile(join(directory,file[1],file[2])) : file[2].endsWith('.m3u8') ? '#EXTM3U\n#EXT-X-TARGETDURATION:4\n#EXTINF:4,\nsegment0.ts\n#EXT-X-ENDLIST\n' : Buffer.from([0x47,0,0,0]);
+      const range = /^bytes=(\d+)-(\d+)$/.exec(req.headers.range || '');
+      if (range && Buffer.isBuffer(data)) {
+        const start = Number(range[1]), end = Math.min(Number(range[2]), data.length - 1);
+        if (start > end) { res.writeHead(416).end(); return; }
+        res.writeHead(206, { 'Content-Range': `bytes ${start}-${end}/${data.length}`, 'Content-Length': end - start + 1 });
+        res.end(data.subarray(start, end + 1)); return;
+      }
+      res.end(data);return;
     }
     res.writeHead(404).end();
   });

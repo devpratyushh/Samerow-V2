@@ -296,7 +296,7 @@ function installJellyfinRelay(app, { config, store, identity, io }) {
     return response;
   }
 
-  return { authorize, request, close() {
+  return { authenticate, authorize, request, close() {
     io?.off('connector-revoked', abortConnector);
     for (const available of polls.values()) for (const response of available) response.sendStatus(503);
     for (const queue of queues.values()) for (const entry of queue) entry.cancel();

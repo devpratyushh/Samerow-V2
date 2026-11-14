@@ -212,7 +212,12 @@ test('Redis: Jellyfin sign-in, credentials, native gateway and revocation work a
   assert.equal((await fetch(`${gateway}/Videos/movie/stream.mp4`)).status, 200);
   await ack(guest, 'leave-room', 'movie');
   assert.equal((await fetch(`${gateway}/Items/movie`)).status, 403);
-  const rejoined = await ack(guest, 'join-room', 'movie', 'Viewer'); assert.equal(rejoined.ok, true);
+  const pending = await ack(guest, 'join-room', 'movie', 'Viewer');
+  assert.equal(pending.pending, true);
+  const room = await first.store.get('room:movie');
+  const request = room.admissions.find(value => value.uid === 'guest' && value.clientId === guest.id);
+  assert.equal((await ack(host, 'room-request-answer', 'movie', request.id, true)).ok, true);
+  assert.equal((await ack(guest, 'join-room', 'movie', 'Viewer')).ok, true);
   const nextState = (await ack(guest, 'jellyfin-sync-request', 'movie')).state;
   const nextGateway = `${media.url}/api/jellyfin-native/${nextState.accessToken}`;
   await fetch(`${second.url}/api/jellyfin/logout`, { method: 'POST', headers: { Authorization: `Bearer ${login.token}`, 'X-SameRow-Token': 'test:owner' } });

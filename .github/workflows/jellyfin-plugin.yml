@@ -3,6 +3,7 @@ name: Jellyfin plugin
 on:
   push:
     paths: ['jellyfin-plugin-samerow/**', 'jellyfin-plugin-samerow.tests/**', '.github/workflows/jellyfin-plugin.yml']
+    tags: ['samerow-connect-v*']
   pull_request:
     paths: ['jellyfin-plugin-samerow/**', 'jellyfin-plugin-samerow.tests/**', '.github/workflows/jellyfin-plugin.yml']
   workflow_dispatch:
@@ -16,6 +17,10 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.26.3'
+          cache-dependency-path: jellyfin-plugin-samerow/sender/go.sum
       - name: Download official Jellyfin reference assemblies
         run: |
           curl --fail --location --retry 3 https://repo.jellyfin.org/files/server/portable/stable/v12.3/any/jellyfin_12.3.tar.xz --output "$RUNNER_TEMP/jellyfin.tar.xz"
@@ -28,13 +33,57 @@ jobs:
         run: dotnet build jellyfin-plugin-samerow.tests -c Release -p:JellyfinServerPath="$JELLYFIN_SERVER_PATH" -warnaserror
       - name: Test plugin
         run: dotnet run --project jellyfin-plugin-samerow.tests -c Release --no-build
+      - name: Test and build direct sender
+        working-directory: jellyfin-plugin-samerow/sender
+        run: |
+          go test -race ./...
+          mkdir -p "$RUNNER_TEMP/sender"
+          for platform in linux darwin windows; do
+            for arch in amd64 arm64; do
+              name="samerow-sender-$platform-$arch"
+              if [ "$platform" = windows ]; then name="$name.exe"; fi
+              CGO_ENABLED=0 GOOS="$platform" GOARCH="$arch" go build -trimpath -o "$RUNNER_TEMP/sender/$name" .
+            done
+          done
+          go list -m -f '{{if .Dir}}{{.Path}} {{.Dir}}{{end}}' all | while read -r module dir; do
+            if [ -z "$dir" ] || [ "$module" = samerow.local/directsender ]; then continue; fi
+            for notice in "$dir"/LICENSE* "$dir"/NOTICE* "$dir"/PATENTS*; do
+              if [ -f "$notice" ]; then printf '\n%s — %s\n' "$module" "${notice##*/}"; cat "$notice"; fi
+            done
+          done > "$RUNNER_TEMP/sender/THIRD-PARTY-SENDER.txt"
+          go env GOROOT | xargs -I '{}' sh -c 'printf "\nGo standard library\n"; cat "$1/LICENSE" "$1/PATENTS"' sh '{}' >> "$RUNNER_TEMP/sender/THIRD-PARTY-SENDER.txt"
       - name: Package and validate
         run: |
-          python3 jellyfin-plugin-samerow/package.py
-          python3 -m zipfile --test jellyfin-plugin-samerow/dist/SameRow-Connect-1.0.2.0.zip
+          python3 jellyfin-plugin-samerow/package.py --sender-dir "$RUNNER_TEMP/sender"
+          version=$(jq -r .version jellyfin-plugin-samerow/meta.json)
+          if [[ "$GITHUB_REF_TYPE" == "tag" && "$GITHUB_REF_NAME" != "samerow-connect-v$version" ]]; then exit 1; fi
+          python3 -m zipfile --test "jellyfin-plugin-samerow/dist/SameRow-Connect-$version.zip"
           cd jellyfin-plugin-samerow/dist
-          sha256sum -c SameRow-Connect-1.0.2.0.zip.sha256
+          sha256sum -c "SameRow-Connect-$version.zip.sha256"
       - uses: actions/upload-artifact@v4
         with:
           name: SameRow-Connect
           path: jellyfin-plugin-samerow/dist/*
+  prerelease:
+    if: startsWith(github.ref, 'refs/tags/samerow-connect-v')
+    needs: plugin
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: SameRow-Connect
+          path: dist
+      - name: Publish the opt-in plugin and corresponding source
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(jq -r .version jellyfin-plugin-samerow/meta.json)
+          source="SameRow-Connect-$version-source.tar.gz"
+          git archive --format=tar.gz --prefix="SameRow-Connect-$version/" -o "dist/$source" HEAD \
+            jellyfin-plugin-samerow jellyfin-plugin-samerow.tests .github/workflows/jellyfin-plugin.yml
+          (cd dist && sha256sum "$source" > "$source.sha256")
+          gh release create "$GITHUB_REF_NAME" --verify-tag --prerelease --title "SameRow Connect $version (V3 pilot)" \
+            --notes 'Opt-in WebRTC pilot. Install manually and set SAMEROW_DIRECT_ENABLED=true on the Jellyfin service. The existing HTTPS relay remains available.' dist/*

@@ -1,5 +1,5 @@
 // Keep only diagnostic measurements: request paths contain viewer credentials.
-export function createPlaybackNetwork(now = () => performance.now()) {
+export function createPlaybackNetwork(now = () => performance.now(), transport) {
   let requests = [], transferred = 0, completed = 0, failures = 0;
   return {
     begin(kind) {
@@ -24,7 +24,7 @@ export function createPlaybackNetwork(now = () => performance.now()) {
     },
     snapshot() {
       const time = now();
-      return { transferred, completed, failures, requests: requests.map(request => {
+      return { ...(transport ? { transport } : {}), transferred, completed, failures, requests: requests.map(request => {
         const duration = (request.ended ?? time) - request.started;
         return { ...request, duration, throughput: request.state === 'Complete' && duration > 0 ? request.bytes * 8000 / duration : null };
       }) };
@@ -36,7 +36,7 @@ export function diagnosticLoader(BaseLoader, network) {
   return class extends BaseLoader {
     load(context, config, callbacks) {
       const update = network.begin(context.type || 'media');
-      const wrapped = { ...callbacks };
+      const wrapped = { ...callbacks, onTransferProgress: stats => update('Downloading', stats) };
       for (const [name, state] of Object.entries({ onSuccess: 'Complete', onProgress: 'Downloading', onError: 'Failed', onTimeout: 'Timed out', onAbort: 'Aborted' })) {
         wrapped[name] = (...args) => {
           const stats = name === 'onSuccess' ? args[1] : name === 'onError' ? args[3] : args[0];
@@ -51,9 +51,10 @@ export function diagnosticLoader(BaseLoader, network) {
 
 export function networkDiagnosis(network) {
   const active = network?.requests?.filter(request => !request.ended).at(-1);
-  if (active) return active.bytes > 0 ? `Receiving ${active.kind} · ${(active.bytes / 1024).toFixed(0)} KiB downloaded` : `Waiting for the media gateway to respond to ${active.kind} · ${(active.duration / 1000).toFixed(1)}s. No response bytes yet.`;
+  const sender = network?.transport === 'webrtc' ? 'the home sender' : 'the media gateway';
+  if (active) return active.bytes > 0 ? `Receiving ${active.kind} · ${(active.bytes / 1024).toFixed(0)} KiB downloaded` : `Waiting for ${sender} to respond to ${active.kind} · ${(active.duration / 1000).toFixed(1)}s. No response bytes yet.`;
   const last = network?.requests?.at(-1);
-  if (last?.state === 'Failed' || last?.state === 'Timed out') return `${last.kind} ${last.state.toLowerCase()}${last.status ? ` · HTTP ${last.status}` : ''}. Check the media gateway and Jellyfin connection.`;
+  if (last?.state === 'Failed' || last?.state === 'Timed out') return `${last.kind} ${last.state.toLowerCase()}${last.status ? ` · HTTP ${last.status}` : ''}. Check ${sender} and Jellyfin.`;
   if (last?.state === 'Complete') return 'Media requests are completing. Waiting for the player to buffer and decode video.';
   return 'Waiting for media request measurements.';
 }

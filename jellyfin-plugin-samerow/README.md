@@ -72,7 +72,9 @@ Run the plugin test executable with JELLYFIN_SERVER_PATH pointing at the server 
 
 The plugin settings page sends authenticated API requests using Jellyfin 12.3’s `Authorization: MediaBrowser Token="…"` header. This is required for status polling, pairing, and saving plugin settings.
 
-The GitHub Actions plugin workflow builds, tests and packages against official Jellyfin 12.3 assemblies. The release ZIP contains only the plugin DLL, Jellyfin metadata, license, and source information. It excludes credentials and Jellyfin server DLLs. SHA-256 sidecars accompany downloadable archives; the catalog uses Jellyfin's expected MD5 checksum.
+The GitHub Actions plugin workflow builds, tests and packages against official Jellyfin 12.3 assemblies. The ZIP includes the plugin DLL, Jellyfin metadata, license, source information, and platform sender executables with their notices. SHA-256 sidecars accompany downloadable archives. The catalog uses Jellyfin's expected MD5 checksum.
+
+See [SameRow V3 direct media](../docs/direct-media.md) for sender configuration, fallback behavior, and staging checks.
 
 The release is marked beta because full hosted HTTPS/Google approval and playback across separate networks with three guests still need acceptance testing. Local integration results are recorded in [test-results/README.md](test-results/README.md).
 

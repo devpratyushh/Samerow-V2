@@ -16,11 +16,11 @@ function installJellyfin(app, io, accounts, options = {}) {
   const store = options.store || new MemoryStore(), roomTtl = options.roomTtl || 86400;
   const pending = new Map(), activeRequests = new Map();
   const quality = createQualityPolicy(store, options.quality);
-  const delivery = require('./deliveryStats').createDeliveryStats(store);
+  const delivery = require('./deliveryStats').createDeliveryStats(store, options.relayDailyBytes);
   const request = accounts?.request || upstreamRequest;
   const member = (socket, roomId) => typeof roomId === 'string' && socket.rooms.has(roomId);
   const permitted = (socket, roomId) => options.canControl ? options.canControl(socket, roomId) : member(socket, roomId);
-  const snapshot = state => ({ sessionId: state.id, native: !!state.connectionToken, itemId: state.itemId, title: state.title, duration: state.duration, audioTracks: state.audioTracks, subtitleTracks: state.subtitleTracks, playing: state.playing, timestamp: position(state), updatedAt: Date.now(), revision: state.revision, commandId: state.commandId });
+  const snapshot = state => ({ sessionId: state.id, native: !!state.connectionToken, ...(options.direct && connectorId(state.base) ? { direct: true } : {}), itemId: state.itemId, title: state.title, duration: state.duration, audioTracks: state.audioTracks, subtitleTracks: state.subtitleTracks, playing: state.playing, timestamp: position(state), updatedAt: Date.now(), revision: state.revision, commandId: state.commandId });
   const requestsFor = viewer => {
     let active = activeRequests.get(viewer.token);
     if (!active) { active = { sessionId: viewer.sessionId, requests: new Set() }; activeRequests.set(viewer.token, active); }
@@ -177,14 +177,14 @@ function installJellyfin(app, io, accounts, options = {}) {
     stopEncoding(viewer, state); await quality.release(viewer, state); await store.set(`viewer:${key}`, null); await store.set(index, null);
   }
 
-  const resolveViewer = async accessToken => {
+  const resolveViewer = async (accessToken, trackRequests = true) => {
     if (typeof accessToken !== 'string' || !/^[a-f0-9]{48}$/.test(accessToken)) return null;
     const viewer = await store.get(`viewer:${accessToken}`);
     const state = viewer && await store.get(`jellyfin-room:${viewer.roomId}`);
     const belongs = viewer && (await store.get(`jellyfin-preparing:${viewer.roomId}:${viewer.socketId}`) ||
       (options.store ? await store.get(`member:${viewer.roomId}:${viewer.socketId}`) : io.sockets.sockets.get(viewer.socketId)?.rooms.has(viewer.roomId)));
-    if (!state || state.id !== viewer.sessionId || !belongs) return null;
-    viewer.requests = requestsFor(viewer);
+    if (!state || state.stopped || state.id !== viewer.sessionId || !belongs) return null;
+    if (trackRequests) viewer.requests = requestsFor(viewer);
     viewer.assets = new Map();
     return { viewer, state };
   };
@@ -214,6 +214,7 @@ function installJellyfin(app, io, accounts, options = {}) {
       const headers = { 'X-Emby-Token': state.apiToken };
       if (req.headers.range) headers.Range = req.headers.range;
       const parsed = new URL(url);
+      if (!/subtitle/i.test(parsed.pathname)) await delivery.checkBudget();
       const basePath = new URL(state.base).pathname.replace(/\/$/, '');
       const response = await request({ base: state.base, apiToken: state.apiToken, deviceId: viewer.deviceId }, parsed.pathname.slice(basePath.length) + parsed.search, { headers, signal: controller.signal });
       if (!response.ok) { await response.body?.cancel(); res.status(response.status).send('Jellyfin could not deliver this media.'); return; }
@@ -239,7 +240,7 @@ function installJellyfin(app, io, accounts, options = {}) {
         if (response.body) await pipeline(Readable.fromWeb(response.body), ...(/subtitle/i.test(parsed.pathname) ? [] : [delivery.meter(viewer, state)]), res);
         else res.end();
       }
-    } catch { if (!res.headersSent && !res.destroyed) res.status(502).send('Jellyfin stream unavailable. Try reconnecting playback.'); }
+    } catch (error) { if (!res.headersSent && !res.destroyed) res.status(error.status === 429 ? 429 : 502).send(error.status === 429 ? 'The HTTPS relay has reached its daily bandwidth limit.' : 'Jellyfin stream unavailable. Try reconnecting playback.'); }
     finally { clearTimeout(timeout); clearInterval(leaseCheck); viewer.requests.delete(controller); res.off('close', abort); }
   };
   app.use('/api/jellyfin/:accessToken', async (req, res, next) => {
@@ -249,32 +250,36 @@ function installJellyfin(app, io, accounts, options = {}) {
   });
   app.get('/api/jellyfin/:accessToken/health', async (req, res) => res.set('Cache-Control', 'no-store').json(await require('./jellyfinHealth').viewerHealth(accounts, req.jellyfin.state)));
   app.get('/api/jellyfin/:accessToken/quality', async (req, res) => {
-    res.set('Cache-Control', 'no-store').json(await quality.describe(req.jellyfin.viewer, req.jellyfin.state, 'original'));
+    const { viewer, state } = req.jellyfin;
+    res.set('Cache-Control', 'no-store').json(await quality.describe(viewer, state, 'original', options.direct && req.query.direct === '1' && !!connectorId(state.base)));
   });
   app.post('/api/jellyfin/:accessToken/quality', async (req, res) => {
     if (!Object.hasOwn(qualityModes, req.body?.mode)) { res.status(400).json({ error: 'Choose a supported quality setting.' }); return; }
     await saveViewer(req.jellyfin.viewer, { qualityMode: req.body.mode, qualityRevision: (req.jellyfin.viewer.qualityRevision || 0) + 1 });
-    res.set('Cache-Control', 'no-store').json(await quality.describe(req.jellyfin.viewer, req.jellyfin.state, 'original'));
+    res.set('Cache-Control', 'no-store').json(await quality.describe(req.jellyfin.viewer, req.jellyfin.state, 'original', options.direct && req.query.direct === '1' && !!connectorId(state.base)));
   });
-  app.get('/api/jellyfin/:accessToken/stream.m3u8', async (req, res) => {
-    const { viewer, state } = req.jellyfin;
-    let audio = req.query.audio === undefined ? state.audioTracks.find(track => track.default)?.index ?? state.audioTracks[0]?.index : Number(req.query.audio);
+  async function planStream({ viewer, state }, params, direct = false) {
+    let audio = params.audio === undefined ? state.audioTracks.find(track => track.default)?.index ?? state.audioTracks[0]?.index : Number(params.audio);
     if (audio === -1 && !state.audioTracks.length) audio = undefined;
-    const subtitle = Number(req.query.subtitle ?? -1);
-    if ((audio !== undefined && !state.audioTracks.some(track => track.index === audio)) || (subtitle !== -1 && !state.subtitleTracks.some(track => track.index === subtitle && !track.text))) { res.status(400).send('Unknown track'); return; }
-    const original = req.query.original === '1';
-    const policy = await quality.describe(viewer, state);
+    const subtitle = Number(params.subtitle ?? -1);
+    if ((audio !== undefined && !state.audioTracks.some(track => track.index === audio)) || (subtitle !== -1 && !state.subtitleTracks.some(track => track.index === subtitle && !track.text))) return { status: 400, error: 'Unknown track' };
+    const original = params.original === '1';
+    const policy = await quality.describe(viewer, state, undefined, direct);
     const source = state.item.MediaSources.find(source => source.Id === state.sourceId);
     const streams = source?.MediaStreams || state.item.MediaStreams || [];
     const video = streams.find(stream => stream.Type === 'Video');
     if (original && (subtitle !== -1 || policy.capacityLimited || !['h264', 'hevc', 'h265', 'av1', 'vp9'].includes(video?.Codec?.toLowerCase()))) {
-      res.status(409).send('Original video is unavailable for these playback settings.');
-      return;
+      return { status: 409, error: 'Original video is unavailable for these playback settings.' };
     }
-    stopEncoding(viewer, state); viewer.assets.clear(); await saveViewer(viewer, { playSessionId: randomUUID() });
-    const requested = Number(req.query.bitrate);
+    const playSessionId = randomUUID();
+    if (!direct) {
+      stopEncoding(viewer, state);
+      viewer.assets.clear();
+      await saveViewer(viewer, { playSessionId });
+    }
+    const requested = Number(params.bitrate);
     const bitrate = Math.min(policy.maxBitrate, Number.isFinite(requested) && requested > 0 ? requested : policy.maxBitrate);
-    const query = new URLSearchParams({ MediaSourceId: state.sourceId, DeviceId: viewer.deviceId, PlaySessionId: viewer.playSessionId, VideoCodec: 'h264', AudioCodec: 'aac', MaxAudioChannels: '2', VideoBitrate: String(Math.max(1, Math.floor(bitrate - 192000))), AudioBitrate: '192000', SegmentContainer: 'ts', MinSegments: '1', SegmentLength: '4', BreakOnNonKeyFrames: 'true', EnableAutoStreamCopy: 'true', AllowVideoStreamCopy: 'true', AllowAudioStreamCopy: 'true', SubtitleStreamIndex: String(subtitle) });
+    const query = new URLSearchParams({ MediaSourceId: state.sourceId, DeviceId: viewer.deviceId, PlaySessionId: playSessionId, VideoCodec: 'h264', AudioCodec: 'aac', MaxAudioChannels: '2', VideoBitrate: String(Math.max(1, Math.floor(bitrate - 192000))), AudioBitrate: '192000', SegmentContainer: 'ts', MinSegments: '1', SegmentLength: '4', BreakOnNonKeyFrames: 'true', EnableAutoStreamCopy: 'true', AllowVideoStreamCopy: 'true', AllowAudioStreamCopy: 'true', SubtitleStreamIndex: String(subtitle) });
     if (audio !== undefined) query.set('AudioStreamIndex', String(audio));
     if (original) {
       // Use the media playlist directly so Jellyfin cannot advertise a re-encoded variant.
@@ -282,14 +287,20 @@ function installJellyfin(app, io, accounts, options = {}) {
       query.set('SegmentContainer', 'mp4');
       query.set('BreakOnNonKeyFrames', 'false');
       query.delete('VideoBitrate');
-      if (req.query.audioCopy === '1') {
+      if (params.audioCopy === '1') {
         query.set('AudioCodec', 'copy');
         query.delete('MaxAudioChannels');
         query.delete('AudioBitrate');
       }
     }
     if (subtitle !== -1) { query.set('SubtitleMethod', 'Encode'); query.set('AllowVideoStreamCopy', 'false'); }
-    await forward(req, res, viewer, state, `${state.base}/Videos/${state.itemId}/${original ? 'main' : 'master'}.m3u8?${query}`, true);
+    return { resource: `/Videos/${state.itemId}/${original ? 'main' : 'master'}.m3u8?${query}` };
+  }
+  app.get('/api/jellyfin/:accessToken/stream.m3u8', async (req, res) => {
+    const { viewer, state } = req.jellyfin;
+    const plan = await planStream(req.jellyfin, req.query);
+    if (plan.status) return res.status(plan.status).send(plan.error);
+    await forward(req, res, viewer, state, state.base + plan.resource, true);
   });
   app.get('/api/jellyfin/:accessToken/subtitle/:index', async (req, res) => {
     const { viewer, state } = req.jellyfin;
@@ -309,7 +320,7 @@ function installJellyfin(app, io, accounts, options = {}) {
   const cleanup = setInterval(() => {
     for (const [key, value] of activeRequests) if (!value.requests.size) activeRequests.delete(key);
   }, 30000); cleanup.unref();
-  return { resolveViewer, releaseSocket, close() {
+  return { resolveViewer, planStream, renewDirect: (viewer, state) => quality.renewOrigin(viewer, state), releaseSocket, close() {
     clearInterval(cleanup); io.off('jellyfin-revoke', abortSession);
     pending.forEach(controller => controller.abort()); activeRequests.forEach(value => value.requests.forEach(controller => controller.abort()));
   } };

@@ -5,6 +5,16 @@ const { pipeline } = require('node:stream/promises');
 const { MemoryStore } = require('../store');
 const { createDeliveryStats } = require('../deliveryStats');
 
+test('HTTPS gateway enforces the same daily budget across concurrent streams', async () => {
+  const store = new MemoryStore();
+  const stats = createDeliveryStats(store, 16);
+  const send = () => pipeline(Readable.from([Buffer.alloc(16)]), stats.meter({ socketId: 'alice' }, { id: 'movie' }),
+    new Writable({ write(chunk, encoding, done) { done(); } }));
+  const results = await Promise.allSettled([send(), send()]);
+  assert.equal(results.filter(result => result.status === 'fulfilled').length, 1);
+  assert.equal(results.find(result => result.status === 'rejected').reason.status, 429);
+  await assert.rejects(stats.checkBudget(), { status: 429 });
+});
 test('gateway counts concurrent binary streams unchanged and scopes snapshots to session and members', async () => {
   const store = new MemoryStore(), stats = createDeliveryStats(store);
   const state = { id: 'movie' }, viewer = { socketId: 'alice', token: 'secret' };

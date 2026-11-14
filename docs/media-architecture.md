@@ -1,5 +1,9 @@
 # Movie delivery and quality
 
+See [SameRow V3 direct media](direct-media.md) for the opt-in plugin sender,
+WebRTC delivery and HTTPS fallback. The gateway diagrams below describe the
+HTTPS transport.
+
 This describes the repository implementation. Deployment configuration defines
 the intended hosted topology; verify the running revision and environment before
 assuming a hosted installation matches it.

@@ -39,6 +39,30 @@ jobs:
           TEST_REDIS_URL: redis://127.0.0.1:6379
       - run: npm test && npm run lint && npm run build
         working-directory: SameRow/client
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.26.3'
+          cache-dependency-path: jellyfin-plugin-samerow/sender/go.sum
+      - name: Build direct media sender
+        working-directory: jellyfin-plugin-samerow/sender
+        run: go build -o "$RUNNER_TEMP/samerow-sender" .
+      - name: Exercise direct HLS and HTTPS fallback in Chromium
+        working-directory: SameRow/client
+        env:
+          TEST_REDIS_URL: redis://127.0.0.1:6379
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          npm install --no-save --package-lock=false playwright@1.62.1
+          npx playwright install --with-deps chromium
+          npm run dev -- --host 127.0.0.1 --port 5175 &
+          vite_pid=$!
+          trap 'kill "$vite_pid" 2>/dev/null || true' EXIT
+          for attempt in {1..30}; do
+            if curl -fsS http://127.0.0.1:5175/ >/dev/null; then break; fi
+            sleep 1
+          done
+          SAMEROW_SENDER_PATH="$RUNNER_TEMP/samerow-sender" node tests/jellyfin-direct.browser.mjs
       - run: npm audit --audit-level=high
         working-directory: SameRow/server
       - run: npm audit --audit-level=high

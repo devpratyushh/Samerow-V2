@@ -196,7 +196,10 @@ function installJellyfinWeb(app, { resolveViewer, accounts, saveViewer = async (
         if (!response.headers.has('content-encoding') && response.headers.has('content-length')) res.set('Content-Length', response.headers.get('content-length'));
         if (web) res.set('Cache-Control', 'private, max-age=3600');
         deliveringVideo = !web && /^\/Videos\//i.test(route) && !/subtitle/i.test(route);
-        if (deliveringVideo) await quality?.renew(viewer, state);
+        if (deliveringVideo) {
+          await delivery?.checkBudget();
+          await quality?.renew(viewer, state);
+        }
         await pipeline(Readable.fromWeb(response.body), ...(deliveringVideo && delivery ? [delivery.meter(viewer, state)] : []), res);
       } finally { clearInterval(leaseCheck); clearTimeout(timeout); res.off('close', abort); viewer.requests.delete(controller); }
     };
@@ -277,6 +280,7 @@ function installJellyfinWeb(app, { resolveViewer, accounts, saveViewer = async (
       deny();
     } catch (error) {
       if (res.headersSent) { if (!res.destroyed) res.destroy(); }
+      else if (error.status === 429) failure(429, error.message);
       else failure(502, error.name === 'AbortError' ? 'Jellyfin took too long to respond. Try reconnecting playback.' : 'Could not load Jellyfin playback. Check the server connection.');
     }
   });

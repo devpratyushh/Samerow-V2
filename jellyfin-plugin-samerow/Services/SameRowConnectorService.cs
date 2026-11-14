@@ -3,6 +3,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Net;
 using System.Net.Http;
@@ -10,6 +11,7 @@ using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using MediaBrowser.Controller;
@@ -159,11 +161,80 @@ public class SameRowConnectorService : IHostedService, IDisposable
         State = ConnectorConnectionState.Connecting;
 
         var generationToken = _cts.Token;
+        if (Environment.GetEnvironmentVariable("SAMEROW_DIRECT_ENABLED") == "true")
+        {
+            _workers.Add(Task.Run(() => RunDirectSenderAsync(config, generationToken)));
+        }
         for (int i = 0; i < count; i++)
         {
             int workerIndex = i;
             _workers.Add(Task.Run(() => WorkerLoopAsync(workerIndex, generationToken)));
         }
+    }
+
+    private async Task RunDirectSenderAsync(PluginConfiguration config, CancellationToken stoppingToken)
+    {
+        string? platform = OperatingSystem.IsLinux() ? "linux" : OperatingSystem.IsMacOS() ? "darwin" :
+            OperatingSystem.IsWindows() ? "windows" : null;
+        string? arch = RuntimeInformation.ProcessArchitecture switch { Architecture.X64 => "amd64", Architecture.Arm64 => "arm64", _ => null };
+        if (platform == null || arch == null) return;
+        var name = $"samerow-sender-{platform}-{arch}" + (OperatingSystem.IsWindows() ? ".exe" : "");
+        var path = Path.Combine(Path.GetDirectoryName(typeof(SameRowConnectorService).Assembly.Location)!, name);
+        if (!File.Exists(path))
+        {
+            _logger.LogWarning("SameRow direct sender is missing for this Jellyfin platform.");
+            return;
+        }
+
+        // Jellyfin's plugin installer may extract ZIP entries without execute bits.
+        if (!OperatingSystem.IsWindows())
+        {
+            try { File.SetUnixFileMode(path, File.GetUnixFileMode(path) | UnixFileMode.UserExecute); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                _logger.LogWarning("SameRow could not enable execution of the direct sender.");
+            }
+        }
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            using var sender = new Process { StartInfo = new ProcessStartInfo(path) {
+                UseShellExecute = false, RedirectStandardInput = true, CreateNoWindow = true
+            } };
+            try
+            {
+                if (!sender.Start()) throw new InvalidOperationException();
+                var message = JsonSerializer.Serialize(new {
+                    Gateway = config.GatewayUrl, Token = config.ConnectorToken, LocalURL = LocalApiUrl(),
+                    STUN = Environment.GetEnvironmentVariable("SAMEROW_DIRECT_STUN") ?? ""
+                });
+                await sender.StandardInput.WriteLineAsync(message.AsMemory(), stoppingToken).ConfigureAwait(false);
+                await sender.StandardInput.FlushAsync(stoppingToken).ConfigureAwait(false);
+                await sender.WaitForExitAsync(stoppingToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { }
+            catch (Exception ex) { _logger.LogWarning("SameRow direct sender unavailable ({ErrorType}).", ex.GetType().Name); }
+            finally
+            {
+                try
+                {
+                    if (!sender.HasExited)
+                    {
+                        sender.Kill();
+                        await sender.WaitForExitAsync().ConfigureAwait(false);
+                    }
+                }
+                catch (InvalidOperationException) { }
+            }
+            await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken).ConfigureAwait(false);
+        }
+    }
+
+    private string LocalApiUrl()
+    {
+        int port = _applicationHost.HttpPort;
+        if (port <= 0) port = 8096;
+        var baseUrl = _applicationHost.GetLocalApiUrl("127.0.0.1", "http", port);
+        return string.IsNullOrEmpty(baseUrl) ? $"http://127.0.0.1:{port}" : baseUrl;
     }
 
     private async Task WorkerLoopAsync(int workerIndex, CancellationToken stoppingToken)
@@ -314,11 +385,7 @@ public class SameRowConnectorService : IHostedService, IDisposable
         }
 
         // Target local Jellyfin instance directly over loopback
-        int port = _applicationHost.HttpPort;
-        if (port <= 0) port = 8096;
-        var baseUrl = _applicationHost.GetLocalApiUrl("127.0.0.1", "http", port);
-        if (string.IsNullOrEmpty(baseUrl)) baseUrl = $"http://127.0.0.1:{port}";
-        var localUri = new Uri(baseUrl.TrimEnd('/') + job.Resource);
+        var localUri = new Uri(LocalApiUrl().TrimEnd('/') + job.Resource);
 
         // Build the local Jellyfin request
         using var localRequest = new HttpRequestMessage(new HttpMethod(method), localUri);

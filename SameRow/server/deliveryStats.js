@@ -2,10 +2,22 @@ const { Transform } = require('node:stream');
 
 // Count media at the gateway boundary, shared by direct and plugin routes.
 // Redis-backed store updates make snapshots work across control/media replicas.
-function createDeliveryStats(store) {
+function createDeliveryStats(store, dailyBytes = 0) {
   const key = (viewer, state) => `delivery:${state.id}:${viewer.socketId}`;
+  const budgetKey = () => `jellyfin-relay-budget:${Math.floor(Date.now() / 86400000)}`;
+  const exhausted = () => Object.assign(new Error('The HTTPS relay has reached its daily bandwidth limit.'), { status: 429 });
+  async function checkBudget() {
+    if (dailyBytes && (await store.get(budgetKey()) || 0) >= dailyBytes) throw exhausted();
+  }
+  async function reserveBudget(key, bytes) {
+    await store.update(key, current => {
+      const used = current || 0;
+      if (used + bytes > dailyBytes) throw exhausted();
+      return used + bytes;
+    }, 172800);
+  }
   function meter(viewer, state) {
-    let bytes = 0, timer, queue = Promise.resolve();
+    let bytes = 0, timer, queue = Promise.resolve(), allowance = 0, day;
     const flush = () => {
       clearTimeout(timer); timer = null;
       const count = bytes; bytes = 0;
@@ -14,12 +26,33 @@ function createDeliveryStats(store) {
       }), 86400));
       return queue;
     };
-    const stream = new Transform({ transform(chunk, encoding, done) {
+    const forward = (chunk, done) => {
       bytes += chunk.length;
       if (!timer) { timer = setTimeout(() => { void flush().catch(() => {}); }, 1000); timer.unref(); }
       done(null, chunk);
+    };
+    const stream = new Transform({ transform(chunk, encoding, done) {
+      if (!dailyBytes) return forward(chunk, done);
+      const currentDay = budgetKey();
+      if (day !== currentDay) { allowance = 0; day = currentDay; }
+      if (allowance >= chunk.length) { allowance -= chunk.length; return forward(chunk, done); }
+      const needed = chunk.length - allowance;
+      // Reserve in bounded blocks to avoid a Redis round trip for every chunk.
+      const block = Math.max(needed, Math.min(dailyBytes, 256 * 1024));
+      reserveBudget(currentDay, block).catch(error => {
+        if (error.status !== 429 || block === needed) throw error;
+        return reserveBudget(currentDay, needed).then(() => needed);
+      }).then(reserved => {
+        allowance += (reserved ?? block) - chunk.length;
+        forward(chunk, done);
+      }, done);
     }, flush(done) { flush().then(() => done(), () => done()); } });
-    stream.once('close', () => { void flush().catch(() => {}); });
+    stream.once('close', () => {
+      void flush().catch(() => {});
+      if (allowance) {
+        void store.update(day, current => current == null ? null : Math.max(0, current - allowance), 172800).catch(() => {});
+      }
+    });
     return stream;
   }
   async function snapshot(state, members) {
@@ -38,6 +71,6 @@ function createDeliveryStats(store) {
     }
     await store.set(`playback:${state.id}:${socketId}`, clean, 20);
   }
-  return { meter, snapshot, report };
+  return { meter, checkBudget, snapshot, report };
 }
 module.exports = { createDeliveryStats };

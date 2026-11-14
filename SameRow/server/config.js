@@ -7,7 +7,7 @@ function configuration(env = process.env) {
   }
   const authMode = env.AUTH_MODE || (production ? 'firebase' : 'development');
   const mediaMode = env.MEDIA_MODE || (production ? 'livekit' : 'mesh');
-  const config = { production, jellyfinRelay: env.JELLYFIN_RELAY_ENABLED === 'true', origins, authMode, mediaMode, redisUrl: env.REDIS_URL,
+  const config = { production, jellyfinRelay: env.JELLYFIN_RELAY_ENABLED === 'true', jellyfinDirect: env.JELLYFIN_DIRECT_ENABLED === 'true', origins, authMode, mediaMode, redisUrl: env.REDIS_URL,
     encryptionKey: env.DATA_ENCRYPTION_KEY, prefix: env.REDIS_PREFIX || 'samerow:v1',
     firebaseProjectId: env.FIREBASE_PROJECT_ID, firebaseCredentials: env.FIREBASE_SERVICE_ACCOUNT_JSON,
     livekitUrl: env.LIVEKIT_URL, livekitApiKey: env.LIVEKIT_API_KEY, livekitApiSecret: env.LIVEKIT_API_SECRET,
@@ -15,6 +15,7 @@ function configuration(env = process.env) {
     controlPolicy: env.CONTROL_POLICY || 'everyone',
     maxConnectionsPerIp: Number(env.MAX_CONNECTIONS_PER_IP_PER_MINUTE || 600),
     jellyfinQuality: { originMbps: Number(env.JELLYFIN_ORIGIN_BANDWIDTH_MBPS || 0), gatewayMbps: Number(env.JELLYFIN_GATEWAY_BANDWIDTH_MBPS || 0) },
+    jellyfinRelayDailyBytes: Number(env.JELLYFIN_RELAY_DAILY_BYTES || 0),
     maxRoomSize: Number(env.MAX_ROOM_SIZE || (mediaMode === 'livekit' ? 25 : 4)),
     roomTtl: Number(env.ROOM_TTL_SECONDS || 86400),
     upstreamOrigins: (env.JELLYFIN_ALLOWED_ORIGINS || '').split(',').map(value => value.trim()).filter(Boolean),
@@ -22,6 +23,7 @@ function configuration(env = process.env) {
   };
   if (!Number.isInteger(config.maxConnectionsPerIp) || config.maxConnectionsPerIp < 120 || config.maxConnectionsPerIp > 10000) throw new Error('Connection rate limit must be between 120 and 10000 per minute.');
   if (Object.values(config.jellyfinQuality).some(value => !Number.isFinite(value) || value < 0 || value > 100000)) throw new Error('Jellyfin bandwidth budgets must be Mbps between 0 and 100000.');
+  if (!Number.isSafeInteger(config.jellyfinRelayDailyBytes) || config.jellyfinRelayDailyBytes < 0) throw new Error('JELLYFIN_RELAY_DAILY_BYTES must be a non-negative integer.');
   if (!['firebase', 'development'].includes(authMode) || !['mesh', 'livekit'].includes(mediaMode) || !['combined', 'control', 'media'].includes(config.serviceRole) || !['everyone', 'host'].includes(config.controlPolicy)) throw new Error('Invalid authentication, media, service role or control policy.');
   if (!Number.isInteger(config.maxRoomSize) || config.maxRoomSize < 2 || config.maxRoomSize > 100 || !Number.isInteger(config.roomTtl) || config.roomTtl < 300 || config.roomTtl > 604800) throw new Error('Invalid room size or retention.');
   // The pilot relay still pulls a separate stream for each viewer.

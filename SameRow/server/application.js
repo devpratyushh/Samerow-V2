@@ -69,6 +69,7 @@ function createApplication(options = {}) {
     roomProtocol: 1,
     ...(config.production ? { firebaseProjectId: config.firebaseProjectId, mediaOrigin: config.mediaOrigin } : {}),
     ...(config.jellyfinRelay ? { jellyfinRelay: true } : {}),
+    ...(config.jellyfinDirect && config.jellyfinRelay ? { jellyfinDirect: true } : {}),
   }));
   app.get('/metrics', (req, res) => {
     if (!process.env.METRICS_TOKEN || req.get('Authorization') !== `Bearer ${process.env.METRICS_TOKEN}`) return res.sendStatus(404);
@@ -180,7 +181,7 @@ function createApplication(options = {}) {
           const state = await store.get(`jellyfin-room:${roomId}`);
           const viewerToken = state?.id && playbackReady?.sessionId === state.id && playbackReady.revision === state.revision
             ? await store.get(`viewer-index:${roomId}:${socket.id}:${state.id}`) : null;
-          if (state?.id && !state.stopped && (!viewerToken || playbackReady?.accessToken !== viewerToken)) {
+          if (state?.id && !state.stopped && !(config.jellyfinDirect && config.jellyfinRelay && connectorId(state.base)) && (!viewerToken || playbackReady?.accessToken !== viewerToken)) {
             socket.data.preparingRoom = roomId;
             socket.data.preparingName = name;
             await store.set(`jellyfin-preparing:${roomId}:${socket.id}`, true, LEASE_SECONDS);
@@ -362,10 +363,12 @@ function createApplication(options = {}) {
     } finally { heartbeatRunning = false; }
   }
   const heartbeat = setInterval(() => { renewMemberships().catch(() => { stats.errors++; }); }, 20000); heartbeat.unref();
-  const relay = require('./jellyfinRelay').installJellyfinRelay(app, { config, store, identity, io });
+  const { installJellyfinRelay, connectorId } = require('./jellyfinRelay');
+  const relay = installJellyfinRelay(app, { config, store, identity, io });
   const networkPolicy = { production: config.production, allowPrivate: config.allowPrivateJellyfin, origins: config.upstreamOrigins };
   const accounts = require('./jellyfinAccounts').installJellyfinAccounts(app, { ...(options.accountOptions || {}), relay, ...(options.store ? { store } : {}), networkPolicy });
-  const jellyfin = require('./jellyfin').installJellyfin(app, io, accounts, { store, canControl, production: config.production, networkPolicy, roomTtl: config.roomTtl, allowedOrigins: config.origins, publicOrigin: config.mediaOrigin, quality: config.jellyfinQuality, preparationTtl: LEASE_SECONDS });
+  const jellyfin = require('./jellyfin').installJellyfin(app, io, accounts, { store, canControl, production: config.production, networkPolicy, roomTtl: config.roomTtl, allowedOrigins: config.origins, publicOrigin: config.mediaOrigin, quality: config.jellyfinQuality, preparationTtl: LEASE_SECONDS, direct: config.jellyfinDirect && !!relay, relayDailyBytes: config.jellyfinRelayDailyBytes });
+  if (config.jellyfinDirect && relay) require('./jellyfinDirect').installJellyfinDirect(app, io, { config, store, relay, accounts, jellyfin });
   io.on('connection', socket => {
     const chatUnavailable = (_payload, ack) => {
       if (typeof ack === 'function') ack({ error: 'Room chat is currently unavailable.' });
