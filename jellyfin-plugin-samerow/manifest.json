@@ -8,6 +8,14 @@
     "category": "General",
     "versions": [
       {
+        "version": "1.0.5.0",
+        "targetAbi": "12.3.0.0",
+        "changelog": "Keep relay connection status stable when individual workers hit rate limits or a viewer cancels a request.",
+        "timestamp": "2026-11-14T15:41:00Z",
+        "sourceUrl": "https://github.com/devpratyushh/Samerow-V2/releases/download/samerow-connect-v1.0.5.0/SameRow-Connect-1.0.5.0.zip",
+        "checksum": "e4b5790cb98204f4cff44aae66d550dd"
+      },
+      {
         "version": "1.0.4.0",
         "targetAbi": "12.3.0.0",
         "changelog": "Enable the home WebRTC sender by default after pairing. HTTPS relay fallback remains available.",
