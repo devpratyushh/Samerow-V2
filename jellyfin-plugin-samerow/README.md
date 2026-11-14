@@ -1,10 +1,10 @@
 # SameRow Connect for Jellyfin
 
-This plugin connects a Jellyfin server to SameRow using outbound HTTPS. The server administrator approves pairing on SameRow Web, then selects the connected server in the SameRow library dialog. Media passes through the relay as binary data. Playback quality and audio/subtitle choices use SameRow's existing player.
+This plugin connects a Jellyfin server to SameRow using outbound HTTPS. The server administrator approves pairing on SameRow Web, then selects the connected server in the SameRow library dialog. The paired plugin automatically starts its direct WebRTC sender on supported platforms. Playback uses the HTTPS relay when direct delivery is unavailable.
 
 ## Install from the Jellyfin catalog
 
-**Version 1.0.2.0 is a public beta for Jellyfin 12.3 and .NET 10.** It is distributed through SameRow's third-party repository. A [third-party directory submission](https://github.com/jellyfin/jellyfin.org/pull/2089) is awaiting maintainer review. Inclusion in Jellyfin's default repository requires separate acceptance.
+**Version 1.0.4.0 is a public beta for Jellyfin 12.3 and .NET 10.** It is distributed through SameRow's third-party repository. A [third-party directory submission](https://github.com/jellyfin/jellyfin.org/pull/2089) is awaiting maintainer review. Inclusion in Jellyfin's default repository requires separate acceptance.
 
 1. Open Jellyfin **Dashboard → Plugins → Repositories** and add a repository.
 2. Name it **SameRow Connect** and paste this URL:
@@ -14,10 +14,10 @@ This plugin connects a Jellyfin server to SameRow using outbound HTTPS. The serv
    ```
 
 3. Save, open **Catalog**, and select **SameRow Connect**. Refresh the catalog if needed.
-4. Install **1.0.2.0** and restart Jellyfin.
+4. Install or update to **1.0.4.0** and restart Jellyfin. Existing installations keep their pairing.
 5. Open **Dashboard → Plugins → SameRow Connect** and follow the pairing steps below.
 
-[Release downloads and corresponding source](https://github.com/devpratyushh/Samerow-V2/releases/tag/samerow-connect-v1.0.2.0). If the plugin does not appear, check your Jellyfin version: this package has been built and tested against 12.3. It has not been validated on other versions. Older releases such as 10.x need a separate compatible build.
+[Release downloads and corresponding source](https://github.com/devpratyushh/Samerow-V2/releases/tag/samerow-connect-v1.0.4.0). If the plugin does not appear, check your Jellyfin version: this package has been built and tested against 12.3. It has not been validated on other versions. Older releases such as 10.x need a separate compatible build.
 
 ## Compatibility and build
 
@@ -33,7 +33,7 @@ The default assembly path is the workspace's sibling jellyfin-sandbox/jellyfin d
 ## Manual installation and pairing
 
 1. Stop Jellyfin.
-2. Download `SameRow-Connect-1.0.2.0.zip` from the [release](https://github.com/devpratyushh/Samerow-V2/releases/tag/samerow-connect-v1.0.2.0), or build it locally. Extract it into Jellyfin's `plugins/SameRow_1.0.2.0` directory, with `SameRow.Plugin.dll` directly inside that directory.
+2. Download `SameRow-Connect-1.0.4.0.zip` from the [release](https://github.com/devpratyushh/Samerow-V2/releases/tag/samerow-connect-v1.0.4.0). Extract the entire ZIP into Jellyfin's `plugins/SameRow_1.0.4.0` directory, with `SameRow.Plugin.dll` and the sender executables directly inside that directory.
 3. Start Jellyfin and open Dashboard → Plugins → SameRow Connect.
 4. Select Connect, sign in to SameRow Web, and approve the connection.
 5. Return to the plugin page and wait for Connected. Open SameRow Web and select the connected server in the Jellyfin library dialog.
@@ -51,7 +51,7 @@ Use Rotate credential in the dashboard to replace the cloud token. A proposed re
 
 ## Updating and uninstalling
 
-Stop Jellyfin, replace the plugin DLL and metadata with the new package, then restart. The previous plaintext credential is migrated when the plugin loads. Verify Connected in the dashboard. Keep the encryption key during upgrades.
+Update through the catalog and restart Jellyfin. For a manual update, stop Jellyfin, install the entire new package, then restart. Verify Connected in the dashboard. Keep the plugin configuration and encryption key during upgrades.
 
 To uninstall, disconnect in the dashboard first to revoke cloud access, stop Jellyfin, and remove the plugin directory. Remove its configuration and key only when you no longer need the pairing. Removing the DLL alone does not revoke cloud credentials. The SameRow connected-server page also supports removing the server.
 

@@ -8,6 +8,14 @@
     "category": "General",
     "versions": [
       {
+        "version": "1.0.4.0",
+        "targetAbi": "12.3.0.0",
+        "changelog": "Enable the home WebRTC sender by default after pairing. HTTPS relay fallback remains available.",
+        "timestamp": "2026-11-14T15:26:24Z",
+        "sourceUrl": "https://github.com/devpratyushh/Samerow-V2/releases/download/samerow-connect-v1.0.4.0/SameRow-Connect-1.0.4.0.zip",
+        "checksum": "9df511588e2325fb7cfd2813f47c57dc"
+      },
+      {
         "version": "1.0.2.0",
         "targetAbi": "12.3.0.0",
         "changelog": "Fix Jellyfin 12.3 dashboard authentication for status, pairing, and plugin settings requests.",
