@@ -1,0 +1,48 @@
+.room-admission-popup {
+  position: fixed;
+  z-index: 990;
+  top: calc(72px + env(safe-area-inset-top));
+  right: max(12px, env(safe-area-inset-right));
+  box-sizing: border-box;
+  width: min(340px, calc(100% - 24px));
+  max-height: calc(100dvh - 88px - env(safe-area-inset-top));
+  overflow: auto;
+  padding: 16px;
+  color: var(--text, #f3f3f3);
+  background: var(--surface-raised, #27282b);
+  border: 1px solid var(--border, #36373a);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 30%);
+  overflow-wrap: anywhere;
+}
+
+.room-admission-popup h2 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.room-admission-popup p {
+  margin: 8px 0 0;
+  color: var(--muted, #a2a3a6);
+  font-size: 14px;
+}
+
+.room-admission-status,
+.room-admission-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.room-admission-status {
+  margin: 0 0 16px;
+}
+
+.room-admission-status .room-spinner {
+  flex-shrink: 0;
+}
+
+.room-admission-actions {
+  flex-wrap: wrap;
+  margin-top: 16px;
+}

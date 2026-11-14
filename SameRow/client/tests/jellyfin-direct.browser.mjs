@@ -173,6 +173,12 @@ try {
   assert.deepEqual(Buffer.from(directRange.bytes), Buffer.from(await upstreamRange.arrayBuffer()));
   const guest = await addViewer('Guest', 'guest');
   await owner.getByRole('button', { name: /accept/i }).click();
+  const joining = guest.getByRole('dialog', { name: 'Joining private room' });
+  await joining.getByText(/The host accepted/).waitFor();
+  const guestId = await guest.evaluate(() => window.fixtureSocket.id);
+  assert.equal(await store.get(`member:${roomId}:${guestId}`), null);
+  await joining.waitFor({ state: 'detached' });
+  assert.ok(await store.get(`member:${roomId}:${guestId}`));
   await play(guest);
   assert.equal(await guest.locator('.jellyfin-player').getAttribute('data-transport'), 'webrtc');
   assert.equal(relayMedia, 0);

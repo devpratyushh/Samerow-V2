@@ -40,9 +40,15 @@ try {
   const [{ page: host }, { page: guest }, { page: declined }] = pages;
   await open(pages[0]);
   await host.waitForFunction(() => window.fixtureSocket.roomConfig?.isOwner);
+  await host.getByRole('button', { name: 'Mute microphone', exact: true }).focus();
   await open(pages[1]);
   await guest.getByRole('dialog', { name: 'Joining private room' }).waitFor();
-  await host.getByRole('dialog', { name: 'Someone wants to join' }).waitFor();
+  const requestPopup = host.getByRole('dialog', { name: 'Someone wants to join' });
+  await requestPopup.waitFor();
+  assert.equal(await requestPopup.getAttribute('aria-modal'), null);
+  assert.equal(await host.evaluate(() => document.activeElement.getAttribute('aria-label')), 'Mute microphone');
+  await host.getByRole('button', { name: 'Mute microphone', exact: true }).click();
+  await host.getByRole('button', { name: 'Unmute microphone', exact: true }).waitFor();
   assert.equal(await app.store.get(`member:approval-test:${await guest.evaluate(() => window.fixtureSocket.id)}`), null);
   await host.getByRole('button', { name: 'Accept', exact: true }).click();
   await guest.getByRole('dialog', { name: 'Joining private room' }).waitFor({ state: 'detached' });
@@ -64,15 +70,107 @@ try {
   await Promise.all(pages.map(({ page }) => page.close()));
   fixture = await jellyfinFixture({ media: true });
   const base = `http://127.0.0.1:${app.server.address().port}`;
-  const enter = async (room, name) => {
+  const enter = async (room, name, setup) => {
     const page = await browser.newPage();
     page.on('pageerror', error => errors.push(error.message));
+    await setup?.(page);
     const query = new URLSearchParams({ server: base, room, name, token: `dev:${name}` });
     await page.goto(`${vite.resolvedUrls.local[0]}tests/room-integration.html?${query}`);
     return page;
   };
   const emit = (page, event, ...args) => page.evaluate(({ event, args }) =>
     window.fixtureSocket.timeout(5000).emitWithAck(event, ...args), { event, args });
+  const mockYouTube = async (page, hold) => {
+    await page.route('https://www.youtube.com/embed/**', route => route.fulfill({ body: '' }));
+    await page.addInitScript(hold => {
+      window.YT = {
+        PlayerState: { PLAYING: 1, PAUSED: 2, BUFFERING: 3, ENDED: 0 },
+        Player: class {
+          constructor(iframe, { events }) {
+            iframe.src = 'about:blank';
+            this.state = -1;
+            this.time = 0;
+            this.listeners = new Map();
+            window.resumeYouTube = () => { hold = false; this.playVideo(); };
+            setTimeout(events.onReady, 350);
+          }
+          addEventListener(name, listener) { this.listeners.set(name, listener); }
+          removeEventListener(name) { this.listeners.delete(name); }
+          getOption() { return []; }
+          getDuration() { return 600; }
+          getVolume() { return 100; }
+          setVolume() {}
+          mute() {}
+          unMute() {}
+          getPlayerState() { return this.state; }
+          getAvailablePlaybackRates() { return [1]; }
+          getPlaybackRate() { return 1; }
+          setPlaybackRate() {}
+          getVideoLoadedFraction() { return this.loaded ? 1 : 0; }
+          getCurrentTime() { return this.time + (this.state === 1 ? (performance.now() - this.started) / 1000 : 0); }
+          seekTo(time) { this.time = time; this.started = performance.now(); }
+          playVideo() {
+            if (hold || this.state === 1) return;
+            this.loaded = true;
+            this.state = 1;
+            this.started = performance.now();
+            this.listeners.get('onStateChange')?.({ data: 1 });
+          }
+          pauseVideo() {
+            if (this.state === 2) return;
+            this.time = this.getCurrentTime();
+            this.state = 2;
+            this.listeners.get('onStateChange')?.({ data: 2 });
+          }
+        },
+      };
+    }, hold);
+  };
+  const youtubeRoom = 'buffered-join-youtube';
+  const youtubeHost = await enter(youtubeRoom, 'YouTube host', page => mockYouTube(page, false));
+  await youtubeHost.waitForFunction(() => window.fixtureSocket.roomConfig?.isOwner);
+  const youtubeMember = await enter(youtubeRoom, 'YouTube member', page => mockYouTube(page, false));
+  await youtubeHost.getByRole('button', { name: 'Accept', exact: true }).click();
+  await youtubeMember.waitForFunction(() => window.fixtureSocket.roomConfig?.ok);
+  await youtubeHost.evaluate(roomId => window.fixtureSocket.emit('youtube-change', {
+    roomId, url: 'https://www.youtube.com/watch?v=M7lc1UVf-VE', timestamp: 10,
+  }), youtubeRoom);
+  for (const viewer of [youtubeHost, youtubeMember]) {
+    await viewer.waitForFunction(() => {
+      const player = document.querySelector('youtube-video');
+      return player?.readyState >= 3 && !player.paused;
+    }, null, { timeout: 8000 }).catch(async error => {
+      console.error(await viewer.evaluate(() => ({ text: document.body.innerText, player: document.querySelector('youtube-video')?.outerHTML, mock: typeof window.resumeYouTube })), errors);
+      throw error;
+    });
+  }
+  const youtubeGuest = await enter(youtubeRoom, 'YouTube guest', page => mockYouTube(page, true));
+  await youtubeHost.getByRole('button', { name: 'Accept', exact: true }).click();
+  const youtubeWaiting = youtubeGuest.getByRole('dialog', { name: 'Joining private room' });
+  await youtubeWaiting.getByText(/The host accepted/).waitFor();
+  await youtubeGuest.waitForFunction(() => typeof window.resumeYouTube === 'function');
+  const youtubeGuestId = await youtubeGuest.evaluate(() => window.fixtureSocket.id);
+  assert.equal(await app.store.get(`member:${youtubeRoom}:${youtubeGuestId}`), null);
+  const { state: staleYouTube } = await emit(youtubeGuest, 'sync-request', youtubeRoom);
+  await youtubeHost.evaluate(({ roomId, sessionId }) => window.fixtureSocket.emit('youtube-state-change', {
+    roomId, sessionId, timestamp: 42, isPlaying: false,
+  }), { roomId: youtubeRoom, sessionId: staleYouTube.sessionId });
+  const { state: pausedYouTube } = await emit(youtubeHost, 'sync-request', youtubeRoom);
+  assert.ok(pausedYouTube.revision > staleYouTube.revision);
+  assert.equal((await emit(youtubeGuest, 'room-playback-ready', youtubeRoom, { youtube: staleYouTube })).preparing, true);
+  await youtubeGuest.evaluate(() => window.resumeYouTube());
+  await youtubeWaiting.waitFor({ state: 'detached' });
+  assert.ok(await app.store.get(`member:${youtubeRoom}:${youtubeGuestId}`));
+  for (const viewer of [youtubeHost, youtubeMember, youtubeGuest]) {
+    await viewer.waitForFunction(() => {
+      const player = document.querySelector('youtube-video');
+      return player?.paused && Math.abs(player.currentTime - 42) < 0.75;
+    });
+  }
+  assert.equal((await emit(youtubeHost, 'sync-request', youtubeRoom)).state.revision, pausedYouTube.revision);
+  await Promise.all([youtubeHost, youtubeMember, youtubeGuest].map(page => page.close()));
+  console.log('PASS YouTube guest buffers the latest paused position without changing host or member playback');
+
   const playing = page => page.waitForFunction(() => {
     const video = document.querySelector('.jellyfin-player video');
     return video?.readyState >= 3 && !video.paused && video.currentTime > 0.1;

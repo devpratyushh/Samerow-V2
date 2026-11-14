@@ -1,10 +1,20 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useState, useSyncExternalStore } from 'react';
+import { createPortal } from 'react-dom';
 import Dialog from './Dialog';
+import './RoomAdmission.css';
+
+const subscribeToFullscreen = callback => {
+  document.addEventListener('fullscreenchange', callback);
+  return () => document.removeEventListener('fullscreenchange', callback);
+};
+const getPortalRoot = () => document.fullscreenElement || document.body;
 
 export default function RoomAdmission({ socket, roomId, isOwner, connected, waiting, preparing, playbackStatus, onLeave }) {
   const [requests, setRequests] = useState([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const titleId = useId();
+  const portalRoot = useSyncExternalStore(subscribeToFullscreen, getPortalRoot, () => null);
   useEffect(() => {
     if (!isOwner || !connected) return;
     let disposed = false;
@@ -30,20 +40,31 @@ export default function RoomAdmission({ socket, roomId, isOwner, connected, wait
   };
   return <>
     <Dialog open={!connected && Boolean(waiting)} title="Joining private room" onClose={onLeave}>
-      <p role="status">{waiting}</p>
-      {!preparing && <p>Your camera and microphone become available once you enter the room.</p>}
+      <p className="room-admission-status" role="status">
+        {preparing && !playbackStatus && <span className="room-spinner" aria-hidden="true" />}
+        {waiting}
+      </p>
       {preparing && playbackStatus?.phase === 'error' && <>
         <p role="alert">Playback couldn’t load. Retry to finish joining.</p>
         <button type="button" className="sr-button sr-button--primary" onClick={playbackStatus.retry}>Retry playback</button>
       </>}
       {preparing && playbackStatus?.phase === 'blocked' && <button type="button" className="sr-button sr-button--primary" onClick={playbackStatus.retry}>Start playback to join</button>}
-      <button type="button" className="sr-button" onClick={onLeave}>Cancel and leave</button>
+      <div className="room-admission-actions">
+        <button type="button" className="sr-button" onClick={onLeave}>Cancel and leave</button>
+      </div>
     </Dialog>
-    <Dialog open={isOwner && connected && requests.length > 0} title="Someone wants to join" description={`${requests[0]?.name || 'A member'} is waiting to enter your private room.`} onClose={() => answer(false)}>
-      {requests.length > 1 && <p>{requests.length} members waiting</p>}
-      {error && <p role="alert">{error}</p>}
-      <button type="button" className="sr-button" disabled={busy} onClick={() => answer(false)}>Decline</button>{' '}
-      <button type="button" className="sr-button sr-button--primary" disabled={busy} onClick={() => answer(true)}>Accept</button>
-    </Dialog>
+    {isOwner && connected && requests.length > 0 && portalRoot && createPortal(
+      <section className="room-admission-popup" role="dialog" aria-labelledby={titleId}>
+        <div aria-live="polite">
+          <h2 id={titleId}>Someone wants to join</h2>
+          <p>{requests[0].name} is waiting to enter your private room.</p>
+          {requests.length > 1 && <p>{requests.length} people waiting</p>}
+        </div>
+        {error && <p role="alert">{error}</p>}
+        <div className="room-admission-actions">
+          <button type="button" className="sr-button" disabled={busy} onClick={() => answer(false)}>Decline</button>
+          <button type="button" className="sr-button sr-button--primary" disabled={busy} onClick={() => answer(true)}>Accept</button>
+        </div>
+      </section>, portalRoot)}
   </>;
 }

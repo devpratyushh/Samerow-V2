@@ -141,16 +141,16 @@ export default function JellyfinPlayer({ state, base, socket, command, connected
     if (correction.seek !== undefined) video.currentTime = Math.min(correction.seek, Math.max(0, state.duration - 0.05));
     if (state.playing && video.paused && !blocked.current && !loading.current) play();
     if (onJoinStatus && !video.seeking && correction.seek === undefined && Math.abs(target - video.currentTime) <= 0.75 &&
-      video.readyState >= 3 && !loading.current && video.paused === !state.playing) {
+      video.readyState >= (state.playing ? 3 : 2) && !loading.current && video.paused === !state.playing) {
       onJoinStatus({ phase: 'ready', state });
     }
   });
   const reportJoinStatus = useEffectEvent(() => {
-    if (policyFailed || phase === 'error') onJoinStatus?.({ phase: 'error', retry });
-    else if (phase === 'blocked') onJoinStatus?.({ phase: 'blocked', retry: unlock });
-    else onJoinStatus?.({ phase: 'loading' });
+    if (policyFailed || phase === 'error') onJoinStatus?.({ phase: 'error', state, retry });
+    else if (phase === 'blocked') onJoinStatus?.({ phase: 'blocked', state, retry: unlock });
+    else onJoinStatus?.({ phase: 'loading', state });
   });
-  useEffect(() => { reportJoinStatus(); }, [phase, policyFailed, state.sessionId]);
+  useEffect(() => { reportJoinStatus(); }, [phase, policyFailed, state.sessionId, state.revision]);
   useEffect(() => { synchronize(true); }, [state.revision, state.sessionId, connected]);
   useEffect(() => {
     const timer = setInterval(() => { synchronize(); if (videoRef.current && queuedSeek.current === null) setTime(videoRef.current.currentTime); }, 400);

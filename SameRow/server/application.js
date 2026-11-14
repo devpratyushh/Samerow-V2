@@ -177,16 +177,22 @@ function createApplication(options = {}) {
           if (typeof ack === 'function') ack({ pending: true });
           return;
         }
-        if (socket.handshake.auth?.prepareJellyfin === true && !socket.rooms.has(roomId)) {
-          const state = await store.get(`jellyfin-room:${roomId}`);
+        const { prepareJellyfin, prepareYouTube } = socket.handshake.auth || {};
+        if ((prepareJellyfin === true || prepareYouTube === true) && !socket.rooms.has(roomId)) {
+          const [state, youtube] = await Promise.all([
+            prepareJellyfin === true ? store.get(`jellyfin-room:${roomId}`) : null,
+            prepareYouTube === true ? store.get(`youtube:${roomId}`) : null,
+          ]);
           const viewerToken = state?.id && playbackReady?.sessionId === state.id && playbackReady.revision === state.revision
             ? await store.get(`viewer-index:${roomId}:${socket.id}:${state.id}`) : null;
-          if (state?.id && !state.stopped && !(config.jellyfinDirect && config.jellyfinRelay && connectorId(state.base)) && (!viewerToken || playbackReady?.accessToken !== viewerToken)) {
+          const needsJellyfin = state?.id && !state.stopped && (!viewerToken || playbackReady?.accessToken !== viewerToken);
+          const needsYouTube = youtube?.url && (playbackReady?.youtube?.sessionId !== youtube.sessionId || playbackReady.youtube.revision !== youtube.revision);
+          if (needsJellyfin || needsYouTube) {
             socket.data.preparingRoom = roomId;
             socket.data.preparingName = name;
             await store.set(`jellyfin-preparing:${roomId}:${socket.id}`, true, LEASE_SECONDS);
             if (!socket.connected) await clearPreparation(socket);
-            else if (typeof ack === 'function') ack({ preparing: true, mediaBase: config.mediaOrigin });
+            else if (typeof ack === 'function') ack({ preparing: true, mediaBase: config.mediaOrigin, prepareYouTube: prepareYouTube === true });
             return;
           }
         }
@@ -245,9 +251,10 @@ function createApplication(options = {}) {
       if (typeof ack === 'function') ack({ ok: true });
     });
     socket.handle('sync-request', async (roomId, ack) => {
-      if (!validRoom(roomId) || !socket.rooms.has(roomId)) return;
-      const state = await store.get(`youtube:${roomId}`); if (!state) return;
-      const receivedAt = Date.now(), value = snapshot(state, receivedAt);
+      if (!validRoom(roomId) || (!socket.rooms.has(roomId) &&
+          !(socket.data.preparingRoom === roomId && socket.handshake.auth?.prepareYouTube === true && typeof ack === 'function'))) return;
+      const state = await store.get(`youtube:${roomId}`);
+      const receivedAt = Date.now(), value = state ? snapshot(state, receivedAt) : null;
       if (typeof ack === 'function') ack({ state: value, serverReceivedAt: receivedAt, serverSentAt: Date.now() }); else socket.emit('youtube-sync', value);
     });
     socket.handle('youtube-change', async (payload = {}) => {
@@ -363,7 +370,7 @@ function createApplication(options = {}) {
     } finally { heartbeatRunning = false; }
   }
   const heartbeat = setInterval(() => { renewMemberships().catch(() => { stats.errors++; }); }, 20000); heartbeat.unref();
-  const { installJellyfinRelay, connectorId } = require('./jellyfinRelay');
+  const { installJellyfinRelay } = require('./jellyfinRelay');
   const relay = installJellyfinRelay(app, { config, store, identity, io });
   const networkPolicy = { production: config.production, allowPrivate: config.allowPrivateJellyfin, origins: config.upstreamOrigins };
   const accounts = require('./jellyfinAccounts').installJellyfinAccounts(app, { ...(options.accountOptions || {}), relay, ...(options.store ? { store } : {}), networkPolicy });

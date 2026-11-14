@@ -32,6 +32,10 @@ export function connectYouTubeRoom({ socket, roomId, userName, onState, onSubmit
         onSubmitted();
     };
     const receiveSnapshot = (state) => {
+        if (state === null) {
+            if (revision < 0) { modern = true; current = null; onState(null); }
+            return;
+        }
         if (!state || typeof state.sessionId !== 'string') return;
         if (!Number.isFinite(state.timestamp) || state.timestamp < 0 || typeof state.isPlaying !== 'boolean') return;
         if (Number.isFinite(state.revision)) {
@@ -68,7 +72,7 @@ export function connectYouTubeRoom({ socket, roomId, userName, onState, onSubmit
         const requestGeneration = generation;
         lastRequest = sentAt;
         const receiveReply = reply => {
-            if (!active || requestGeneration !== generation || !socket.connected || !reply?.state) return;
+            if (!active || requestGeneration !== generation || !socket.connected || !reply || !Object.hasOwn(reply, 'state')) return;
             if (clock.sample(sentAt, now(), reply.serverReceivedAt, reply.serverSentAt)) receiveSnapshot(reply.state);
         };
         if (typeof socket.timeout === 'function') {
@@ -105,6 +109,7 @@ export function connectYouTubeRoom({ socket, roomId, userName, onState, onSubmit
     if (typeof document !== 'undefined') document.addEventListener('visibilitychange', onVisible);
 
     return {
+        sync: requestSync,
         submit(video) {
             if (!socket.connected) {
                 onError('Reconnecting to the room. Try again when connected.');

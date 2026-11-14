@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
 import ReactPlayer from 'react-player';
 import { FaTimes } from 'react-icons/fa';
 import { playbackTime, youtubeErrorMessage } from './youtube';
@@ -6,7 +6,7 @@ import { commandServerTime, createDriftController } from './playbackSync';
 import PlaybackControls from './components/PlaybackControls';
 import './YouTubePlayer.css';
 
-export default function YouTubePlayer({ state, socket, roomId, onClose, focused = true }) {
+export default function YouTubePlayer({ state, socket, roomId, onClose, focused = true, onJoinStatus }) {
   const playerRef = useRef(null);
   const desired = useRef(state);
   const ready = useRef(false);
@@ -32,6 +32,7 @@ export default function YouTubePlayer({ state, socket, roomId, onClose, focused 
   const [volume, setVolume] = useState(1);
   const [muted, setMuted] = useState(false);
   const [playbackRate, setPlaybackRate] = useState(1);
+  const preparing = Boolean(onJoinStatus);
 
   useEffect(() => {
     const timeout = setTimeout(() => {
@@ -83,8 +84,13 @@ export default function YouTubePlayer({ state, socket, roomId, onClose, focused 
     if (!socket.connected) { setLocalRate(1); return; }
     const wanted = desired.current;
     const length = player.duration;
-    const target = Math.max(0, Math.min(Number.isFinite(length) && length > 0 ? length : Infinity, playbackTime(wanted)));
-    if (!wanted.isPlaying) {
+    const limit = Number.isFinite(length) && length > 0
+      ? Math.max(0, length - (preparing && !hasPlayed.current ? 0.1 : 0))
+      : Infinity;
+    const target = Math.max(0, Math.min(limit, playbackTime(wanted)));
+    // Load a paused room's frame locally with the guest's player muted.
+    const warmingPausedFrame = preparing && !wanted.isPlaying && (!hasPlayed.current || buffering.current);
+    if (!wanted.isPlaying && !warmingPausedFrame) {
       playRequest.current = null; clearTimeout(playStartTimer.current);
       autoplayBlocked.current = false; buffering.current = false;
       if (!player.paused) player.pause();
@@ -115,8 +121,8 @@ export default function YouTubePlayer({ state, socket, roomId, onClose, focused 
       player.currentTime = plan.seek;
       setCurrentTime(plan.seek);
     }
-    if (wanted.isPlaying && player.paused && !buffering.current && !autoplayBlocked.current) startPlayback();
-  }, [socket.connected, drift, isSeeking, setLocalRate, setCurrentTime, setPlaying, setPhase, startPlayback]);
+    if ((wanted.isPlaying || warmingPausedFrame) && player.paused && !buffering.current && !autoplayBlocked.current) startPlayback();
+  }, [socket.connected, preparing, drift, isSeeking, setLocalRate, setCurrentTime, setPlaying, setPhase, startPlayback]);
   useEffect(() => {
     const previous = desired.current;
     const pending = pendingCommand.current;
@@ -131,8 +137,18 @@ export default function YouTubePlayer({ state, socket, roomId, onClose, focused 
     queueMicrotask(() => { if (active && desired.current === state) applyState(command); });
     return () => { active = false; };
   }, [state, applyState, drift]);
+  const reportReady = useEffectEvent(() => {
+    const player = playerRef.current;
+    const wanted = desired.current;
+    if (!onJoinStatus || !ready.current || !hasPlayed.current || !player || buffering.current || autoplayBlocked.current) return;
+    const target = Math.min(playbackTime(wanted), player.duration || Infinity);
+    if (ended.current || (player.readyState >= 3 && !isSeeking() && player.paused === !wanted.isPlaying &&
+        Math.abs(player.currentTime - target) <= 0.75)) {
+      onJoinStatus({ phase: 'ready', state: wanted });
+    }
+  });
   useEffect(() => {
-    const tick = () => { if (ready.current) { readClock(); applyState(); } };
+    const tick = () => { if (ready.current) { readClock(); applyState(); reportReady(); } };
     const timer = setInterval(tick, 250);
     const onVisible = () => { if (document.visibilityState === 'visible') tick(); };
     document.addEventListener('visibilitychange', onVisible);
@@ -141,7 +157,7 @@ export default function YouTubePlayer({ state, socket, roomId, onClose, focused 
 
   const publish = (isPlaying, force = false, position) => {
     const player = playerRef.current;
-    if (!ready.current || !player || error || !socket.connected) return;
+    if (preparing || !ready.current || !player || error || !socket.connected) return;
     if (!force && desired.current.isPlaying === isPlaying) return;
     const timestamp = position ?? (Number.isFinite(player.currentTime) ? player.currentTime : 0);
     const commandId = globalThis.crypto?.randomUUID?.() || `${socket.id || 'viewer'}:${performance.now()}:${Math.random().toString(36).slice(2)}`;
@@ -187,6 +203,20 @@ export default function YouTubePlayer({ state, socket, roomId, onClose, focused 
     playRequest.current = null; clearTimeout(playStartTimer.current); autoplayCleanup.current?.();
     setError(''); setPhase('loading'); setAttempt(value => value + 1);
   };
+  const reportJoinStatus = useEffectEvent(() => {
+    if (phase === 'error') onJoinStatus?.({ phase: 'error', state, retry });
+    else if (phase === 'blocked') onJoinStatus?.({ phase: 'blocked', state, retry: joinPlayback });
+    else onJoinStatus?.({ phase: 'loading', state });
+  });
+  useEffect(() => { reportJoinStatus(); }, [phase, state.revision]);
+  useEffect(() => {
+    if (!preparing || phase === 'blocked' || phase === 'error') return;
+    const timeout = setTimeout(() => {
+      setError('YouTube could not buffer the room position.'); setPhase('error');
+      ready.current = false;
+    }, 20000);
+    return () => clearTimeout(timeout);
+  }, [preparing, attempt, state.revision, phase]);
 
   return <section className="youtube-watch" aria-label="YouTube watch together">
     <div className="youtube-watch-video">

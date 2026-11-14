@@ -99,7 +99,7 @@ function RoomApp({ socket = defaultSocket }) {
           const token = await currentUser.getIdToken();
           if (disposed || auth.currentUser?.uid !== currentUser.uid) return;
           const previousUid = socket.sessionUid;
-          socket.auth = { clientId, token, prepareJellyfin: true }; socket.sessionUid = currentUser.uid;
+          socket.auth = { clientId, token, prepareJellyfin: true, prepareYouTube: true }; socket.sessionUid = currentUser.uid;
           if (previousUid && previousUid !== currentUser.uid) socket.disconnect();
           if (socket.connected) socket.emit('auth-refresh', token);
           else socket.connect();
