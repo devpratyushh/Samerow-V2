@@ -21,11 +21,12 @@ export function gridColumns(count, width, height) {
 export function initials(name = '') {
   return name.trim().split(/\s+/).filter(Boolean).map(part => part[0]).join('').slice(0, 2).toUpperCase() || '?';
 }
-export function formatTime(seconds = 0) {
-  if (!Number.isFinite(seconds) || seconds < 0) return '0:00';
-  const whole = Math.floor(seconds);
+export function formatTime(seconds = 0, showTenths = false) {
+  const time = Number.isFinite(seconds) && seconds >= 0 ? seconds : 0;
+  const tenths = showTenths ? Math.round(time * 10) : 0;
+  const whole = Math.floor(showTenths ? tenths / 10 : time);
   const hours = Math.floor(whole / 3600);
   const minutes = Math.floor(whole / 60) % 60;
-  const tail = String(whole % 60).padStart(2, '0');
+  const tail = String(whole % 60).padStart(2, '0') + (showTenths ? `.${tenths % 10}` : '');
   return hours ? `${hours}:${String(minutes).padStart(2, '0')}:${tail}` : `${minutes}:${tail}`;
 }

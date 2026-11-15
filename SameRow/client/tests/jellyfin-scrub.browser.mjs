@@ -45,12 +45,29 @@ try{
  assert.equal(await host.locator('.jellyfin-player').getAttribute('data-delivery'),'original');
  assert.equal(await guest.locator('.jellyfin-player').getAttribute('data-delivery'),'original');
  console.log('PASS copied video in fragmented MP4 decodes on two viewers');
+ const coldTarget = 52.3;
+ fixture.controls.resourceDelay = path => path.endsWith('/original13.m4s') ? 1000 : 0;
+ await video(host).evaluate(v => {
+  window.seekResumeTime = null;
+  v.addEventListener('playing', () => { window.seekResumeTime = v.currentTime; }, { once: true });
+ });
+ const coldSlider = guest.locator('.player-seek input');
+ await coldSlider.fill('52.2');
+ assert.match(await coldSlider.getAttribute('aria-valuetext'), /^0:52\.2 of /);
+ await coldSlider.press('ArrowRight');
+ await host.waitForFunction(target => {
+  const v = document.querySelector('.jellyfin-player video');
+  return v.paused && v.seeking && Math.abs(v.currentTime - target) < 0.05;
+ }, coldTarget, { timeout: 5000 });
+ await host.waitForFunction(() => window.seekResumeTime !== null, null, { timeout: 10000 });
+ assert.ok(Math.abs(await host.evaluate(() => window.seekResumeTime) - coldTarget) < 0.2);
+ delete fixture.controls.resourceDelay;
+ console.log('PASS delayed seek holds the selected position and resumes from it');
  await guest.getByRole('button',{name:'Pause for everyone',exact:true}).click();
  await host.waitForFunction(()=>document.querySelector('.jellyfin-player video').paused);
- const paused=await video(host).evaluate(v=>v.currentTime);
  await guest.locator('.player-seek input').fill('20');await guest.locator('.player-seek input').press('ArrowRight');await guest.locator('.player-seek input').blur();
  await host.waitForFunction(()=>Math.abs(document.querySelector('.jellyfin-player video').currentTime-20.1)<0.3);
- assert.ok(paused<20);assert.ok(await video(host).evaluate(v=>v.paused));
+ assert.ok(await video(host).evaluate(v=>v.paused));
  // Hold outgoing controls longer than a sync tick to expose stale-timeline snapbacks.
  await guest.evaluate(() => {
   const socket = window.fixtureSocket;

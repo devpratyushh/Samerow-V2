@@ -18,6 +18,13 @@ const stillFrameTolerance = 0.005;
 const playbackTolerance = 0.05;
 const seekPosition = (time, duration) => Math.min(time, Math.max(0, duration - stillFrameTolerance));
 
+function applySeek(video, request) {
+  video.pause();
+  video.playbackRate = 1;
+  request.applied = true;
+  video.currentTime = request.time;
+}
+
 function bufferedTrack(video, duration) {
   const stops = [];
   const ranges = video.buffered;
@@ -123,7 +130,7 @@ export default function JellyfinPlayer({ state, base, socket, command, connected
   }, [directPeer, selectedSubtitle?.text, subtitle]);
   const play = useCallback(() => {
     const video = videoRef.current;
-    if (!video || playPending.current || blocked.current) return;
+    if (!video || landing.current || playPending.current || blocked.current) return;
     playPending.current = true;
     Promise.resolve(video.play()).catch(err => {
       if (err.name === 'NotAllowedError') { blocked.current = true; setPhase('blocked'); }
@@ -147,16 +154,20 @@ export default function JellyfinPlayer({ state, base, socket, command, connected
     const requested = landing.current;
     if (requested && queuedSeek.current === null && video.readyState >= 1) {
       if (!requested.applied) {
-        requested.applied = true;
-        video.playbackRate = 1;
-        video.currentTime = requested.time;
+        applySeek(video, requested);
         setTime(requested.time);
       }
-      // Keep the requested position while the browser fetches and decodes it.
+      // Hold playback until the browser has decoded the seek target.
       if (video.seeking || video.readyState < (state.playing ? 3 : 2)) return;
+      if (state.playing && !requested.retried && Math.abs(video.currentTime - requested.time) > playbackTolerance) {
+        // The stream can move the playhead to a nearby buffered position during a seek.
+        requested.retried = true;
+        applySeek(video, requested);
+        if (video.seeking) return;
+      }
       landing.current = null;
       pendingRoomSeek.current = false;
-      if (state.playing && !onJoinStatus) catchup.current = { at: now, delay: Math.max(0, roomTime - video.currentTime) };
+      if (state.playing && !onJoinStatus) catchup.current = { at: now, delay: Math.max(0, roomTime - requested.time) };
     }
     // Metadata is enough to retarget a stream that is buffering after a track change.
     // Waiting for canplay here leaves HLS fetching the obsolete room position.
@@ -421,10 +432,10 @@ export default function JellyfinPlayer({ state, base, socket, command, connected
     const id = command('seek', value);
     if (!id || !video) return;
     lastSeek.current = id;
-    landing.current = { time: target, applied: video.readyState >= 1 };
+    const request = { time: target, applied: false };
+    landing.current = request;
     catchup.current = null;
-    video.playbackRate = 1;
-    if (landing.current.applied) video.currentTime = target;
+    if (video.readyState >= 1) applySeek(video, request);
   };
   const togglePlay = () => {
     if (blocked.current) { blocked.current = false; play(); return; }
