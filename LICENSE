@@ -3,6 +3,6 @@ All Rights Reserved.
 
 No part of this software may be reproduced, distributed, or transmitted in any form or by any means, including photocopying, recording, or other electronic or mechanical methods, without the prior written permission of the copyright owner.
 
-Exception: the files in jellyfin-plugin-samerow/, jellyfin-plugin-samerow.tests/,
-and .github/workflows/jellyfin-plugin.yml are licensed under GPL-3.0-or-later.
-See jellyfin-plugin-samerow/LICENSING.md and jellyfin-plugin-samerow/LICENSE.
+Exception: the files in jellyfin-plugin-mellettem/, jellyfin-plugin-mellettem.tests/,
+jellyfin-plugin-samerow/manifest.json, and .github/workflows/jellyfin-plugin.yml are licensed under GPL-3.0-or-later.
+See jellyfin-plugin-mellettem/LICENSING.md and jellyfin-plugin-mellettem/LICENSE.

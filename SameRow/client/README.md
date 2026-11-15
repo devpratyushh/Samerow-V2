@@ -1,4 +1,4 @@
-# SameRow client
+# Mellettem client
 
 A responsive room for video calls, screen sharing, YouTube, Jellyfin, and chat.
 
@@ -78,7 +78,7 @@ Browser checks require Playwright and a Chromium-compatible browser. They use an
 installed Playwright runtime when available. Set `BROWSER_PACKAGE_DIR` to a folder
 containing its package, and `BROWSER_EXECUTABLE` to a browser executable if needed.
 For a standalone installation, install Playwright and its Chromium browser before
-running these scripts. Screenshots/results go to `/tmp/samerow-ui` by default;
+running these scripts. Screenshots/results go to `/tmp/mellettem-ui` by default;
 `UI_ARTIFACT_DIR` can change this location.
 
 Coverage includes the viewport/state matrix, lobby validation, persistent video
@@ -118,7 +118,7 @@ The room displays the server's actual Jellyfin Web player and its native playbac
 audio, subtitle, chapter, volume, and quality menus. Play/pause and seeking are
 shared; audio, subtitles, quality, volume, and source focus stay local. Friends
 join through the room link and do not need the library owner's Jellyfin login.
-SameRow coordinates the room timeline; Jellyfin SyncPlay is disabled in this player
+Mellettem coordinates the room timeline; Jellyfin SyncPlay is disabled in this player
 so two synchronization systems do not compete. Episode autoplay is limited to the
 selected item; choose the next episode in the library.
 
@@ -129,14 +129,14 @@ Use HTTPS for public deployments. Movies travel through the backend using HTTP;
 provision its bandwidth and Jellyfin transcoding capacity for concurrent viewers.
 Jellyfin Web 12.3.0 is covered by the real-server acceptance test.
 
-Set `SAMEROW_DATA_DIR` on the backend to a private persistent directory. The default
+Set `MELLETTEM_DATA_DIR` on the backend to a private persistent directory. The default
 is `server/.data`; remembered Jellyfin access tokens are stored there with mode
 0600, never sent to room guests, and expire after 30 days without use. Protect and
 persist that directory across restarts. An ephemeral hosting filesystem cannot
 preserve remembered connections across redeploys. Each viewer receives temporary
 access restricted to the chosen video, invalidated on disconnect or stop. The native
 web client runs in an opaque iframe with private in-memory preferences/cache and
-cannot access SameRow's browser storage. Room IDs serve as invitations; use private,
+cannot access Mellettem's browser storage. Room IDs serve as invitations; use private,
 unpredictable IDs for private watch parties.
 
 ### Real-server acceptance check
@@ -169,13 +169,13 @@ used to sign in to that account instead.
 
 Deployment setup for GitHub sign-in:
 
-1. Create a GitHub OAuth App for this SameRow deployment.
+1. Create a GitHub OAuth App for this Mellettem deployment.
 2. In Firebase Console → Authentication → Sign-in method, enable GitHub and set
    the OAuth App's client ID and secret. Keep the secret in the provider settings.
 3. Copy the callback URL shown by Firebase into the GitHub OAuth App. For the
    default project it is `https://mellettem-4f7ee.firebaseapp.com/__/auth/handler`;
    use your configured Firebase auth domain if overridden.
-4. Verify the deployed SameRow hostname is in Firebase's authorized domains, then
+4. Verify the deployed Mellettem hostname is in Firebase's authorized domains, then
    test Google sign-in → Link GitHub → sign out → GitHub sign-in. The same paired
    servers should appear.
 
@@ -187,11 +187,11 @@ provider. Enabling a provider requires the console setup above. See the official
 ### Link a Jellyfin user from the dashboard
 
 The dashboard distinguishes **Server paired** from **Library connected**. After
-signing into SameRow with a paired server, a popup asks for the Jellyfin username
+signing into Mellettem with a paired server, a popup asks for the Jellyfin username
 and password or Quick Connect approval. **Connect accounts** explicitly saves the
-Jellyfin user connection under the verified SameRow UID. Passwords are not stored.
+Jellyfin user connection under the verified Mellettem UID. Passwords are not stored.
 The encrypted remembered connection can be discovered on another browser signed
-into the same SameRow account and restored by the room's library picker.
+into the same Mellettem account and restored by the room's library picker.
 
 Anonymous guests and plugin connector host sessions cannot create or discover
 these user links. Disconnecting the Jellyfin login removes the link; revoking the
@@ -199,12 +199,12 @@ plugin connection invalidates links through that connector. Deploy the matching
 server and client for this flow. The client requires a server acknowledgement of
 the link before showing success.
 
-### Opening SameRow from the Jellyfin plugin
+### Opening Mellettem from the Jellyfin plugin
 
-The plugin Open SameRow action opens a server-scoped binding confirmation.
+The plugin Open Mellettem action opens a server-scoped binding confirmation.
 Signed-out users first sign in with Google; signed-in users see the account that
 will own the binding before continuing to Jellyfin authentication. Existing links
 show both accounts and can continue directly to the lobby. The plugin settings
 page reads account binding through its authenticated connector and displays the
-SameRow email and Jellyfin user. This flow requires the updated plugin binary
+Mellettem email and Jellyfin user. This flow requires the updated plugin binary
 as well as the matching web and backend changes.

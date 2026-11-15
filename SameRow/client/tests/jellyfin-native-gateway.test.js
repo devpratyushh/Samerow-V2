@@ -55,8 +55,8 @@ test('native Jellyfin gateway limits guests to the shared item, rewrites credent
     for (const route of ['/Users', '/System/Configuration', '/Items/other', '/Videos/other/stream.mp4', '/Items?Ids=movie,other', '/Videos/movie/stream.mp4?MediaSourceId=other']) assert.equal((await fetch(gateway + route)).status, 403, route);
     for (const route of ['/Users/user/Password', '/Sessions/another/Playing', '/Items/movie/Refresh']) assert.equal((await fetch(gateway + route, { method: 'POST' })).status, 403, route);
     assert.deepEqual((await (await fetch(`${gateway}/Items?Recursive=true`)).json()).Items, []);
-    let response = await fetch(`${gateway}/web/index.html?channel=test-channel&parentOrigin=https%3A%2F%2Fsamerow.test`);
-    const html = await response.text(); assert.equal(response.status, 200); assert.match(html, /SameRow|SAMEROW/); assert.match(html, /data-jellyfin-src/); assert.ok(!html.includes('owner-secret'));
+    let response = await fetch(`${gateway}/web/index.html?channel=test-channel&parentOrigin=https%3A%2F%2Fmellettem.test`);
+    const html = await response.text(); assert.equal(response.status, 200); assert.match(html, /window\.__SAMEROW_JELLYFIN__/); assert.match(html, /data-jellyfin-src/); assert.ok(!html.includes('owner-secret'));
     const config = await (await fetch(`${gateway}/web/config.json`)).json(); assert.ok(config.plugins.includes('SameRowBridge')); assert.ok(!config.plugins.some(plugin => plugin.includes('chromecast')));
     const user = await (await fetch(`${gateway}/Users/Me`)).json(); assert.equal(user.Policy.IsAdministrator, false); assert.equal(user.Configuration.EnableNextEpisodeAutoPlay, false);
     const data = await (await fetch(`${gateway}/Items/movie`)).json(); assert.ok(!JSON.stringify(data).includes('/private/library'));

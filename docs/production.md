@@ -27,7 +27,7 @@ applying the Blueprint; this repository does not deploy or purchase resources.
 
 ## Configure services
 
-The existing SameRow Render service can still host public rooms, direct peer
+The existing Mellettem Render service can still host public rooms, direct peer
 calls, and YouTube watch parties while it runs the original backend. The web
 app detects that specific service by its old status response. Its room codes
 are generated in the browser, and it does not offer private invites, server
@@ -85,7 +85,7 @@ for those features.
    project as Render. Use the repository's build command from
    `SameRow/client/vercel.json` and enable Vercel's system environment
    variables. If the site uses a different production domain from the
-   Vercel default, set `SAMEROW_WEB_ORIGIN` to the exact HTTPS origin users
+   Vercel default, set `MELLETTEM_WEB_ORIGIN` to the exact HTTPS origin users
    open. Include that origin in Render's `CLIENT_ORIGINS` and Firebase's
    authorized domains.
 
@@ -248,7 +248,7 @@ on control and media replicas:
 - `JELLYFIN_GATEWAY_BANDWIDTH_MBPS`: measured aggregate media gateway egress
   budget across all replicas.
 
-Zero leaves that budget unconfigured; SameRow cannot infer hosting bandwidth
+Zero leaves that budget unconfigured; Mellettem cannot infer hosting bandwidth
 from the room's headcount. Each configured budget reserves 20% for peaks and
 HTTP overhead and divides the remainder among active movie viewers. Redis
 leases count viewers across rooms/replicas, renew through room sync and media

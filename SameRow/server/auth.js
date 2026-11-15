@@ -19,7 +19,7 @@ function createIdentity(config) {
   const { getFirestore } = require('firebase-admin/firestore');
   const credentials = JSON.parse(config.firebaseCredentials);
   if (credentials.project_id !== config.firebaseProjectId) throw new Error('Firebase service account must belong to FIREBASE_PROJECT_ID.');
-  const firebase = initializeApp({ credential: cert(credentials), projectId: config.firebaseProjectId }, `samerow-${randomUUID()}`);
+  const firebase = initializeApp({ credential: cert(credentials), projectId: config.firebaseProjectId }, `mellettem-${randomUUID()}`);
   const cache = new Map();
   return { verify: async token => {
     if (typeof token !== 'string' || token.length > 8192) throw new Error('Invalid identity.');

@@ -18,7 +18,7 @@ test('normal GitHub sign-in uses its provider, while guests cannot link an accou
   const auth = { currentUser: { isAnonymous: true } }, github = {};
   let used;
   const actions = createAccountActions({ auth, providers: { 'github.com': github }, signInWithPopup: async (...args) => { used = args; return { user: { uid: 'github-owner' } }; } });
-  await assert.rejects(actions.signIn('github.com', { link: true }), /existing SameRow account/);
+  await assert.rejects(actions.signIn('github.com', { link: true }), /existing Mellettem account/);
   assert.equal((await actions.signIn('github.com')).user.uid, 'github-owner');
   assert.deepEqual(used, [auth, github]);
   await assert.rejects(actions.signIn('unsupported'), /Choose Google or GitHub/);
@@ -26,7 +26,7 @@ test('normal GitHub sign-in uses its provider, while guests cannot link an accou
 
 test('provider collision and disabled-provider errors give actionable guidance without merging accounts', () => {
   assert.match(accountAuthError({ code: 'auth/account-exists-with-different-credential' }), /existing method.*link.*Manage account/);
-  assert.match(accountAuthError({ code: 'auth/credential-already-in-use' }), /another SameRow account/);
+  assert.match(accountAuthError({ code: 'auth/credential-already-in-use' }), /another Mellettem account/);
   assert.match(accountAuthError({ code: 'auth/operation-not-allowed' }), /not been enabled/);
   assert.doesNotMatch(accountAuthError({ message: 'secret access token' }), /secret/);
 });

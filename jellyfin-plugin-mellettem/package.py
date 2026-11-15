@@ -17,7 +17,7 @@ parser.add_argument("--sender-dir", type=Path, help="Directory containing built 
 parser.add_argument("--output-dir", type=Path, help="Write the ZIP and checksums to this directory")
 args = parser.parse_args()
 root = Path(__file__).resolve().parent
-assembly = root / "bin/Release/net10.0/SameRow.Plugin.dll"
+assembly = root / "bin/Release/net10.0/Mellettem.Plugin.dll"
 metadata = root / "meta.json"
 if not assembly.exists() or not metadata.exists():
     raise SystemExit("Build the plugin in Release mode before packaging.")
@@ -29,23 +29,23 @@ for key in ("version", "targetAbi"):
 timestamp = datetime.datetime.fromisoformat(meta["timestamp"].replace("Z", "+00:00"))
 output = args.output_dir or root / "dist"
 output.mkdir(parents=True, exist_ok=True)
-archive = output / f"SameRow-Connect-{meta['version']}.zip"
-tag = f"samerow-connect-v{meta['version']}"
+archive = output / f"Mellettem-Connect-{meta['version']}.zip"
+tag = f"mellettem-connect-v{meta['version']}"
 source = (
-    "SameRow Connect — GPL-3.0-or-later\n"
-    f"Source and build/test instructions: https://github.com/devpratyushh/Samerow-V2/tree/{tag}/jellyfin-plugin-samerow\n"
-    f"Corresponding source archive: https://github.com/devpratyushh/Samerow-V2/releases/download/{tag}/SameRow-Connect-{meta['version']}-source.tar.gz\n"
+    "Mellettem Connect — GPL-3.0-or-later\n"
+    f"Source and build/test instructions: https://github.com/devpratyushh/Samerow-V2/tree/{tag}/jellyfin-plugin-mellettem\n"
+    f"Corresponding source archive: https://github.com/devpratyushh/Samerow-V2/releases/download/{tag}/Mellettem-Connect-{meta['version']}-source.tar.gz\n"
     "See LICENSE and LICENSING.md for terms and scope. Jellyfin server assemblies are not bundled.\n"
 ).encode()
 sender_files = []
 if args.sender_dir:
-    senders = sorted(args.sender_dir.glob("samerow-sender-*"))
+    senders = sorted(args.sender_dir.glob("mellettem-sender-*"))
     notices = args.sender_dir / "THIRD-PARTY-SENDER.txt"
     if not senders or not notices.is_file():
         raise SystemExit("Build sender binaries and collect their third-party notices before packaging.")
     sender_files = [(path, 0o755) for path in senders] + [(notices, 0o644)]
 with zipfile.ZipFile(archive, "w") as package:
-    for filename, data in [("SameRow.Plugin.dll", assembly.read_bytes()), ("meta.json", metadata.read_bytes()), ("LICENSE", (root / "LICENSE").read_bytes()), ("LICENSING.md", (root / "LICENSING.md").read_bytes()), ("SOURCE.txt", source)]:
+    for filename, data in [("Mellettem.Plugin.dll", assembly.read_bytes()), ("meta.json", metadata.read_bytes()), ("mellettem.png", (root / meta["imagePath"]).read_bytes()), ("LICENSE", (root / "LICENSE").read_bytes()), ("LICENSING.md", (root / "LICENSING.md").read_bytes()), ("SOURCE.txt", source)]:
         info = zipfile.ZipInfo(filename, timestamp.timetuple()[:6])
         info.compress_type = zipfile.ZIP_DEFLATED
         info.external_attr = 0o644 << 16

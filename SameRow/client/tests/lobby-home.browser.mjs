@@ -30,7 +30,7 @@ assert.ok(chromium, 'Playwright is required');
   assert.equal(await lobby.locator('.lobby-history li').count(),3);
   assert.equal(await lobby.locator('.lobby-join-card .lobby-history').count(),0);
   await lobby.getByLabel('Room code',{exact:true}).fill('FRIEND');
-  await lobby.getByRole('button',{name:'Enter room',exact:true}).click();
+  await lobby.getByRole('button',{name:'Request to join',exact:true}).click();
   assert.deepEqual(await page.evaluate(()=>window.joined),['FRIEND']);
   await lobby.getByRole('button',{name:'Host a room',exact:true}).click();
   await page.waitForFunction(()=>document.querySelector('#lobby-test #lobby-room').value==='HOST');
@@ -43,12 +43,12 @@ assert.ok(chromium, 'Playwright is required');
    assert.ok(bounds.height<=height,`vertical overflow at ${width}×${height}: ${JSON.stringify(bounds)}`);
   }
   await page.setViewportSize({width:1440,height:900});
-  await page.screenshot({path:'/tmp/samerow-home-desktop.png'});
-  await lobby.getByRole('button',{name:'Connect Jellyfin',exact:true}).click();
+  await page.screenshot({path:'/tmp/mellettem-home-desktop.png'});
+  await lobby.getByRole('button',{name:'Manage connections',exact:true}).click();
   await page.getByRole('dialog',{name:'Your account & Jellyfin',exact:true}).waitFor();
   await page.keyboard.press('Escape');
   await page.setViewportSize({width:390,height:844});
-  await page.screenshot({path:'/tmp/samerow-home-mobile.png'});
+  await page.screenshot({path:'/tmp/mellettem-home-mobile.png'});
   console.log('PASS empty code, explicit host/manual join, three recent rooms, Jellyfin dialog, and no scrolling at seven desktop/tablet/mobile viewport sizes');
  } finally {await browser.close();}
 })().catch(error=>{console.error(error);process.exitCode=1;});

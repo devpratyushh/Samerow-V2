@@ -1,25 +1,25 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
+    <OutputType>Exe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
     <JellyfinServerPath Condition="'$(JellyfinServerPath)' == ''">$(MSBuildThisFileDirectory)../../jellyfin-sandbox/jellyfin</JellyfinServerPath>
     <Nullable>enable</Nullable>
     <PackageLicenseExpression>GPL-3.0-or-later</PackageLicenseExpression>
     <ImplicitUsings>enable</ImplicitUsings>
-    <AssemblyName>SameRow.Plugin</AssemblyName>
-    <RootNamespace>SameRow.Plugin</RootNamespace>
-    <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
-    <Version>1.0.5.0</Version>
-    <AssemblyVersion>1.0.5.0</AssemblyVersion>
-    <FileVersion>1.0.5.0</FileVersion>
-    <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
+    <AssemblyName>Mellettem.Plugin.Tests</AssemblyName>
+    <RootNamespace>Mellettem.Plugin.Tests</RootNamespace>
   </PropertyGroup>
 
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
 
-  <!-- Reference assemblies from jellyfin-sandbox for local compilation and tests -->
+  <ItemGroup>
+    <ProjectReference Include="../jellyfin-plugin-mellettem/Mellettem.Plugin.csproj" />
+  </ItemGroup>
+
+  <!-- Reference assemblies from jellyfin-sandbox for compilation and execution -->
   <ItemGroup Condition="Exists('$(JellyfinServerPath)/MediaBrowser.Controller.dll')">
     <Reference Include="MediaBrowser.Common">
       <HintPath>$(JellyfinServerPath)/MediaBrowser.Common.dll</HintPath>
@@ -37,10 +37,6 @@
       <HintPath>$(JellyfinServerPath)/Jellyfin.Api.dll</HintPath>
       <Private>false</Private>
     </Reference>
-  </ItemGroup>
-
-  <ItemGroup>
-    <EmbeddedResource Include="Configuration\configPage.html" />
   </ItemGroup>
 
   <Target Name="ValidateJellyfinReferences" BeforeTargets="ResolveReferences">

@@ -71,7 +71,7 @@ async function fixture() {
 
 async function harness(t) {
   const upstream = await fixture();
-  const dataDir = await mkdtemp(join(tmpdir(), 'samerow-accounts-test-'));
+  const dataDir = await mkdtemp(join(tmpdir(), 'mellettem-accounts-test-'));
   let server, service, origin;
   const start = async () => {
     const app = express();
@@ -132,7 +132,7 @@ test('login uses modern authorization, returns an opaque connection, and support
   const protectedRequests = h.upstream.requests.filter(req => req.resource.startsWith('/Users/') && req.resource !== '/Users/AuthenticateByName');
   assert.ok(protectedRequests.length > 0);
   assert.ok(protectedRequests.every(req => req.authorized && !req.headers['x-emby-token']));
-  assert.ok(protectedRequests.every(req => req.headers.authorization.includes('Client="SameRow"') && req.headers.authorization.includes('DeviceId="')));
+  assert.ok(protectedRequests.every(req => req.headers.authorization.includes('Client="Mellettem"') && req.headers.authorization.includes('DeviceId="')));
   assert.equal((await h.request('/library')).status, 401);
   assert.equal((await h.request('/library', { token: '0'.repeat(64) })).status, 401);
 });

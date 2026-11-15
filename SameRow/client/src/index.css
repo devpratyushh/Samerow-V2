@@ -19,6 +19,7 @@ h1, h2, h3, p { margin-top: 0; }
 h1, h2, h3 { font-family: inherit; letter-spacing: -.035em; }
 input, textarea { min-width: 0; }
 [hidden] { display: none !important; }
+.mellettem-mark { width: 1.55em; height: 1.55em; flex: none; object-fit: contain; }
 .sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
 ::selection { background: #dedede44; }
 * { scrollbar-width: thin; scrollbar-color: #3b475a transparent; }

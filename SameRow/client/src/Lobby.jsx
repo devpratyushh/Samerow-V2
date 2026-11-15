@@ -87,7 +87,7 @@ const Lobby = ({ joinRoom, generateRoom, serverUrl, initialRoom, userStream, tog
       const { user } = await accountActions.signIn(providerId, { link });
       setLinkedProviders({ uid: user.uid, ids: user.providerData.map(provider => provider.providerId) });
       if (!link && jellyfinOpen) { setJellyfinOpen(false); setLinkOpen(true); }
-      if (link) setFeedback('Sign-in method linked. Both methods now use this SameRow account and its Jellyfin connections.');
+      if (link) setFeedback('Sign-in method linked. Both methods now use this Mellettem account and its Jellyfin connections.');
     } catch (error) { setFeedback(accountAuthError(error)); }
     finally { setAuthBusy(false); }
   };
@@ -154,7 +154,7 @@ const Lobby = ({ joinRoom, generateRoom, serverUrl, initialRoom, userStream, tog
   return (
     <main className="lobby">
       <header className="lobby-header">
-        <a className="lobby-brand" href="/" aria-label="SameRow home">SameRow</a>
+        <a className="lobby-brand" href="/" aria-label="Mellettem home"><img className="mellettem-mark" src="/mellettem.png" alt="" />Mellettem</a>
         <span className={`lobby-connection ${serverConnected ? 'is-connected' : ''}`} role="status"><span aria-hidden="true" />{serverConnected ? 'Ready to connect' : 'Connecting to server'}</span>
       </header>
       <div className="lobby-content">
@@ -197,7 +197,7 @@ const Lobby = ({ joinRoom, generateRoom, serverUrl, initialRoom, userStream, tog
                 <span className="lobby-eyebrow">BRING YOUR LIBRARY</span><h2>Better together.</h2>
                 <p>{connections.clientOffline ? 'You’re offline. Reconnect this device to check your saved libraries.' : connections.error ? 'Connection status unavailable. Your saved bindings are unchanged.' : 'Connect Jellyfin to your account and watch from any network.'}</p>
                 <button className="lobby-jellyfin-button" type="button" onClick={() => setJellyfinOpen(true)}>Manage connections</button>
-                <small>SameRow Connect plugin</small>
+                <small>Mellettem Connect plugin</small>
               </>}
             </section>
             <div className="lobby-auth">
@@ -208,10 +208,10 @@ const Lobby = ({ joinRoom, generateRoom, serverUrl, initialRoom, userStream, tog
         </div>
             {authUser && history.length > 0 && <section className="lobby-history" aria-labelledby="lobby-history-heading"><h3 id="lobby-history-heading"><FaHistory aria-hidden="true" />Recent rooms</h3><ul>{history.map((entry) => <li key={entry.code}><button type="button" onClick={() => joinRecentRoom(entry.code)} disabled={!serverConnected} title={`Join ${entry.code}`}><span className="lobby-history-code">{entry.code}</span><span className="lobby-history-time">{timeAgo(entry.timestamp, now)}</span><FaArrowRight aria-hidden="true" /></button></li>)}</ul></section>}
       </div>
-      <Dialog open={jellyfinOpen} title={authUser ? "Your account & Jellyfin" : "Connect Jellyfin"} description={authUser ? "Manage sign-in methods and your connected servers." : "Bring your movie library to SameRow."} onClose={() => { setJellyfinOpen(false); setFeedback(''); }}>
+      <Dialog open={jellyfinOpen} title={authUser ? "Your account & Jellyfin" : "Connect Jellyfin"} description={authUser ? "Manage sign-in methods and your connected servers." : "Bring your movie library to Mellettem."} onClose={() => { setJellyfinOpen(false); setFeedback(''); }}>
         <div className="lobby-jellyfin-dialog">
           {authUser && <section aria-label="Account sign-in methods">
-            <h3>Sign-in methods</h3><p>{authUser.email || authUser.displayName || 'Your SameRow account'} · Jellyfin servers stay with this account when you link another sign-in method.</p>
+            <h3>Sign-in methods</h3><p>{authUser.email || authUser.displayName || 'Your Mellettem account'} · Jellyfin servers stay with this account when you link another sign-in method.</p>
             {[['google.com', 'Google'], ['github.com', 'GitHub']].map(([id, name]) => <button key={id} className="lobby-google-button" type="button" disabled={authBusy || providerIds.includes(id)} onClick={() => handleAuth(id, true)}>{id === 'google.com' ? <FaGoogle aria-hidden="true" /> : <FaGithub aria-hidden="true" />}{providerIds.includes(id) ? `${name} linked` : `Link ${name}`}</button>)}
           </section>}
 
@@ -220,15 +220,15 @@ const Lobby = ({ joinRoom, generateRoom, serverUrl, initialRoom, userStream, tog
             <button className="sr-button" onClick={() => { setJellyfinOpen(false); setLinkOpen(true); }}>Connect Jellyfin account</button>
           </section>}
           <p>Start a room, then choose <strong>Share something → Your Jellyfin library</strong> to sign in with your server address.</p>
-          {!authUser && <><p>For the SameRow Connect plugin, sign in to your SameRow account first.</p><button className="sr-button" onClick={() => handleAuth('google.com')} disabled={authBusy}><FaGoogle /> Continue with Google</button><button className="sr-button" onClick={() => handleAuth('github.com')} disabled={authBusy}><FaGithub /> Continue with GitHub</button></>}
+          {!authUser && <><p>For the Mellettem Connect plugin, sign in to your Mellettem account first.</p><button className="sr-button" onClick={() => handleAuth('google.com')} disabled={authBusy}><FaGoogle /> Continue with Google</button><button className="sr-button" onClick={() => handleAuth('github.com')} disabled={authBusy}><FaGithub /> Continue with GitHub</button></>}
           {authUser && serverUrl != null && <ConnectorPairing key={identity} serverUrl={serverUrl} onPrivateRoom={async () => { if (await makeRoom(true)) setJellyfinOpen(false); }} disabled={!serverConnected || generating} />}
-          <a href="https://github.com/devpratyushh/Samerow-V2/tree/main/jellyfin-plugin-samerow" target="_blank" rel="noreferrer">Set up the Jellyfin plugin ↗</a>
+          <a href="https://github.com/devpratyushh/Samerow-V2/tree/main/jellyfin-plugin-mellettem" target="_blank" rel="noreferrer">Set up the Jellyfin plugin ↗</a>
 
 
           {feedback && <p role="status">{feedback}</p>}
         </div>
       </Dialog>
-      {authUser && serverUrl != null && <JellyfinDialog key={`${identity}:${linkServer}`} open={linkOpen} onClose={() => { promptedAccount.current = identity; setLinkOpen(false); }} base={serverUrl} initialServerUrl={linkServer} connectOnly onPairServer={() => { setLinkOpen(false); setJellyfinOpen(true); }} sameRowAccount={authUser.email || authUser.displayName} />}
+      {authUser && serverUrl != null && <JellyfinDialog key={`${identity}:${linkServer}`} open={linkOpen} onClose={() => { promptedAccount.current = identity; setLinkOpen(false); }} base={serverUrl} initialServerUrl={linkServer} connectOnly onPairServer={() => { setLinkOpen(false); setJellyfinOpen(true); }} mellettemAccount={authUser.email || authUser.displayName} />}
       {selectedLibrary !== null && <JellyfinDialog key={`${identity}:${selectedLibrary}`} open base={serverUrl} initialServerUrl={selectedLibrary} onClose={() => setSelectedLibrary(null)} onCreatePrivateRoom={async () => { if (await makeRoom(true)) setSelectedLibrary(null); }} />}
     </main>
   );

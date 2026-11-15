@@ -1,4 +1,4 @@
-# SameRow V3 direct media
+# Mellettem V3 direct media
 
 The hosted control service authenticates viewers and negotiates one WebRTC connection
 per viewer. The Jellyfin plugin starts and supervises a small Pion executable
@@ -25,7 +25,7 @@ plugin. There is no separately configured daemon or additional hosted service.
 - `SameRow/server/jellyfin.js` shares stream planning and track/quality
   validation between relay and direct. Only the authenticated connector sees
   the upstream token. Each peer must renew a short authorization lease.
-- `jellyfin-plugin-samerow/sender` fetches HLS over loopback, rewrites
+- `jellyfin-plugin-mellettem/sender` fetches HLS over loopback, rewrites
   playlists to peer-scoped asset IDs, and sends bounded binary frames over
   an ordered DataChannel. The plugin worker lifecycle owns the sender process.
 - `SameRow/client/src/directMedia.js` implements the HLS.js loader and
@@ -41,16 +41,16 @@ Browser support for HLS.js and its Media Source path determines eligibility.
 1. Build the plugin against Jellyfin 12.3. The plugin workflow builds and
    packages the sender for Linux, macOS and Windows on amd64 and arm64.
    Install the resulting ZIP and confirm the executable for the Jellyfin
-   process architecture is next to `SameRow.Plugin.dll`. The package includes
+   process architecture is next to `Mellettem.Plugin.dll`. The package includes
    the sender dependency notices. Keep the `sender/` directory and Go module
    lock files in the corresponding source release.
 2. Restart Jellyfin after updating the plugin to 1.0.4.0 or newer. The sender
-   starts automatically on a paired server. Operators of the SameRow backend
+   starts automatically on a paired server. Operators of the Mellettem backend
    enable `JELLYFIN_DIRECT_ENABLED=true` on the control and media services
    together and keep `JELLYFIN_RELAY_ENABLED`, shared Redis and the media
    origin configured.
 3. Leave outbound UDP enabled for ICE and media. Optional comma-separated
-   STUN origins can be configured with `SAMEROW_DIRECT_STUN` on Jellyfin and
+   STUN origins can be configured with `MELLETTEM_DIRECT_STUN` on Jellyfin and
    `VITE_JELLYFIN_DIRECT_STUN` at web build time. A restrictive network can
    still require HTTPS.
 4. Optionally set `JELLYFIN_RELAY_DAILY_BYTES` on the gateway. It shares the
@@ -60,7 +60,7 @@ Browser support for HLS.js and its Media Source path determines eligibility.
    manifests, other requests and platform billing overhead.
 5. To disable direct playback globally, turn off `JELLYFIN_DIRECT_ENABLED`
    on control and media and redeploy both services. To disable the sender on
-   one Jellyfin server, set `SAMEROW_DIRECT_ENABLED=false` and restart Jellyfin.
+   one Jellyfin server, set `MELLETTEM_DIRECT_ENABLED=false` and restart Jellyfin.
 
 The channel is the playback generation. The selected movie, authenticated
 browser socket and connector credential bind it during signaling. Request
@@ -72,10 +72,10 @@ and a single optional byte range.
 
 ## Validation
 
-Run the Go tests from `jellyfin-plugin-samerow/sender` with `go test -race ./...`.
-Build the sender with `go build -o /tmp/samerow-sender .`. Start Vite from
+Run the Go tests from `jellyfin-plugin-mellettem/sender` with `go test -race ./...`.
+Build the sender with `go build -o /tmp/mellettem-sender .`. Start Vite from
 `SameRow/client` on port 5175, then run
-`SAMEROW_SENDER_PATH=/tmp/samerow-sender node tests/jellyfin-direct.browser.mjs`
+`MELLETTEM_SENDER_PATH=/tmp/mellettem-sender node tests/jellyfin-direct.browser.mjs`
 from that directory. This test uses Chromium, FFmpeg, a two-audio HLS fixture,
 the real Go sender and the current HTTP gateway. Set `BROWSER_EXECUTABLE` and
 `FFMPEG_PATH` when they are not available in the usual test locations.

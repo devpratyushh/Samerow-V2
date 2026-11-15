@@ -1,4 +1,4 @@
-// Run against SameRow Local with fake Chromium camera devices.
+// Run against Mellettem Local with fake Chromium camera devices.
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);

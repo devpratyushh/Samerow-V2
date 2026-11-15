@@ -52,7 +52,7 @@ function installJellyfinStatus(router, { store, readLinks, getConnection, accoun
         account: connection ? account(connection) : null, bound: !!connection, sameRowEmail: req.identity.email || record.ownerEmail || '',
         lastSeen: await store.get(`connector-seen:${entry.id}`), checkedAt,
         ...(!await store.get(`connector-online:${entry.id}`)
-          ? { status: 'offline', message: 'Start Jellyfin and SameRow Connect on your home server. Your binding is saved.' }
+          ? { status: 'offline', message: 'Start Jellyfin and Mellettem Connect on your home server. Your binding is saved.' }
           : !connection || connection.authInvalid
             ? { status: 'sign_in_required', message: 'Connect your Jellyfin user. Your server pairing is saved.' }
             : await probe(connection)) });

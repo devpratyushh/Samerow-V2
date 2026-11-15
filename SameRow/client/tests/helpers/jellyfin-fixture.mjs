@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url';
 import http from 'node:http';
 import { mkdtemp, mkdir, readFile, rm } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
@@ -9,7 +10,7 @@ const exec = promisify(execFile);
 export async function jellyfinFixture({ media = false } = {}) {
   const directory = await mkdtemp(join(tmpdir(), 'samerow-jellyfin-'));
   if (media) {
-    const ffmpeg = process.env.FFMPEG_PATH || ['/Users/pratyush/Documents/ChatGPT/Samerow/jellyfin-sandbox/ffmpeg/ffmpeg','/opt/homebrew/bin/ffmpeg','/usr/local/bin/ffmpeg'].find(existsSync) || 'ffmpeg';
+    const ffmpeg = process.env.FFMPEG_PATH || [fileURLToPath(new URL("../../../../../jellyfin-sandbox/ffmpeg/ffmpeg", import.meta.url)),'/opt/homebrew/bin/ffmpeg','/usr/local/bin/ffmpeg'].find(existsSync) || 'ffmpeg';
     for (const audio of [1, 2]) {
       await mkdir(join(directory,String(audio)));
       await exec(ffmpeg, ['-hide_banner','-loglevel','error','-f','lavfi','-i','testsrc2=size=320x180:rate=12','-f','lavfi','-i',`sine=frequency=${audio===1?440:660}:sample_rate=48000`,'-t','65','-c:v','libx264','-preset','ultrafast','-pix_fmt','yuv420p','-g','48','-sc_threshold','0','-c:a','aac','-b:a','64k','-f','hls','-hls_time','4','-hls_playlist_type','vod','-hls_segment_filename',join(directory,String(audio),'segment%d.ts'),join(directory,String(audio),'main.m3u8')]);
@@ -44,10 +45,12 @@ export async function jellyfinFixture({ media = false } = {}) {
       res.end(`#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=600000,CODECS="avc1.42c00c,mp4a.40.2"\n${controls.external?'https://example.com/private.m3u8':`/Videos/fixture-video/hls/${url.searchParams.get('AudioStreamIndex')||1}/main.m3u8?api_key=must-not-leak`}\n`);return;
     }
     if(url.pathname.endsWith('.vtt')){
-      res.setHeader('Content-Type','text/vtt');res.end(`WEBVTT\n\n00:00.000 --> 01:05.000\n${url.pathname.includes('/4/')?'Hola desde SameRow':'Hello from SameRow'}\n`);return;
+      res.setHeader('Content-Type','text/vtt');res.end(`WEBVTT\n\n00:00.000 --> 01:05.000\n${url.pathname.includes('/4/')?'Hola desde Mellettem':'Hello from Mellettem'}\n`);return;
     }
     const file=url.pathname.match(/^\/Videos\/fixture-video\/hls\/([12])\/(main\.m3u8|segment\d+\.ts|init\.mp4|original\d+\.m4s)$/);
     if(file){
+      const delay = controls.resourceDelay?.(url.pathname);
+      if (delay) await new Promise(resolve => setTimeout(resolve, delay));
       res.setHeader('Content-Type',file[2].endsWith('.m3u8')?'application/vnd.apple.mpegurl':file[2].endsWith('.ts')?'video/mp2t':'video/mp4');
       const data = media ? await readFile(join(directory,file[1],file[2])) : file[2].endsWith('.m3u8') ? '#EXTM3U\n#EXT-X-TARGETDURATION:4\n#EXTINF:4,\nsegment0.ts\n#EXT-X-ENDLIST\n' : Buffer.from([0x47,0,0,0]);
       const range = /^bytes=(\d+)-(\d+)$/.exec(req.headers.range || '');

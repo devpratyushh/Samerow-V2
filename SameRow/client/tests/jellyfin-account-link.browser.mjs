@@ -83,7 +83,7 @@ try {
  assert.equal(await page.locator('.jellyfin-library-item').count(),0,'Linking does not start room browsing');
  await page.setViewportSize({width:390,height:844});
  assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
- await page.screenshot({path:'/tmp/samerow-linked-account-popup.png'});
+ await page.screenshot({path:'/tmp/mellettem-linked-account-popup.png'});
  await page.setViewportSize({width:1280,height:900});
  await dialog.getByRole('button',{name:'Done',exact:true}).click();
  await page.getByRole('heading',{name:'Your libraries',exact:true}).waitFor();

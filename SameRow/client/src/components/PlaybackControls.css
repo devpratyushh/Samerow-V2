@@ -19,7 +19,8 @@
   border: none;
   border-radius: 4px;
   cursor: pointer;
-  background: linear-gradient(to right, var(--accent) var(--played), #ffffff40 var(--played));
+  background: linear-gradient(to right, var(--accent) var(--played), transparent var(--played)),
+    var(--buffered-track, linear-gradient(#ffffff40, #ffffff40));
 }
 .player-seek input::-webkit-slider-thumb { appearance: none; height: 11px; width: 11px; border: none; border-radius: 50%; background: var(--accent); }
 .player-seek input::-moz-range-thumb { height: 11px; width: 11px; border: none; border-radius: 50%; background: var(--accent); }
@@ -85,7 +86,8 @@
 .is-fullscreen .player-seek { height: 32px; }
 .is-fullscreen .player-seek input {
   height: 28px;
-  background: linear-gradient(to right, var(--accent) var(--played), #ffffff50 var(--played)) center / 100% 4px no-repeat;
+  background: linear-gradient(to right, var(--accent) var(--played), transparent var(--played)) center / 100% 4px no-repeat,
+    var(--buffered-track, linear-gradient(#ffffff40, #ffffff40)) center / 100% 4px no-repeat;
 }
 .is-fullscreen .player-seek input::-webkit-slider-thumb { width: 14px; height: 14px; }
 .is-fullscreen .player-seek input::-moz-range-thumb { width: 14px; height: 14px; }

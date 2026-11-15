@@ -22,7 +22,7 @@ export async function resolveAccountOrigin(base, { signal, request = fetch } = {
   const media = new URL(config.mediaOrigin);
   const control = new URL(base || globalThis.location?.origin);
   const local = url => ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
-  if (media.origin !== config.mediaOrigin || !(media.protocol === 'https:' || media.protocol === 'http:' && local(media) && local(control))) throw new Error('SameRow returned an invalid media service address.');
+  if (media.origin !== config.mediaOrigin || !(media.protocol === 'https:' || media.protocol === 'http:' && local(media) && local(control))) throw new Error('Mellettem returned an invalid media service address.');
   accountOrigins.set(base, { origin: media.origin, until: Date.now() + 60000 });
   return media.origin;
 }
@@ -33,6 +33,6 @@ export async function jellyfinRequest(base, path, { token, signal, body, method 
     ...(body ? { body: JSON.stringify(body) } : {}),
   });
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) { const error = new Error(data.error || `SameRow account request failed (HTTP ${response.status}). Try again.`); error.status = response.status; throw error; }
+  if (!response.ok) { const error = new Error(data.error || `Mellettem account request failed (HTTP ${response.status}). Try again.`); error.status = response.status; throw error; }
   return data;
 }

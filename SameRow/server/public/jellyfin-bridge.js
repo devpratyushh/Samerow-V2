@@ -1,4 +1,4 @@
-/* SameRow's small plugin for the unmodified Jellyfin Web player.
+/* Mellettem's small plugin for the unmodified Jellyfin Web player.
  * Loaded before Jellyfin's bundles; config.json registers SameRowBridge.
  * Uses Jellyfin's public window-plugin dependency injection, never bundle IDs.
  */
@@ -41,9 +41,9 @@
       UserId: config.userId, AccessToken: config.accessToken,
       DateLastAccessed: Date.now(), manualAddressOnly: true,
     }] }));
-    localStorage.setItem('_deviceId2', `samerow-${config.channel}`);
+    localStorage.setItem('_deviceId2', `mellettem-${config.channel}`);
     localStorage.setItem('enableAutoLogin', 'true');
-    // A room has one selected item. Episode changes are selected in SameRow.
+    // A room has one selected item. Episode changes are selected in Mellettem.
     localStorage.setItem('enableNextVideoInfoOverlay', 'false');
   } catch {
     send('status', { phase: 'error', message: 'This browser could not initialize the Jellyfin player.' });
@@ -75,7 +75,7 @@
   let roomFullscreen = false;
   let roomConnected = true;
   let preferredMuted = false;
-  // Jellyfin's fullscreen button expands the complete SameRow room, preserving
+  // Jellyfin's fullscreen button expands the complete Mellettem room, preserving
   // the call panel. Mirror that state so its native button toggles correctly.
   const requestRoomFullscreen = () => { send('fullscreen', { fullscreen: true }); return Promise.resolve(); };
   const leaveRoomFullscreen = () => { send('fullscreen', { fullscreen: false }); return Promise.resolve(); };
@@ -312,9 +312,9 @@
   window.SameRowBridge = async function () {
     return class SameRowBridge {
       constructor({ events, playbackManager }) {
-        this.id = 'samerow-bridge';
-        this.name = 'SameRow Watch Together';
-        this.type = 'samerow';
+        this.id = 'mellettem-bridge';
+        this.name = 'Mellettem Watch Together';
+        this.type = 'mellettem';
         manager = playbackManager;
         const bind = (target, name, callback) => {
           events.on(target, name, callback);

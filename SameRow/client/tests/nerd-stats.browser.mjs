@@ -35,11 +35,11 @@ try {
   assert.match(await dialog.innerText(), /video\/VP8|video\/H264|video\/VP9|video\/AV1/i);
   await page.getByLabel('Call quality on this device').selectOption('high');
   assert.equal(await page.getByLabel('Call quality on this device').inputValue(), 'high');
-  await page.screenshot({ path: '/tmp/samerow-nerd-stats-desktop.png' });
+  await page.screenshot({ path: '/tmp/mellettem-nerd-stats-desktop.png' });
   await page.setViewportSize({ width: 390, height: 844 });
   assert.ok(await dialog.isVisible());
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth));
-  await page.screenshot({ path: '/tmp/samerow-nerd-stats-mobile.png' });
+  await page.screenshot({ path: '/tmp/mellettem-nerd-stats-mobile.png' });
   await page.keyboard.press('Escape');
   await page.waitForTimeout(100);
   assert.equal(await page.locator('.nerd-stats').count(), 0, 'Closing diagnostics stops its polling component');

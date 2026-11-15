@@ -4,7 +4,7 @@ export const availabilityLabels = {
 };
 export function availabilityFor(server, { online = true, unavailable = false } = {}) {
   if (!online) return { status: 'client_offline', message: 'Connect this device to the internet. Your saved binding is unchanged.' };
-  if (unavailable) return { status: 'unknown', message: 'SameRow could not check the server. Showing its last saved details.' };
+  if (unavailable) return { status: 'unknown', message: 'Mellettem could not check the server. Showing its last saved details.' };
   return { status: server.status || 'unknown', message: server.message || 'Checking the Jellyfin connection…' };
 }
 export function lastSeenLabel(timestamp, now = Date.now()) {

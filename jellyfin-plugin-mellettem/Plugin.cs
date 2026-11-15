@@ -7,13 +7,13 @@ using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Plugins;
 using MediaBrowser.Model.Plugins;
 using MediaBrowser.Model.Serialization;
-using SameRow.Plugin.Configuration;
-using SameRow.Plugin.Services;
+using Mellettem.Plugin.Configuration;
+using Mellettem.Plugin.Services;
 
-namespace SameRow.Plugin;
+namespace Mellettem.Plugin;
 
 /// <summary>
-/// The main SameRow Connect plugin instance.
+/// The main Mellettem Connect plugin instance.
 /// </summary>
 public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 {
@@ -23,7 +23,11 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         : base(applicationPaths, xmlSerializer)
     {
         Instance = this;
-        _credentials = new CredentialVault(System.IO.Path.Combine(applicationPaths.PluginConfigurationsPath, "SameRow"));
+        var keyDirectory = System.IO.Path.Combine(applicationPaths.PluginConfigurationsPath, "Mellettem");
+        var legacyDirectory = System.IO.Path.Combine(applicationPaths.PluginConfigurationsPath, "SameRow");
+        _credentials = new CredentialVault(System.IO.File.Exists(System.IO.Path.Combine(keyDirectory, "credential.key"))
+            || !System.IO.File.Exists(System.IO.Path.Combine(legacyDirectory, "credential.key"))
+            ? keyDirectory : legacyDirectory);
         if (!string.IsNullOrEmpty(Configuration.ProtectedConnectorToken))
             Configuration.ConnectorToken = _credentials.Unprotect(Configuration.ProtectedConnectorToken);
         else if (!string.IsNullOrEmpty(Configuration.ConnectorToken))
@@ -50,13 +54,16 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     public static Plugin? Instance { get; private set; }
 
     /// <inheritdoc />
-    public override string Name => "SameRow Connect";
+    public override string Name => "Mellettem Connect";
+
+    // Jellyfin derives this from the assembly name unless it is overridden.
+    public override string ConfigurationFileName => "SameRow.Plugin.xml";
 
     /// <inheritdoc />
     public override Guid Id => PluginId;
 
     /// <inheritdoc />
-    public override string Description => "Connect your Jellyfin server directly to SameRow for watch parties without port forwarding.";
+    public override string Description => "Connect your Jellyfin server directly to Mellettem for watch parties without port forwarding.";
 
     /// <inheritdoc />
     public IEnumerable<PluginPageInfo> GetPages()
@@ -65,12 +72,12 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         {
             new PluginPageInfo
             {
-                Name = "samerow",
+                Name = "mellettem",
                 EmbeddedResourcePath = $"{GetType().Namespace}.Configuration.configPage.html",
-                DisplayName = "SameRow Connect",
+                DisplayName = "Mellettem Connect",
                 EnableInMainMenu = true,
                 MenuSection = "server",
-                MenuIcon = "play_circle_filled"
+                MenuIcon = "favorite"
             }
         };
     }

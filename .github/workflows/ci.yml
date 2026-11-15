@@ -42,10 +42,10 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version: '1.26.3'
-          cache-dependency-path: jellyfin-plugin-samerow/sender/go.sum
+          cache-dependency-path: jellyfin-plugin-mellettem/sender/go.sum
       - name: Build direct media sender
-        working-directory: jellyfin-plugin-samerow/sender
-        run: go build -o "$RUNNER_TEMP/samerow-sender" .
+        working-directory: jellyfin-plugin-mellettem/sender
+        run: go build -o "$RUNNER_TEMP/mellettem-sender" .
       - name: Exercise direct HLS and HTTPS fallback in Chromium
         working-directory: SameRow/client
         env:
@@ -62,7 +62,7 @@ jobs:
             if curl -fsS http://127.0.0.1:5175/ >/dev/null; then break; fi
             sleep 1
           done
-          SAMEROW_SENDER_PATH="$RUNNER_TEMP/samerow-sender" node tests/jellyfin-direct.browser.mjs
+          MELLETTEM_SENDER_PATH="$RUNNER_TEMP/mellettem-sender" node tests/jellyfin-direct.browser.mjs
       - run: npm audit --audit-level=high
         working-directory: SameRow/server
       - run: npm audit --audit-level=high

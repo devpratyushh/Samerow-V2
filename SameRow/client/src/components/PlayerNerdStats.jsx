@@ -51,11 +51,8 @@ export default function PlayerNerdStats({ videoRef, hlsRef, reported, policy, ph
       ...(transportError ? [['Transport error', transportError]] : []),
       ...(direct ? [
         ['Received', number(direct.bytes, ' bytes', 0)],
-        ['Current transfer speed', number(direct.speed / 1e6, ' Mbps', 2)],
         ['Segments completed / requested', `${direct.segmentsCompleted} / ${direct.segmentsRequested}`],
         ['First byte', number(direct.firstByte, ' ms', 0)],
-        ['ICE route', direct.route || 'Not reported'],
-        ['WebRTC RTT', number(direct.rtt * 1000, ' ms', 0)],
       ] : []),
     ] : []),
     ['Source video', policy?.source?.width && policy?.source?.height ? `${policy.source.width} × ${policy.source.height}` : 'Not reported'],
@@ -69,7 +66,7 @@ export default function PlayerNerdStats({ videoRef, hlsRef, reported, policy, ph
   return <details className="player-nerd-stats" onToggle={event => setOpen(event.currentTarget.open)}>
     <summary>Stats for nerds <span>· playback &amp; network</span></summary>
     {open && <div className="player-nerd-stats-body"><p>{videoRef ? 'Updates every second while open.' : 'Jellyfin Web reports every 5 seconds; unavailable fields are marked.'} Bandwidth estimate is not measured movie delivery throughput.</p>
-      <h3>Network delivery</h3><PlaybackNetworkDetails network={network} endpoint={endpoint} />
+      <h3>Network delivery</h3><PlaybackNetworkDetails network={network} endpoint={endpoint} peer={direct} />
       <h3>Playback on this device</h3><dl>{rows.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
     </div>}
   </details>;

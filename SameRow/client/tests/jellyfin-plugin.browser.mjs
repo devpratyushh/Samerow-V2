@@ -11,7 +11,8 @@ import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 
 const require = createRequire(import.meta.url);
-const workspace = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../');
+const repository = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
+const workspace = dirname(repository);
 const sandbox = join(workspace, 'jellyfin-sandbox');
 const jellyfin = process.env.JELLYFIN_URL || 'http://127.0.0.1:8096';
 assert.ok(new URL(jellyfin).hostname === '127.0.0.1', 'Use a disposable loopback Jellyfin server');
@@ -22,8 +23,8 @@ c=sqlite3.connect('file:'+sys.argv[1]+'?mode=ro&immutable=1',uri=True)
 print(json.dumps({'token':c.execute('select AccessToken from ApiKeys limit 1').fetchone()[0],
 'userId':c.execute('select Id from Users order by InternalId limit 1').fetchone()[0].replace('-','')}))
 `, join(sandbox, 'data/data/jellyfin.db')], { encoding: 'utf8' }));
-const dataDir = await mkdtemp(join(tmpdir(), 'samerow-plugin-acceptance-'));
-process.env.SAMEROW_DATA_DIR = dataDir;
+const dataDir = await mkdtemp(join(tmpdir(), 'mellettem-plugin-acceptance-'));
+process.env.MELLETTEM_DATA_DIR = dataDir;
 const { createApplication } = require('../../server/application');
 const { configuration } = require('../../server/config');
 const backend = createApplication({
@@ -49,7 +50,7 @@ let invite;
 const errors = [];
 let relay;
 const relayMessages = [];
-const title = 'SameRow Plugin 4K ' + randomUUID();
+const title = 'Mellettem Plugin 4K ' + randomUUID();
 const mediaDir = join(sandbox, 'media', title);
 const filename = join(mediaDir, title + '.mp4');
 const api = async (base, path, body, headers = {}) => {
@@ -89,7 +90,7 @@ const playing = page => page.waitForFunction(() => {
 }, null, { timeout: 45000 });
 
 try {
-  const deviceHeader = { Authorization: 'MediaBrowser Client="SameRow acceptance", Device="Test", DeviceId="samerow-plugin-acceptance", Version="1.0.0"' };
+  const deviceHeader = { Authorization: 'MediaBrowser Client="Mellettem acceptance", Device="Test", DeviceId="mellettem-plugin-acceptance", Version="1.0.0"' };
   const adminQuick = await api(jellyfin, '/QuickConnect/Initiate', {}, deviceHeader);
   await jf('/QuickConnect/Authorize?' + new URLSearchParams({ code: adminQuick.Code, userId: credentials.userId }), {});
   const authenticated = await api(jellyfin, '/Users/AuthenticateWithQuickConnect', { Secret: adminQuick.Secret }, deviceHeader);
@@ -114,10 +115,10 @@ try {
   await cloud('/api/jellyfin-relay/approval/approve', { id: approval.id });
   const connector = await cloud('/api/jellyfin-relay/approval/claim', { id: approval.id, secret });
   relay = spawn(join(workspace, '.dotnet/dotnet'), [
-    join(workspace, 'Samerow-V2/jellyfin-plugin-samerow.tests/bin/Release/net10.0/SameRow.Plugin.Tests.dll'), '--relay',
+    join(repository, 'jellyfin-plugin-mellettem.tests/bin/Release/net10.0/Mellettem.Plugin.Tests.dll'), '--relay',
   ], {
-    env: { ...process.env, JELLYFIN_SERVER_PATH: join(sandbox, 'jellyfin'), SAMEROW_TEST_GATEWAY: gateway,
-      SAMEROW_TEST_CONNECTOR: connector.token, SAMEROW_TEST_JELLYFIN: jellyfin },
+    env: { ...process.env, JELLYFIN_SERVER_PATH: join(sandbox, 'jellyfin'), MELLETTEM_TEST_GATEWAY: gateway,
+      MELLETTEM_TEST_CONNECTOR: connector.token, MELLETTEM_TEST_JELLYFIN: jellyfin },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   let started = false;

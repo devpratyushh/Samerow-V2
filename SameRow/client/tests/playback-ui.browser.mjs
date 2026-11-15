@@ -9,7 +9,7 @@ const browser=await chromium.launch({headless:true,...(executablePath?{executabl
 const page=await browser.newPage({viewport:{width:1440,height:900}});
 const errors=[];page.on('pageerror',error=>errors.push(error.message));
 const base=process.env.UI_BASE_URL||'http://127.0.0.1:5175';
-const dir=process.env.UI_ARTIFACT_DIR||'/tmp/samerow-ui';mkdirSync(dir,{recursive:true});
+const dir=process.env.UI_ARTIFACT_DIR||'/tmp/mellettem-ui';mkdirSync(dir,{recursive:true});
 const waitFrames=()=>page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
 const controlsHidden=()=>page.waitForFunction(()=>document.querySelector('.player-controls')?.classList.contains('is-hidden')&&getComputedStyle(document.querySelector('.player-controls')).opacity==='0');
 const controlsShown=()=>page.waitForFunction(()=>getComputedStyle(document.querySelector('.player-controls')).opacity==='1');

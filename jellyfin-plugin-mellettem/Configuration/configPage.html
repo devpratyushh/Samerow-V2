@@ -1,24 +1,25 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <title>SameRow Connect</title>
+    <title>Mellettem Connect</title>
 </head>
 <body>
-<div id="samerowConfigurationPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-button,emby-input,emby-select">
+<div id="mellettemConfigurationPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-button,emby-input,emby-select">
     <div data-role="content">
         <div class="content-primary">
             <div class="verticalSection">
                 <div class="sectionTitleContainer flex align-items-center">
-                    <h2 class="sectionTitle">SameRow Connect</h2>
+                    <img id="mellettemLogo" hidden width="52" height="52" alt="" style="margin-inline-end: .6em;">
+                    <h2 class="sectionTitle">Mellettem Connect</h2>
                 </div>
                 <p class="fieldDescription">
-                    Connect your Jellyfin server directly to SameRow so you and up to three friends can watch movies and shows together in real time.
+                    Connect your Jellyfin server directly to Mellettem so you and up to three friends can watch movies and shows together in real time.
                     The plugin connects outbound; no reverse proxy or exposed ports are required.
                 </p>
             </div>
 
-            <p class="fieldDescription">Copyright © 2026 devpratyushh. SameRow Connect is free software under
-                <a href="https://github.com/devpratyushh/Samerow-V2/blob/main/jellyfin-plugin-samerow/LICENSING.md" target="_blank" rel="noopener noreferrer">GPL-3.0-or-later</a>,
+            <p class="fieldDescription">Copyright © 2026 devpratyushh. Mellettem Connect is free software under
+                <a href="https://github.com/devpratyushh/Samerow-V2/blob/main/jellyfin-plugin-mellettem/LICENSING.md" target="_blank" rel="noopener noreferrer">GPL-3.0-or-later</a>,
                 without any warranty. You may modify and redistribute it under those terms.
             </p>
 
@@ -32,11 +33,19 @@
 
                     <p id="statusRequestError" role="alert" style="color: #ff8585;"></p>
                     <div id="statusDetails" style="display: none; line-height: 1.8;">
-                        <div><strong>Bound SameRow account:</strong> <span id="displayBoundAccount">Not checked</span></div>
-                        <div><strong>Jellyfin user:</strong> <span id="displayBoundJellyfin">Not bound yet</span></div>
-                        <div><strong>Connector ID:</strong> <span id="displayConnectorId" style="font-family: monospace;">-</span></div>
-                        <div><strong>Gateway:</strong> <span id="displayGateway">-</span></div>
-                        <div><strong>Active Streams:</strong> <span id="displayActiveJobs">0</span></div>
+                        <div id="accountDetails">
+                            <div><strong>Bound Mellettem account:</strong> <span id="displayBoundAccount">Not checked</span></div>
+                            <div><strong>Jellyfin user:</strong> <span id="displayBoundJellyfin">Not bound yet</span></div>
+                            <div><strong>Connector ID:</strong> <span id="displayConnectorId" style="font-family: monospace;">-</span></div>
+                            <div><strong>Gateway:</strong> <span id="displayGateway">-</span></div>
+                        </div>
+                        <div><strong>Time connected:</strong> <span id="displayConnectedDuration">—</span></div>
+                        <div><strong>Last connection duration:</strong> <span id="displayLastConnectionDuration">—</span></div>
+                        <div><strong>Last connected:</strong> <span id="displayLastConnected">—</span></div>
+                        <div><strong>Last disconnected:</strong> <span id="displayLastDisconnected">—</span></div>
+                        <div><strong>Last relay activity:</strong> <span id="displayLastActivity">—</span></div>
+                        <div><strong>Active relay requests:</strong> <span id="displayActiveJobs">0</span></div>
+                        <div><strong>Total relay requests completed:</strong> <span id="displayTotalJobs">0</span></div>
                         <div><strong>Total Data Relayed:</strong> <span id="displayTotalBytes">0 MB</span></div>
                         <div id="errorContainer" style="display: none; color: #ff5252; margin-top: 0.5em;">
                             <strong>Error:</strong> <span id="displayError"></span>
@@ -45,14 +54,14 @@
 
                     <div id="pairingActionContainer" style="margin-top: 1.5em;">
                         <button is="emby-button" type="button" class="raised button-submit" id="btnConnect" style="background: #00a4dc; color: #fff; font-weight: bold;">
-                            <span>Connect SameRow</span>
+                            <span>Connect Mellettem</span>
                         </button>
                         <button is="emby-button" type="button" class="raised" id="btnDisconnect" style="background: #e53935; color: #fff; display: none;">
                             <span>Disconnect Server</span>
                         </button>
                         <button is="emby-button" type="button" class="raised" id="btnRotate" style="display: none;">Rotate credential</button>
-                        <a id="btnOpenSameRow" href="https://samerow-v2.vercel.app" target="_blank" rel="noopener noreferrer" is="emby-button" class="raised" style="margin-left: 1em; display: none;">
-                            <span>Open SameRow Web &rarr;</span>
+                        <a id="btnOpenMellettem" href="https://samerow-v2.vercel.app" target="_blank" rel="noopener noreferrer" is="emby-button" class="raised" style="margin-left: 1em; display: none;">
+                            <span>Open Mellettem Web &rarr;</span>
                         </a>
                     </div>
                 </div>
@@ -60,43 +69,43 @@
 
             <!-- Pairing Modal / Steps -->
             <div id="pairingModal" class="paperList" style="display: none; padding: 1.5em; border-radius: 8px; margin-bottom: 2em; border: 2px solid #00a4dc; background: rgba(0, 164, 220, 0.08);">
-                <h3 style="margin-top: 0;">Approve Connection on SameRow</h3>
+                <h3 style="margin-top: 0;">Approve Connection on Mellettem</h3>
                 <p>Follow these two simple steps to authorize your Jellyfin server:</p>
                 <ol style="line-height: 2;">
                     <li>Click the link below to open the approval page in a new tab:</li>
                     <div style="margin: 0.5em 0 1em 1em;">
                         <a id="linkApproval" href="#" target="_blank" rel="noopener noreferrer" is="emby-button" class="raised button-submit" style="background: #2e7d32; color: #fff; display: inline-block;">
-                            <span>Click here to Approve on SameRow Web &rarr;</span>
+                            <span>Click here to Approve on Mellettem Web &rarr;</span>
                         </a>
                     </div>
-                    <li>Sign into your SameRow account and click <strong>Approve</strong>. This page will automatically detect approval.</li>
+                    <li>Sign into your Mellettem account and click <strong>Approve</strong>. This page will automatically detect approval.</li>
                 </ol>
                 <div style="display: flex; align-items: center; gap: 8px; margin-top: 1em; color: #aaa;">
                     <div class="mdl-spinner mdl-js-spinner is-active" style="width: 20px; height: 20px;"></div>
-                    <span id="pairingMessage" role="status">Waiting for approval on SameRow Web…</span>
+                    <span id="pairingMessage" role="status">Waiting for approval on Mellettem Web…</span>
                     <button is="emby-button" type="button" id="btnCancelPairing" class="button-flat" style="margin-left: auto;">Cancel</button>
                 </div>
             </div>
 
             <!-- Plugin Settings Form -->
             <div id="disconnectConfirmation" role="alert" style="display:none;padding:1em;">
-                <p>Disconnect this Jellyfin server from its current SameRow account?</p>
+                <p>Disconnect this Jellyfin server from its current Mellettem account?</p>
                 <button is="emby-button" type="button" id="confirmDisconnect" class="raised">Confirm disconnect</button>
                 <button is="emby-button" type="button" id="cancelDisconnect" class="raised">Cancel</button>
             </div>
-            <form id="samerowSettingsForm" class="verticalSection">
+            <form id="mellettemSettingsForm" class="verticalSection">
                 <div class="sectionTitleContainer">
                     <h3 class="sectionTitle">Server Settings</h3>
                 </div>
 
                 <div class="inputContainer">
-                    <label class="inputLabel inputLabelUnfocused" for="txtServerName">Server Name on SameRow</label>
+                    <label class="inputLabel inputLabelUnfocused" for="txtServerName">Server Name on Mellettem</label>
                     <input is="emby-input" type="text" id="txtServerName" class="emby-input" placeholder="e.g. Home Cinema" />
                     <div class="fieldDescription">A name to identify this connection in the plugin settings.</div>
                 </div>
 
                 <div class="inputContainer">
-                    <label class="inputLabel inputLabelUnfocused" for="txtWebUrl">SameRow Web Client URL</label>
+                    <label class="inputLabel inputLabelUnfocused" for="txtWebUrl">Mellettem Web Client URL</label>
                     <input is="emby-input" type="url" id="txtWebUrl" class="emby-input" value="https://samerow-v2.vercel.app" />
                     <div class="fieldDescription">Hosted web app endpoint for watch rooms.</div>
                 </div>
@@ -104,7 +113,7 @@
                 <div class="inputContainer">
                     <label class="inputLabel inputLabelUnfocused" for="numWorkers">Relay Worker Loops</label>
                     <input is="emby-input" type="number" id="numWorkers" class="emby-input" min="1" max="16" value="8" />
-                    <div class="fieldDescription">Number of parallel outbound long-polling streams (default: 8).</div>
+                    <div class="fieldDescription">Number of parallel outbound long polls (default: 8).</div>
                 </div>
 
                 <div style="margin-top: 1.5em;">
@@ -118,8 +127,11 @@
 
     <script type="text/javascript">
         (function() {
-            var page = document.getElementById('samerowConfigurationPage');
+            var page = document.getElementById('mellettemConfigurationPage');
             var timer;
+            var durationTimer;
+            var connectedDuration = null;
+            var sampledAt = 0;
             var active = false;
             var busy = false;
             var refreshing = false;
@@ -129,7 +141,7 @@
 
             async function request(path, body) {
                 var options = {
-                    url: ApiClient.getUrl('SameRow/' + path),
+                    url: ApiClient.getUrl('Mellettem/' + path),
                     type: body === undefined ? 'GET' : 'POST',
                     dataType: 'json'
                 };
@@ -141,29 +153,64 @@
                     return await ApiClient.ajax(options);
                 } catch (error) {
                     if (error.status === 410) return { status: 'expired', error: 'Pairing expired. Start a new connection.' };
-                    var message = error.status === 401 ? 'Jellyfin rejected this session. Sign in again as an administrator and reopen SameRow Connect.' :
-                        error.status === 403 ? 'Administrator access is required for SameRow Connect.' :
+                    var message = error.status === 401 ? 'Jellyfin rejected this session. Sign in again as an administrator and reopen Mellettem Connect.' :
+                        error.status === 403 ? 'Administrator access is required for Mellettem Connect.' :
                         'Jellyfin could not complete the request' + (error.status ? ' (HTTP ' + error.status + ')' : '') + '. Please try again.';
                     throw new Error(message);
                 }
             }
 
+            function formatDuration(seconds) {
+                if (!Number.isFinite(seconds) || seconds < 0) return '—';
+                var whole = Math.floor(seconds);
+                var days = Math.floor(whole / 86400);
+                var hours = Math.floor(whole / 3600) % 24;
+                var minutes = Math.floor(whole / 60) % 60;
+                return (days ? days + 'd ' : '') + (days || hours ? hours + 'h ' : '') +
+                    (days || hours || minutes ? minutes + 'm ' : '') + (whole % 60) + 's';
+            }
+
+            function formatDate(value) {
+                var date = new Date(value);
+                return value && Number.isFinite(date.getTime()) ? date.toLocaleString() : '—';
+            }
+
+            function renderConnectedDuration() {
+                get('displayConnectedDuration').textContent = formatDuration(connectedDuration === null
+                    ? null : connectedDuration + (performance.now() - sampledAt) / 1000);
+            }
+
             function renderStatus(data) {
                 get('statusRequestError').textContent = '';
+                var logo = get('mellettemLogo');
+                if (data.pluginVersion && !logo.hasAttribute('src')) {
+                    logo.addEventListener('load', function() { logo.hidden = false; }, { once: true });
+                    logo.src = ApiClient.getUrl('Plugins/a14b5c7e-8d90-4123-b567-9876543210ab/' + data.pluginVersion + '/Image');
+                }
                 var paired = data.isPaired;
                 var badge = get('connectionBadge');
                 badge.textContent = paired ? data.connectionState || 'Connecting' : 'Not connected';
                 badge.style.background = data.connectionState === 'Connected' ? '#2e7d32' : '#666';
-                get('statusDetails').style.display = paired ? 'block' : 'none';
+                get('accountDetails').style.display = paired ? 'block' : 'none';
+                get('statusDetails').style.display = 'block';
                 get('btnConnect').style.display = paired ? 'none' : 'inline-block';
                 get('btnDisconnect').style.display = paired ? 'inline-block' : 'none';
                 get('btnRotate').style.display = paired ? 'inline-block' : 'none';
                 get('btnRotate').textContent = data.rotationPending ? 'Retry credential rotation' : 'Rotate credential';
-                get('btnOpenSameRow').style.display = paired ? 'inline-block' : 'none';
-                get('btnOpenSameRow').href = (data.sameRowWebUrl || 'https://samerow-v2.vercel.app').replace(/\/$/, '') + '/#bind=' + encodeURIComponent(data.connectorId || '');
+                get('btnOpenMellettem').style.display = paired ? 'inline-block' : 'none';
+                get('btnOpenMellettem').href = (data.mellettemWebUrl || 'https://samerow-v2.vercel.app').replace(/\/$/, '') + '/#bind=' + encodeURIComponent(data.connectorId || '');
                 get('displayConnectorId').textContent = data.connectorId || '-';
                 get('displayGateway').textContent = data.gatewayUrl || '-';
+                connectedDuration = paired && data.connectionState === 'Connected' && Number.isFinite(data.connectedDurationSeconds)
+                    ? data.connectedDurationSeconds : null;
+                sampledAt = performance.now();
+                renderConnectedDuration();
+                get('displayLastConnectionDuration').textContent = formatDuration(data.lastConnectionDurationSeconds);
+                get('displayLastConnected').textContent = formatDate(data.lastConnectedAt);
+                get('displayLastDisconnected').textContent = formatDate(data.lastDisconnectedAt);
+                get('displayLastActivity').textContent = formatDate(data.lastActivityAt);
                 get('displayActiveJobs').textContent = data.activeJobs || 0;
+                get('displayTotalJobs').textContent = data.totalJobs || 0;
                 get('displayTotalBytes').textContent = ((data.totalBytes || 0) / 1048576).toFixed(1) + ' MB';
                 get('errorContainer').style.display = data.lastError ? 'block' : 'none';
                 get('displayError').textContent = data.lastError || '';
@@ -173,7 +220,7 @@
                 get('btnConnect').disabled = busy || !!currentPairingId;
                 if (!settingsLoaded) {
                     get('txtServerName').value = data.serverFriendlyName || '';
-                    get('txtWebUrl').value = data.sameRowWebUrl || 'https://samerow-v2.vercel.app';
+                    get('txtWebUrl').value = data.mellettemWebUrl || 'https://samerow-v2.vercel.app';
                     get('numWorkers').value = data.workerCount || 8;
                     settingsLoaded = true;
                 }
@@ -186,7 +233,7 @@
                     if (currentPairingId) {
                         var claim = await request('Pair/Claim', { id: currentPairingId });
                         if (!active) return;
-                        get('pairingMessage').textContent = claim.status === 'expired' ? claim.error : 'Waiting for approval on SameRow Web…';
+                        get('pairingMessage').textContent = claim.status === 'expired' ? claim.error : 'Waiting for approval on Mellettem Web…';
                         if (claim.status === 'expired' || claim.status === 'paired') currentPairingId = null;
                     }
                     var status = await request('Status');
@@ -195,13 +242,15 @@
                         try {
                             var binding = await request('AccountBinding');
                             if (active) {
-                                get('displayBoundAccount').textContent = binding.sameRowEmail || 'Open SameRow to confirm the paired account';
-                                get('displayBoundJellyfin').textContent = binding.jellyfinAccount ? binding.jellyfinAccount.userName + ' · ' + binding.jellyfinAccount.serverName : 'Not bound yet — open SameRow to connect';
+                                get('displayBoundAccount').textContent = binding.sameRowEmail || 'Open Mellettem to confirm the paired account';
+                                get('displayBoundJellyfin').textContent = binding.jellyfinAccount ? binding.jellyfinAccount.userName + ' · ' + binding.jellyfinAccount.serverName : 'Not bound yet — open Mellettem to connect';
                             }
                         } catch (_) { if (active) get('displayBoundAccount').textContent = 'Could not check account binding'; }
                     }
                 } catch (error) {
                     if (active) {
+                        connectedDuration = null;
+                        renderConnectedDuration();
                         get('connectionBadge').textContent = 'Connection check failed';
                         get('connectionBadge').style.background = '#d32f2f';
                         get('statusRequestError').textContent = error.message;
@@ -217,9 +266,9 @@
                     var result = await request(path, body);
                     if (path === 'Pair/Start') currentPairingId = result.id;
                     if (path === 'Pair/Cancel' || path === 'Disconnect') currentPairingId = null;
-                    if (path === 'Settings') Dashboard.alert({ title: 'Settings saved', message: 'SameRow settings were saved.' });
+                    if (path === 'Settings') Dashboard.alert({ title: 'Settings saved', message: 'Mellettem settings were saved.' });
                 } catch (error) {
-                    Dashboard.alert({ title: 'SameRow', message: error.message });
+                    Dashboard.alert({ title: 'Mellettem', message: error.message });
                 } finally {
                     busy = false;
                     page.querySelectorAll('button').forEach(function(button) { button.disabled = false; });
@@ -237,11 +286,11 @@
             });
             get('confirmDisconnect').addEventListener('click', function() { get('disconnectConfirmation').style.display = 'none'; void action('Disconnect', {}); });
             get('cancelDisconnect').addEventListener('click', function() { get('disconnectConfirmation').style.display = 'none'; });
-            get('samerowSettingsForm').addEventListener('submit', function(event) {
+            get('mellettemSettingsForm').addEventListener('submit', function(event) {
                 event.preventDefault();
                 void action('Settings', {
                     serverFriendlyName: get('txtServerName').value.trim(),
-                    sameRowWebUrl: get('txtWebUrl').value.trim(),
+                    mellettemWebUrl: get('txtWebUrl').value.trim(),
                     workerCount: Number(get('numWorkers').value)
                 });
             });
@@ -249,12 +298,16 @@
                 active = true;
                 settingsLoaded = false;
                 clearInterval(timer);
+                clearInterval(durationTimer);
                 void refresh();
                 timer = setInterval(refresh, 3000);
+                durationTimer = setInterval(renderConnectedDuration, 1000);
             });
             page.addEventListener('pagehide', function() {
                 active = false;
+                connectedDuration = null;
                 clearInterval(timer);
+                clearInterval(durationTimer);
             });
         })();
     </script>

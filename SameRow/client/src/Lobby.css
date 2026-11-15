@@ -5,7 +5,7 @@
 .lobby button:disabled { cursor:not-allowed; opacity:.45; }
 .lobby button:focus-visible,.lobby input:focus-visible,.lobby a:focus-visible { outline:2px solid var(--lobby-accent); outline-offset:3px; }
 .lobby-header { max-width:1440px; height:64px; margin:auto; display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid var(--lobby-border); }
-.lobby-brand { color:inherit; text-decoration:none; font-size:22px; font-weight:650; letter-spacing:-.8px; }
+.lobby-brand { display:inline-flex; align-items:center; gap:6px; color:inherit; text-decoration:none; font-size:22px; font-weight:650; letter-spacing:-.8px; }
 .lobby-connection { display:flex; align-items:center; gap:8px; font-size:12px; color:var(--lobby-muted); }
 .lobby-connection>span { width:6px; height:6px; border-radius:50%; background:#999; }
 .lobby-connection.is-connected>span { background:#a8d4ad; box-shadow:0 0 0 4px #a8d4ad10; }

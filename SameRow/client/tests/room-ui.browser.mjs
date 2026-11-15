@@ -13,7 +13,7 @@ const page = await browser.newPage();
 const errors = [];
 page.on('pageerror', error => errors.push(error.message));
 const base = process.env.UI_BASE_URL || 'http://127.0.0.1:5175';
-const artifactDir = process.env.UI_ARTIFACT_DIR || '/tmp/samerow-ui';
+const artifactDir = process.env.UI_ARTIFACT_DIR || '/tmp/mellettem-ui';
 mkdirSync(artifactDir, { recursive: true });
 const report = [];
 try {

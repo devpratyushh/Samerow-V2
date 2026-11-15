@@ -197,7 +197,7 @@ const JellyfinPump = forwardRef(function JellyfinPump({ onChunkReceived, onMetad
         Static: 'false', VideoCodec: 'h264', AudioCodec: 'aac',
         StartTimeTicks: String(Math.floor(offset * 10000000)),
         TranscodingMaxAudioChannels: '2', SegmentContainer: 'ts', MinSegments: '1',
-        BreakOnNonKeyFrames: 'true', PlaySessionId: `SameRow_${Date.now()}`,
+        BreakOnNonKeyFrames: 'true', PlaySessionId: `Mellettem_${Date.now()}`,
       }).toString();
       const response = await fetch(streamUrl, { headers, signal: controller.signal });
       if (!isCurrent()) return;

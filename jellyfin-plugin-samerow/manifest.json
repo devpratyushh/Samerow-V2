@@ -1,10 +1,10 @@
 [
   {
     "guid": "a14b5c7e-8d90-4123-b567-9876543210ab",
-    "name": "SameRow Connect",
-    "description": "Connect your Jellyfin server directly to SameRow for watch parties without port forwarding.",
-    "overview": "Watch movies and shows together in real time on SameRow. Connect through the Jellyfin plugin without port forwarding.",
-    "owner": "SameRow",
+    "name": "Mellettem Connect",
+    "description": "Connect your Jellyfin server directly to Mellettem for watch parties without port forwarding.",
+    "overview": "Watch movies and shows together in real time on Mellettem. Connect through the Jellyfin plugin without port forwarding.",
+    "owner": "Mellettem",
     "category": "General",
     "versions": [
       {

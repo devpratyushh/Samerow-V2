@@ -35,8 +35,8 @@ async function fixture({ directToggle = false, playError = null, queue = [], del
   document.exitFullscreen = () => Promise.resolve();
   const window = Object.assign(new Target(), {
     __SAMEROW_JELLYFIN__: {
-      channel: 'frame-channel', parentOrigin: 'https://samerow.test',
-      serverId: 'server-id', serverName: 'Movies', serverAddress: 'https://samerow.test/native/session',
+      channel: 'frame-channel', parentOrigin: 'https://mellettem.test',
+      serverId: 'server-id', serverName: 'Movies', serverAddress: 'https://mellettem.test/native/session',
       userId: 'user-id', accessToken: 'frame-scoped-token', itemId: 'movie-id', duration: 300,
     },
     parent, document, navigator: {}, performance: { now: () => now },
@@ -99,7 +99,7 @@ async function fixture({ directToggle = false, playError = null, queue = [], del
     advance(ms) { now += ms; },
     poll() { for (const timer of timers.values()) if (timer.interval) timer.callback(); },
     receive(message, overrides = {}) {
-      window.dispatchEvent({ type: 'message', source: parent, origin: 'https://samerow.test',
+      window.dispatchEvent({ type: 'message', source: parent, origin: 'https://mellettem.test',
         data: { source: 'samerow', channel: 'frame-channel', ...message }, ...overrides });
     },
   };

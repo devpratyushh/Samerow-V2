@@ -2,7 +2,7 @@ import { resolveAccountOrigin } from './jellyfinAccount.js';
 import { accountFetch } from './session.js';
 
 // Some split deployments expose connector management only on their media role.
-// Resolve that role from SameRow's own config; never guess a server from an email.
+// Resolve that role from Mellettem's own config; never guess a server from an email.
 export async function discoverAccountConnectors(base, { signal, request = fetch } = {}) {
   const requestSignal = AbortSignal.any([...(signal ? [signal] : []), AbortSignal.timeout(12000)]);
   const options = { signal: requestSignal, cache: 'no-store' };
@@ -23,8 +23,8 @@ export async function discoverAccountConnectors(base, { signal, request = fetch 
   }
   if (!response.ok) {
     const error = new Error(response.status === 401 || response.status === 403
-      ? 'Sign in to SameRow with the Google or GitHub account that approved your Jellyfin plugin.'
-      : `Could not load servers linked to your SameRow account (HTTP ${response.status}). Retrying…`);
+      ? 'Sign in to Mellettem with the Google or GitHub account that approved your Jellyfin plugin.'
+      : `Could not load servers linked to your Mellettem account (HTTP ${response.status}). Retrying…`);
     error.status = response.status;
     throw error;
   }

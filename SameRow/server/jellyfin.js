@@ -20,7 +20,7 @@ function installJellyfin(app, io, accounts, options = {}) {
   const request = accounts?.request || upstreamRequest;
   const member = (socket, roomId) => typeof roomId === 'string' && socket.rooms.has(roomId);
   const permitted = (socket, roomId) => options.canControl ? options.canControl(socket, roomId) : member(socket, roomId);
-  const snapshot = state => ({ sessionId: state.id, native: !!state.connectionToken, ...(options.direct && connectorId(state.base) ? { direct: true } : {}), itemId: state.itemId, title: state.title, duration: state.duration, audioTracks: state.audioTracks, subtitleTracks: state.subtitleTracks, playing: state.playing, timestamp: position(state), updatedAt: Date.now(), revision: state.revision, commandId: state.commandId });
+  const snapshot = (state, now = Date.now()) => ({ sessionId: state.id, native: !!state.connectionToken, ...(options.direct && connectorId(state.base) ? { direct: true } : {}), itemId: state.itemId, title: state.title, duration: state.duration, audioTracks: state.audioTracks, subtitleTracks: state.subtitleTracks, playing: state.playing, timestamp: position(state, now), updatedAt: now, revision: state.revision, commandId: state.commandId, seek: state.seek });
   const requestsFor = viewer => {
     let active = activeRequests.get(viewer.token);
     if (!active) { active = { sessionId: viewer.sessionId, requests: new Set() }; activeRequests.set(viewer.token, active); }
@@ -54,7 +54,8 @@ function installJellyfin(app, io, accounts, options = {}) {
   };
   const publish = async (roomId, state) => {
     const sockets = await io.in(roomId).fetchSockets();
-    await Promise.all(sockets.map(async socket => socket.emit('jellyfin-sync', state && !state.stopped ? { ...snapshot(state), accessToken: await accessFor(socket, roomId, state) } : null, { revision: state?.revision })));
+    const playback = state && !state.stopped ? snapshot(state) : null;
+    await Promise.all(sockets.map(async socket => socket.emit('jellyfin-sync', playback ? { ...playback, accessToken: await accessFor(socket, roomId, state) } : null, { revision: state?.revision })));
   };
   io.on('connection', socket => {
     const on = socket.handle || socket.on.bind(socket);
@@ -115,7 +116,7 @@ function installJellyfin(app, io, accounts, options = {}) {
       // Cancel/replace commands must be able to interrupt slow upstream I/O.
       void (async () => {
         try {
-          const origin = connection || { base, apiToken, deviceId: 'samerow' };
+          const origin = connection || { base, apiToken, deviceId: 'mellettem' };
           const get = async resource => {
             const response = await request(origin, resource, { signal: controller.signal });
             if (!response.ok) { await response.body?.cancel(); throw new Error('Jellyfin could not load this video. Reconnect your library and try again.'); }
@@ -145,6 +146,7 @@ function installJellyfin(app, io, accounts, options = {}) {
       if (member(socket, roomId) && await permitted(socket, roomId)) { pending.get(roomId)?.abort(); pending.delete(roomId); await store.set(`jellyfin-pending:${roomId}`, token(), 60); }
     });
     on('jellyfin-command', async (payload = {}) => {
+      const receivedAt = Date.now();
       if (!payload || !member(socket, payload.roomId) || !await permitted(socket, payload.roomId)) return;
       const old = await store.get(`jellyfin-room:${payload.roomId}`);
       if (!old || payload.sessionId !== old.id) return;
@@ -155,10 +157,17 @@ function installJellyfin(app, io, accounts, options = {}) {
         if (!current || current.id !== payload.sessionId) return current;
         if (payload.action === 'stop') return { id: null, stopped: true, revision: current.revision + 1 };
         if (payload.commandId && current.commandId === payload.commandId) return current;
-        const timestamp = payload.action === 'seek' ? payload.time : position(current);
+        const now = Date.now();
+        const commandId = typeof payload.commandId === 'string' ? payload.commandId.slice(0, 128) : null;
+        const seekStart = Number.isFinite(payload.sentAt) && payload.sentAt <= receivedAt + 100 && receivedAt - payload.sentAt <= 5000
+          ? Math.min(receivedAt, payload.sentAt) : receivedAt;
+        const timestamp = payload.action === 'seek'
+          ? Math.min(current.duration, payload.time + (current.playing ? (now - seekStart) / 1000 : 0))
+          : position(current, now);
         return { ...current, timestamp: payload.action === 'play' && timestamp >= current.duration - 0.1 ? 0 : timestamp,
           playing: payload.action === 'play' ? true : payload.action === 'pause' ? false : current.playing,
-          commandId: typeof payload.commandId === 'string' ? payload.commandId.slice(0, 128) : null, updatedAt: Date.now(), revision: current.revision + 1 };
+          seek: payload.action === 'seek' ? { id: commandId || current.revision + 1, time: payload.time } : null,
+          commandId, updatedAt: now, revision: current.revision + 1 };
       }, roomTtl);
       if (!state || state.stopped) revoke(old);
       await publish(payload.roomId, state);

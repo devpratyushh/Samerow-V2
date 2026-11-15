@@ -31,7 +31,7 @@ export function useAccountConnectors(serverUrl, uid) {
     };
     void load();
     const timer = setInterval(load, 10000);
-    const events = ['focus', 'online', 'offline', 'samerow:connections-changed'];
+    const events = ['focus', 'online', 'offline', 'mellettem:connections-changed'];
     events.forEach(event => window.addEventListener(event, load));
     return () => { controller.abort(); clearInterval(timer); events.forEach(event => window.removeEventListener(event, load)); };
   }, [serverUrl, uid]);

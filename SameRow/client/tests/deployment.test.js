@@ -4,7 +4,7 @@ import { checkDeployment } from '../scripts/check-deployment.mjs';
 
 const env = {
   VERCEL_ENV: 'production',
-  VERCEL_PROJECT_PRODUCTION_URL: 'samerow.example',
+  VERCEL_PROJECT_PRODUCTION_URL: 'mellettem.example',
   VITE_SOCKET_URL: 'https://control.example',
   VITE_FIREBASE_API_KEY: 'public-web-key',
   VITE_FIREBASE_AUTH_DOMAIN: 'project.firebaseapp.com',
@@ -54,13 +54,13 @@ test('deployment check catches blocked browser origins, unready Redis and incons
   await assert.rejects(checkDeployment(env, blocked.request), /CLIENT_ORIGINS/);
   const unready = fixture({
     'https://control.example/health/ready': () => Response.json({ status: 'unavailable' }, {
-      status: 503, headers: { 'Access-Control-Allow-Origin': 'https://samerow.example' },
+      status: 503, headers: { 'Access-Control-Allow-Origin': 'https://mellettem.example' },
     }),
   });
   await assert.rejects(checkDeployment(env, unready.request), /HTTP 503/);
   const mismatched = fixture({
     'https://media.example/api/config': () => Response.json({ ...config, role: 'media', jellyfinRelay: false }, {
-      headers: { 'Access-Control-Allow-Origin': 'https://samerow.example' },
+      headers: { 'Access-Control-Allow-Origin': 'https://mellettem.example' },
     }),
   });
   await assert.rejects(checkDeployment(env, mismatched.request), /same MEDIA_PUBLIC_URL/);

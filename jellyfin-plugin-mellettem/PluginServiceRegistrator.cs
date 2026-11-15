@@ -4,18 +4,18 @@
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.Plugins;
 using Microsoft.Extensions.DependencyInjection;
-using SameRow.Plugin.Services;
+using Mellettem.Plugin.Services;
 
-namespace SameRow.Plugin;
+namespace Mellettem.Plugin;
 
 /// <summary>
-/// Registers SameRow plugin services into Jellyfin's dependency injection container.
+/// Registers Mellettem plugin services into Jellyfin's dependency injection container.
 /// </summary>
 public class PluginServiceRegistrator : IPluginServiceRegistrator
 {
     public void RegisterServices(IServiceCollection serviceCollection, IServerApplicationHost applicationHost)
     {
-        serviceCollection.AddHttpClient("SameRowLoopback", client =>
+        serviceCollection.AddHttpClient("MellettemLoopback", client =>
         {
             client.Timeout = Timeout.InfiniteTimeSpan;
         }).ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
@@ -26,7 +26,7 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
             ConnectTimeout = TimeSpan.FromSeconds(15)
         });
 
-        serviceCollection.AddHttpClient("SameRowCloud", client =>
+        serviceCollection.AddHttpClient("MellettemCloud", client =>
         {
             client.Timeout = Timeout.InfiniteTimeSpan;
         }).ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
@@ -37,7 +37,7 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
             ConnectTimeout = TimeSpan.FromSeconds(15)
         });
 
-        serviceCollection.AddSingleton<SameRowConnectorService>();
-        serviceCollection.AddHostedService(sp => sp.GetRequiredService<SameRowConnectorService>());
+        serviceCollection.AddSingleton<MellettemConnectorService>();
+        serviceCollection.AddHostedService(sp => sp.GetRequiredService<MellettemConnectorService>());
     }
 }

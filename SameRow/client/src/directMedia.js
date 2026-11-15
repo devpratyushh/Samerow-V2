@@ -35,7 +35,7 @@ export function createDirectMedia(socket, access, onStatus, onFailure) {
   let peerId, id = 0, renewal, disconnected, closed = false, failed = false;
   let lastError = '', firstByte = null, bytes = 0, segmentsRequested = 0, segmentsCompleted = 0;
   let timeouts = 0, rateBytes = 0, rateTime = performance.now();
-  let buffered = 0, validated = false;
+  let buffered = 0, validated = false, connectedAt;
   const segmentRates = [];
   const started = rateTime;
   const rpc = (event, data) => socket.timeout(3500).emitWithAck(event, data);
@@ -68,7 +68,7 @@ export function createDirectMedia(socket, access, onStatus, onFailure) {
       return;
     }
     const requestId = ++id;
-    const entry = { asset, status: null, headers: {}, chunks: [], size: 0, next: 0, progress: options.progress };
+    const entry = { asset, status: null, headers: {}, chunks: [], size: 0, reserved: 0, next: 0, progress: options.progress, started: performance.now() };
     const cancel = () => { sendCancel(requestId); entry.finish(mediaError('Direct request cancelled')); };
     const timer = setTimeout(() => {
       sendCancel(requestId);
@@ -78,7 +78,7 @@ export function createDirectMedia(socket, access, onStatus, onFailure) {
     }, options.timeout || 12000);
     entry.finish = (error, result) => {
       if (!requests.delete(requestId)) return;
-      buffered -= entry.size;
+      buffered -= entry.reserved;
       clearTimeout(timer);
       options.signal?.removeEventListener('abort', cancel);
       if (error) reject(error); else resolve(result);
@@ -98,6 +98,16 @@ export function createDirectMedia(socket, access, onStatus, onFailure) {
         if (!entry) return;
         if (frame.op === 'headers' && entry.status === null) {
           entry.status = frame.status; entry.headers = frame.headers || {};
+          const length = Number(entry.headers['content-length']);
+          if (entry.status >= 200 && entry.status < 300 && Number.isSafeInteger(length) && length > 0) {
+            if (length > MAX_RESPONSE) throw mediaError('Direct media response exceeds its buffer limit');
+            entry.total = length;
+            if (buffered + length <= MAX_IN_FLIGHT) {
+              entry.body = new Uint8Array(length);
+              entry.reserved = length;
+              buffered += length;
+            }
+          }
           return;
         }
         if (frame.op === 'error') {
@@ -109,9 +119,11 @@ export function createDirectMedia(socket, access, onStatus, onFailure) {
           entry.finish(mediaError(`Jellyfin returned HTTP ${entry.status}`, entry.status)); return;
         }
         if (entry.headers['content-length'] && Number(entry.headers['content-length']) !== entry.size) throw mediaError('Incomplete direct media response');
-        const body = new Uint8Array(entry.size);
-        let offset = 0;
-        for (const chunk of entry.chunks) { body.set(chunk, offset); offset += chunk.length; }
+        const body = entry.body ?? new Uint8Array(entry.size);
+        if (!entry.body) {
+          let offset = 0;
+          for (const chunk of entry.chunks) { body.set(chunk, offset); offset += chunk.length; }
+        }
         if (entry.segment) {
           segmentsCompleted++; timeouts = 0;
           const transferMs = entry.last - entry.first;
@@ -121,7 +133,7 @@ export function createDirectMedia(socket, access, onStatus, onFailure) {
           }
         }
         if (entry.asset === 'manifest' && body.length) validated = true;
-        entry.finish(null, { data: body, status: entry.status, headers: entry.headers });
+        entry.finish(null, { data: body, status: entry.status, headers: entry.headers, timing: { start: entry.started, first: entry.first, end: performance.now() } });
         return;
       }
       if (!(data instanceof ArrayBuffer) || data.byteLength <= 8 || data.byteLength > 16384) throw mediaError('Invalid direct media frame');
@@ -129,14 +141,25 @@ export function createDirectMedia(socket, access, onStatus, onFailure) {
       if (!entry) return;
       if (entry.status === null || frame.getUint32(4) !== entry.next++) throw mediaError('Out-of-order direct media response');
       const chunk = new Uint8Array(data, 8);
-      entry.size += chunk.length;
-      buffered += chunk.length;
-      if (entry.size > MAX_RESPONSE || buffered > MAX_IN_FLIGHT) throw mediaError('Direct media response exceeds its buffer limit');
-      entry.chunks.push(chunk); bytes += chunk.length;
+      const size = entry.size + chunk.length;
+      if (entry.body) {
+        if (size > entry.body.length) throw mediaError('Direct media response exceeds its declared length');
+        entry.body.set(chunk, entry.size);
+      } else {
+        if (size > MAX_RESPONSE || buffered + chunk.length > MAX_IN_FLIGHT) throw mediaError('Direct media response exceeds its buffer limit');
+        entry.chunks.push(chunk);
+        entry.reserved += chunk.length;
+        buffered += chunk.length;
+      }
+      entry.size = size;
+      bytes += chunk.length;
       entry.last = performance.now();
       entry.first ??= entry.last;
       firstByte ??= entry.last - started;
-      entry.progress?.(entry.size);
+      if (entry.progress && (entry.reportedAt === undefined || entry.last - entry.reportedAt >= 100)) {
+        entry.reportedAt = entry.last;
+        entry.progress(size, entry.total, entry.first);
+      }
     } catch (error) { fail(error.code === 0 ? error.message : 'Invalid direct media response'); }
   };
   channel.onclose = () => fail('Direct media channel closed');
@@ -181,6 +204,7 @@ export function createDirectMedia(socket, access, onStatus, onFailure) {
       if (!answer) throw mediaError('Home sender did not answer');
       await pc.setRemoteDescription({ type: 'answer', sdp: answer });
       await waitUntil(() => channel.readyState === 'open', signal, 4000);
+      connectedAt = performance.now();
       renewal = setInterval(() => {
         rpc('jellyfin-direct-renew', { id: peerId }).then(reply => {
           if (!reply?.ok) fail('Direct playback access ended');
@@ -192,7 +216,7 @@ export function createDirectMedia(socket, access, onStatus, onFailure) {
       const now = performance.now();
       const speed = (bytes - rateBytes) * 8000 / Math.max(1, now - rateTime);
       rateTime = now; rateBytes = bytes;
-      let route, rtt;
+      let route, rtt, protocol;
       try {
         const stats = await pc.getStats();
         const transport = [...stats.values()].find(report => report.selectedCandidatePairId);
@@ -201,9 +225,12 @@ export function createDirectMedia(socket, access, onStatus, onFailure) {
         if (pair) {
           route = [stats.get(pair.localCandidateId)?.candidateType, stats.get(pair.remoteCandidateId)?.candidateType].filter(Boolean).join(' → ');
           rtt = pair.currentRoundTripTime;
+          protocol = stats.get(pair.localCandidateId)?.protocol;
         }
       } catch { /* Stats are optional. */ }
-      return { bytes, speed, segmentsRequested, segmentsCompleted, firstByte, route, rtt, lastError };
+      return { bytes, speed, segmentsRequested, segmentsCompleted, firstByte, route, rtt, protocol, lastError,
+        activeRequests: requests.size, setupMs: connectedAt === undefined ? undefined : connectedAt - started,
+        connectedMs: connectedAt === undefined ? undefined : now - connectedAt };
     },
   };
 }
@@ -234,9 +261,10 @@ export function directLoader(peer, manifestURL, manifest) {
       const asset = url.origin === origin && /^\/samerow-direct\/asset\/([a-f0-9]{64})$/.exec(url.pathname)?.[1];
       const range = Number.isFinite(context.rangeStart) && context.rangeEnd > context.rangeStart
         ? `bytes=${context.rangeStart}-${context.rangeEnd - 1}` : undefined;
-      const progress = bytes => {
-        stats.loading.first ||= performance.now();
+      const progress = (bytes, total, first) => {
+        stats.loading.first ||= first;
         stats.loaded = bytes;
+        stats.total = total ?? 0;
         // HLS.js receives one complete resource. The diagnostic wrapper can
         // observe progress without activating HLS.js's progressive parser.
         callbacks.onTransferProgress?.(stats);
@@ -250,8 +278,13 @@ export function directLoader(peer, manifestURL, manifest) {
         if (signal.aborted) return;
         this.active = false;
         this.headers = result.headers;
-        stats.loading.first ||= isManifest ? stats.loading.start : performance.now();
-        stats.loading.end = performance.now();
+        if (result.timing) {
+          const { start, first, end } = result.timing;
+          Object.assign(stats.loading, { start, first: first ?? end, end });
+        } else {
+          stats.loading.end = performance.now();
+          stats.loading.first ||= stats.loading.end;
+        }
         stats.loaded = stats.total = result.data.byteLength;
         stats.bwEstimate = stats.loaded * 8000 / Math.max(1, stats.loading.end - stats.loading.first);
         const data = context.responseType === 'arraybuffer' ? result.data.buffer : new TextDecoder().decode(result.data);

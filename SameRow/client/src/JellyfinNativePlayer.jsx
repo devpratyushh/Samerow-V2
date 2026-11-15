@@ -9,7 +9,7 @@ import { useJellyfinQuality } from './useJellyfinQuality';
 import JellyfinQuality from './JellyfinQuality';
 import PlayerNerdStats from './components/PlayerNerdStats';
 
-export default function JellyfinNativePlayer({ state, base, command, connected, focused, onBrowse, onOpenSameRow, onPlaybackStats }) {
+export default function JellyfinNativePlayer({ state, base, command, connected, focused, onBrowse, onOpenMellettem, onPlaybackStats }) {
   const frameRef = useRef(null);
   const [channel] = useState(() => browserId());
   const [attempt, setAttempt] = useState(0);
@@ -55,7 +55,7 @@ export default function JellyfinNativePlayer({ state, base, command, connected, 
   return <div className="jellyfin-native-player" data-phase={status.phase}>
     {recovery && <p className="jellyfin-recovery" role="status">{recovery}</p>}
     <div className="jellyfin-native-stage">
-      <details className="jellyfin-native-quality"><summary>Quality</summary><JellyfinQuality {...quality} select={mode => { setQualityNote(''); return quality.select(mode); }} />{qualityNote && <small role="status">{qualityNote}</small>}{onOpenSameRow && <button className="sr-button" onClick={onOpenSameRow}>Open SameRow player</button>}</details>
+      <details className="jellyfin-native-quality"><summary>Quality</summary><JellyfinQuality {...quality} select={mode => { setQualityNote(''); return quality.select(mode); }} />{qualityNote && <small role="status">{qualityNote}</small>}{onOpenMellettem && <button className="sr-button" onClick={onOpenMellettem}>Open Mellettem player</button>}</details>
       <iframe ref={frameRef} className="jellyfin-native-frame" src={src} title="Jellyfin player" allow="autoplay; fullscreen; picture-in-picture 'none'" sandbox="allow-scripts allow-forms allow-pointer-lock allow-downloads" referrerPolicy="no-referrer" />
       {['loading', 'blocked', 'error', 'ended'].includes(status.phase) && <div className="jellyfin-native-status" role="status"><p>{status.message || (status.phase === 'loading' ? 'Opening Jellyfin’s player…' : status.phase === 'blocked' ? 'Press Play to join the movie.' : status.phase === 'ended' ? 'The movie has ended.' : 'Playback could not start.')}</p>
         {status.phase === 'blocked' && <button className="sr-button sr-button--primary" onClick={() => send('play-local')}>Play on this device</button>}

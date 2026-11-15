@@ -1,5 +1,5 @@
 // Real-server acceptance test: Jellyfin Web, decoded media, native controls and
-// SameRow's actual Room/Socket.IO transport. No mocked player or auth responses.
+// Mellettem's actual Room/Socket.IO transport. No mocked player or auth responses.
 // Start Vite on 5175 and the disposable Jellyfin sandbox before running this.
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
@@ -34,8 +34,8 @@ user=c.execute('select Id from Users order by InternalId limit 1').fetchone()
 if not token or not user: raise SystemExit('The sandbox needs an existing API key and user.')
 print(json.dumps({'token':token[0],'userId':user[0].replace('-','')}))
 `, sandboxDb], { encoding: 'utf8' }));
-const dataDir = await mkdtemp(join(tmpdir(), 'samerow-native-accounts-'));
-process.env.SAMEROW_DATA_DIR = dataDir;
+const dataDir = await mkdtemp(join(tmpdir(), 'mellettem-native-accounts-'));
+process.env.MELLETTEM_DATA_DIR = dataDir;
 const { default: backend } = await import('../../server/index.js');
 await new Promise(resolve => backend.server.listen(0, '127.0.0.1', resolve));
 const server = `http://127.0.0.1:${backend.server.address().port}`;
@@ -97,7 +97,7 @@ try {
   const guest = await addViewer('Guest');
   let dialog = await shareDialog(host);
   await dialog.getByLabel('Server address', { exact: true }).fill(jellyfinUrl);
-  await dialog.getByLabel('Username', { exact: true }).fill('samerow-nonexistent-user');
+  await dialog.getByLabel('Username', { exact: true }).fill('mellettem-nonexistent-user');
   await dialog.getByLabel('Password', { exact: true }).fill('invalid-password');
   await dialog.getByRole('button', { name: 'Sign in', exact: true }).click();
   await dialog.getByRole('alert').waitFor();
@@ -130,7 +130,7 @@ try {
       const video = player?.querySelector('video');
       return video?.currentTime > 0 && video.getVideoPlaybackQuality().totalVideoFrames > 0;
     }, null, { timeout: 30000 });
-    console.log('PASS real Jellyfin delivers original video to the SameRow player');
+    console.log('PASS real Jellyfin delivers original video to the Mellettem player');
   }
   console.log('Started native open');
   const hostFrame = await nativeFrame(host), guestFrame = await nativeFrame(guest);
@@ -260,7 +260,7 @@ try {
   console.log('PASS shared stop removes every native player and revokes its gateway');
 } catch (error) {
   for (const page of pages) {
-    console.error('SameRow playback state', await page.evaluate(() => {
+    console.error('Mellettem playback state', await page.evaluate(() => {
       const video = document.querySelector('.jellyfin-player video');
       return {
         phase: document.querySelector('.jellyfin-player')?.dataset.phase,
@@ -281,7 +281,7 @@ try {
   console.error('Failed requests:', failedRequests.slice(-30));
   console.error('Player configs:', playerConfigs);
   console.error('Console errors:', consoleErrors.slice(-25));
-  for (const [index, page] of pages.entries()) { await page.screenshot({path:`/tmp/samerow-native-failure-${index}.png`}).catch(()=>{}); const frame=await frameElement(page).elementHandle({timeout:1000}).then(h=>h?.contentFrame()).catch(()=>null); if(frame) console.error('Frame text', redact((await frame.locator('body').innerText().catch(()=>'' )).slice(0,2500))); }
+  for (const [index, page] of pages.entries()) { await page.screenshot({path:`/tmp/mellettem-native-failure-${index}.png`}).catch(()=>{}); const frame=await frameElement(page).elementHandle({timeout:1000}).then(h=>h?.contentFrame()).catch(()=>null); if(frame) console.error('Frame text', redact((await frame.locator('body').innerText().catch(()=>'' )).slice(0,2500))); }
   throw error;
 } finally {
   await Promise.all(contexts.map(context => context.close()));

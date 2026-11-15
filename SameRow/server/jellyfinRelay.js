@@ -150,7 +150,7 @@ function installJellyfinRelay(app, { config, store, identity, io }) {
     const id = connectorId(base);
     if (!id) return false;
     const record = await store.get(`connector:${id}`);
-    if (!record || record.ownerUid !== uid) throw Object.assign(new Error('This connector is not paired to your SameRow account.'), { status: 403 });
+    if (!record || record.ownerUid !== uid) throw Object.assign(new Error('This connector is not paired to your Mellettem account.'), { status: 403 });
     return true;
   }
 

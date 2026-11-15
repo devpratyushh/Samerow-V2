@@ -8,7 +8,7 @@ test('a failed saved-library lookup does not block an owned plugin binding',asyn
  assert.equal(result.server,server);assert.equal(result.bound,null);assert.match(result.notice,/can still connect/);
 });
 test('restoration failure cannot grant access to a different account’s server',async()=>{
- await assert.rejects(loadPluginBinding('other',async()=>[{id:'owned'}],async()=>{throw Error('HTTP 403');}),/different SameRow account/);
+ await assert.rejects(loadPluginBinding('other',async()=>[{id:'owned'}],async()=>{throw Error('HTTP 403');}),/different Mellettem account/);
 });
 test('account calls use the advertised media service rather than the signaling role',async()=>{
  assert.equal(await resolveAccountOrigin('https://signaling.example',{request:async()=>Response.json({mediaOrigin:'https://media.example'})}),'https://media.example');

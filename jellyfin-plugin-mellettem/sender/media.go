@@ -176,7 +176,7 @@ func (p *mediaPeer) close() {
 }
 
 func (p *mediaPeer) setAuthorization(req *http.Request) {
-	req.Header.Set("Authorization", `MediaBrowser Client="SameRow", Device="SameRow Web", Version="1.0.0", DeviceId="`+p.DeviceID+`", Token="`+p.APIToken+`"`)
+	req.Header.Set("Authorization", `MediaBrowser Client="Mellettem", Device="Mellettem Web", Version="1.0.0", DeviceId="`+p.DeviceID+`", Token="`+p.APIToken+`"`)
 }
 
 func (p *mediaPeer) authorized() bool {

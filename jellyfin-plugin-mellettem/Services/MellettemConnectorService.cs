@@ -17,9 +17,9 @@ using System.Threading.Tasks;
 using MediaBrowser.Controller;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using SameRow.Plugin.Configuration;
+using Mellettem.Plugin.Configuration;
 
-namespace SameRow.Plugin.Services;
+namespace Mellettem.Plugin.Services;
 
 public enum ConnectorConnectionState
 {
@@ -32,11 +32,11 @@ public enum ConnectorConnectionState
 }
 
 /// <summary>
-/// Background service maintaining authenticated outbound long-polling connections to SameRow Cloud,
+/// Background service maintaining authenticated outbound long-polling connections to Mellettem Cloud,
 /// proxying media and API calls to the local Jellyfin server instance with zero transcoding overhead
 /// and binary byte-for-byte stream fidelity.
 /// </summary>
-public class SameRowConnectorService : IHostedService, IDisposable
+public class MellettemConnectorService : IHostedService, IDisposable
 {
     private const string RelayPath = "/api/jellyfin-relay";
     private static readonly TimeSpan PollHealthWindow = TimeSpan.FromSeconds(30);
@@ -52,12 +52,15 @@ public class SameRowConnectorService : IHostedService, IDisposable
 
     private readonly IServerApplicationHost _applicationHost;
     private readonly IHttpClientFactory _httpClientFactory;
-    private readonly ILogger<SameRowConnectorService> _logger;
+    private readonly ILogger<MellettemConnectorService> _logger;
     private CancellationTokenSource _cts = new();
     private bool _stopped;
     private int _disposed;
     private readonly object _pollHealthLock = new();
     private long? _lastSuccessfulPoll;
+    private long? _connectedSince;
+    private TimeSpan? _lastConnectionDuration;
+    private DateTime? _lastDisconnectedAt;
 
     private readonly List<Task> _workers = new();
     private readonly SemaphoreSlim _stateLock = new(1, 1);
@@ -65,10 +68,10 @@ public class SameRowConnectorService : IHostedService, IDisposable
     private long _totalJobsHandled;
     private long _totalBytesRelayed;
 
-    public SameRowConnectorService(
+    public MellettemConnectorService(
         IServerApplicationHost applicationHost,
         IHttpClientFactory httpClientFactory,
-        ILogger<SameRowConnectorService> logger)
+        ILogger<MellettemConnectorService> logger)
     {
         _applicationHost = applicationHost;
         _httpClientFactory = httpClientFactory;
@@ -77,8 +80,31 @@ public class SameRowConnectorService : IHostedService, IDisposable
 
     public ConnectorConnectionState State { get; private set; } = ConnectorConnectionState.Disconnected;
     public string? LastError { get; private set; }
-    public DateTime? LastConnectedAt { get; private set; }
-    public DateTime? LastActivityAt { get; private set; }
+    private DateTime? _lastConnectedAt;
+    private DateTime? _lastActivityAt;
+
+    internal RelayConnectionStatus GetConnectionStatus()
+    {
+        lock (_pollHealthLock)
+        {
+            return new(State, LastError, _lastConnectedAt, _lastDisconnectedAt, _lastActivityAt,
+                _connectedSince is long start ? Stopwatch.GetElapsedTime(start).TotalSeconds : null,
+                _lastConnectionDuration?.TotalSeconds);
+        }
+    }
+
+    // Call under _pollHealthLock so a status snapshot cannot straddle two sessions.
+    private void SetDisconnectedState(ConnectorConnectionState state)
+    {
+        if (_connectedSince is long start)
+        {
+            _lastConnectionDuration = Stopwatch.GetElapsedTime(start);
+            _lastDisconnectedAt = DateTime.UtcNow;
+            _connectedSince = null;
+        }
+        _lastSuccessfulPoll = null;
+        State = state;
+    }
     public int ActiveJobs => Volatile.Read(ref _activeJobCount);
     public long TotalJobs => Interlocked.Read(ref _totalJobsHandled);
     public long TotalBytes => Interlocked.Read(ref _totalBytesRelayed);
@@ -92,7 +118,7 @@ public class SameRowConnectorService : IHostedService, IDisposable
             if (_stopped || _workers.Count > 0) return;
             var config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
             if (config.AutoStart && config.IsPaired) StartWorkers(config);
-            else State = ConnectorConnectionState.Disconnected;
+            else lock (_pollHealthLock) SetDisconnectedState(ConnectorConnectionState.Disconnected);
         }
         finally { _stateLock.Release(); }
     }
@@ -100,12 +126,12 @@ public class SameRowConnectorService : IHostedService, IDisposable
     public async Task StopAsync(CancellationToken cancellationToken)
     {
         if (Volatile.Read(ref _disposed) != 0) return;
-        _logger.LogInformation("Stopping SameRow Connector service...");
+        _logger.LogInformation("Stopping Mellettem Connector service...");
         await _stateLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             _stopped = true;
-            lock (_pollHealthLock) State = ConnectorConnectionState.Stopped;
+            lock (_pollHealthLock) SetDisconnectedState(ConnectorConnectionState.Stopped);
             _cts.Cancel();
 
             try
@@ -132,22 +158,20 @@ public class SameRowConnectorService : IHostedService, IDisposable
         try
         {
             if (_stopped) return;
-            _cts.Cancel();
+            lock (_pollHealthLock)
+            {
+                _cts.Cancel();
+                LastError = null;
+                SetDisconnectedState(ConnectorConnectionState.Disconnected);
+            }
             try { await Task.WhenAll(_workers).ConfigureAwait(false); } catch { }
             _workers.Clear();
             _cts.Dispose();
             _cts = new CancellationTokenSource();
-            LastError = null;
-            _lastSuccessfulPoll = null;
-
             var config = Plugin.Instance?.Configuration;
             if (config != null && config.IsPaired)
             {
                 StartWorkers(config);
-            }
-            else
-            {
-                State = ConnectorConnectionState.Disconnected;
             }
         }
         finally
@@ -159,11 +183,13 @@ public class SameRowConnectorService : IHostedService, IDisposable
     private void StartWorkers(PluginConfiguration config)
     {
         int count = Math.Max(1, Math.Min(8, config.WorkerCount));
-        _logger.LogInformation("Spawning {Count} SameRow relay worker loops to {Gateway}", count, config.GatewayUrl);
-        State = ConnectorConnectionState.Connecting;
+        _logger.LogInformation("Spawning {Count} Mellettem relay worker loops to {Gateway}", count, config.GatewayUrl);
+        lock (_pollHealthLock) State = ConnectorConnectionState.Connecting;
 
         var generationToken = _cts.Token;
-        if (!string.Equals(Environment.GetEnvironmentVariable("SAMEROW_DIRECT_ENABLED"), "false", StringComparison.OrdinalIgnoreCase))
+        var directEnabled = Environment.GetEnvironmentVariable("MELLETTEM_DIRECT_ENABLED")
+            ?? Environment.GetEnvironmentVariable("SAMEROW_DIRECT_ENABLED");
+        if (!string.Equals(directEnabled, "false", StringComparison.OrdinalIgnoreCase))
         {
             _workers.Add(Task.Run(() => RunDirectSenderAsync(config, generationToken)));
         }
@@ -180,11 +206,11 @@ public class SameRowConnectorService : IHostedService, IDisposable
             OperatingSystem.IsWindows() ? "windows" : null;
         string? arch = RuntimeInformation.ProcessArchitecture switch { Architecture.X64 => "amd64", Architecture.Arm64 => "arm64", _ => null };
         if (platform == null || arch == null) return;
-        var name = $"samerow-sender-{platform}-{arch}" + (OperatingSystem.IsWindows() ? ".exe" : "");
-        var path = Path.Combine(Path.GetDirectoryName(typeof(SameRowConnectorService).Assembly.Location)!, name);
+        var name = $"mellettem-sender-{platform}-{arch}" + (OperatingSystem.IsWindows() ? ".exe" : "");
+        var path = Path.Combine(Path.GetDirectoryName(typeof(MellettemConnectorService).Assembly.Location)!, name);
         if (!File.Exists(path))
         {
-            _logger.LogWarning("SameRow direct sender is missing for this Jellyfin platform.");
+            _logger.LogWarning("Mellettem direct sender is missing for this Jellyfin platform.");
             return;
         }
 
@@ -194,7 +220,7 @@ public class SameRowConnectorService : IHostedService, IDisposable
             try { File.SetUnixFileMode(path, File.GetUnixFileMode(path) | UnixFileMode.UserExecute); }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
-                _logger.LogWarning("SameRow could not enable execution of the direct sender.");
+                _logger.LogWarning("Mellettem could not enable execution of the direct sender.");
             }
         }
         while (!stoppingToken.IsCancellationRequested)
@@ -207,14 +233,15 @@ public class SameRowConnectorService : IHostedService, IDisposable
                 if (!sender.Start()) throw new InvalidOperationException();
                 var message = JsonSerializer.Serialize(new {
                     Gateway = config.GatewayUrl, Token = config.ConnectorToken, LocalURL = LocalApiUrl(),
-                    STUN = Environment.GetEnvironmentVariable("SAMEROW_DIRECT_STUN") ?? ""
+                    STUN = Environment.GetEnvironmentVariable("MELLETTEM_DIRECT_STUN")
+                        ?? Environment.GetEnvironmentVariable("SAMEROW_DIRECT_STUN") ?? ""
                 });
                 await sender.StandardInput.WriteLineAsync(message.AsMemory(), stoppingToken).ConfigureAwait(false);
                 await sender.StandardInput.FlushAsync(stoppingToken).ConfigureAwait(false);
                 await sender.WaitForExitAsync(stoppingToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { }
-            catch (Exception ex) { _logger.LogWarning("SameRow direct sender unavailable ({ErrorType}).", ex.GetType().Name); }
+            catch (Exception ex) { _logger.LogWarning("Mellettem direct sender unavailable ({ErrorType}).", ex.GetType().Name); }
             finally
             {
                 try
@@ -249,7 +276,11 @@ public class SameRowConnectorService : IHostedService, IDisposable
             var config = Plugin.Instance?.Configuration;
             if (config == null || !config.IsPaired)
             {
-                State = ConnectorConnectionState.Disconnected;
+                lock (_pollHealthLock)
+                {
+                    if (stoppingToken.IsCancellationRequested || State == ConnectorConnectionState.Stopped) break;
+                    SetDisconnectedState(ConnectorConnectionState.Disconnected);
+                }
                 await Task.Delay(3000, stoppingToken).ConfigureAwait(false);
                 continue;
             }
@@ -260,14 +291,13 @@ public class SameRowConnectorService : IHostedService, IDisposable
                 if (job == null)
                 {
                     // 204 No Content - loop timeout with no job, poll again immediately
-                    ReportConnected();
+                    ReportConnected(false, stoppingToken);
                     await Task.Delay(50, stoppingToken).ConfigureAwait(false);
                     failureCount = 0;
                     continue;
                 }
 
-                ReportConnected();
-                LastActivityAt = DateTime.UtcNow;
+                ReportConnected(true, stoppingToken);
                 failureCount = 0;
 
                 Interlocked.Increment(ref _activeJobCount);
@@ -296,24 +326,24 @@ public class SameRowConnectorService : IHostedService, IDisposable
             {
                 lock (_pollHealthLock)
                 {
-                    if (State == ConnectorConnectionState.Stopped) break;
-                    State = ConnectorConnectionState.AuthenticationFailed;
+                    if (stoppingToken.IsCancellationRequested || State == ConnectorConnectionState.Stopped) break;
+                    SetDisconnectedState(ConnectorConnectionState.AuthenticationFailed);
                     LastError = "Authentication failed: Connector token was revoked or expired. Please re-pair from the Jellyfin dashboard.";
                 }
-                _logger.LogWarning("SameRow Cloud rejected connector token (401). Worker {Index} backing off.", workerIndex);
+                _logger.LogWarning("Mellettem Cloud rejected connector token (401). Worker {Index} backing off.", workerIndex);
                 break; // A new pairing explicitly restarts workers; a revoked token cannot recover by polling.
             }
             catch (HttpRequestException ex) when (ex.StatusCode == HttpStatusCode.TooManyRequests)
             {
-                _logger.LogDebug("SameRow Cloud returned 429 Too Many Requests. Worker {Index} backing off.", workerIndex);
+                _logger.LogDebug("Mellettem Cloud returned 429 Too Many Requests. Worker {Index} backing off.", workerIndex);
                 failureCount++;
-                ReportPollFailure("The gateway is busy. Retrying automatically.", ex);
+                ReportPollFailure("The gateway is busy. Retrying automatically.", ex, stoppingToken);
                 await Task.Delay(Math.Min(30000, 5000 * Math.Min(failureCount, 6)) + rnd.Next(1000, 4000), stoppingToken).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
                 failureCount++;
-                ReportPollFailure("The relay connection was interrupted. Reconnecting automatically.", ex);
+                ReportPollFailure("The relay connection was interrupted. Reconnecting automatically.", ex, stoppingToken);
                 int delayMs = Math.Min(30000, (int)Math.Pow(2, Math.Min(failureCount, 5)) * 1000) + rnd.Next(500, 2000);
                 _logger.LogDebug(ex, "Worker {Index} encountered error. Backing off for {Delay}ms", workerIndex, delayMs);
                 await Task.Delay(delayMs, stoppingToken).ConfigureAwait(false);
@@ -321,41 +351,45 @@ public class SameRowConnectorService : IHostedService, IDisposable
         }
     }
 
-    private void ReportConnected()
+    private void ReportConnected(bool hasJob, CancellationToken stoppingToken)
     {
         lock (_pollHealthLock)
         {
-            if (State is ConnectorConnectionState.AuthenticationFailed or ConnectorConnectionState.Stopped) return;
+            if (stoppingToken.IsCancellationRequested ||
+                State is ConnectorConnectionState.AuthenticationFailed or ConnectorConnectionState.Stopped) return;
             _lastSuccessfulPoll = Stopwatch.GetTimestamp();
             if (State != ConnectorConnectionState.Connected)
             {
-                LastConnectedAt = DateTime.UtcNow;
-                _logger.LogInformation("SameRow relay connection established: gateway accepted an authenticated poll.");
+                _connectedSince = _lastSuccessfulPoll;
+                _lastConnectedAt = DateTime.UtcNow;
+                _logger.LogInformation("Mellettem relay connection established: gateway accepted an authenticated poll.");
             }
+            if (hasJob) _lastActivityAt = DateTime.UtcNow;
             LastError = null;
             State = ConnectorConnectionState.Connected;
         }
     }
 
-    private void ReportPollFailure(string message, Exception exception)
+    private void ReportPollFailure(string message, Exception exception, CancellationToken stoppingToken)
     {
         lock (_pollHealthLock)
         {
-            if (State is ConnectorConnectionState.AuthenticationFailed or ConnectorConnectionState.Stopped) return;
+            if (stoppingToken.IsCancellationRequested ||
+                State is ConnectorConnectionState.AuthenticationFailed or ConnectorConnectionState.Stopped) return;
             if (_lastSuccessfulPoll is long lastPoll && Stopwatch.GetElapsedTime(lastPoll) < PollHealthWindow) return;
             if (State != ConnectorConnectionState.Reconnecting)
             {
-                _logger.LogWarning("SameRow relay polls are failing ({ErrorType}, HTTP {Status}). Retrying automatically.",
+                _logger.LogWarning("Mellettem relay polls are failing ({ErrorType}, HTTP {Status}). Retrying automatically.",
                     exception.GetType().Name, (exception as HttpRequestException)?.StatusCode);
             }
             LastError = message;
-            State = ConnectorConnectionState.Reconnecting;
+            SetDisconnectedState(ConnectorConnectionState.Reconnecting);
         }
     }
 
     private async Task<RelayJob?> PollForJobAsync(PluginConfiguration config, CancellationToken cancellationToken)
     {
-        using var cloudClient = _httpClientFactory.CreateClient("SameRowCloud");
+        using var cloudClient = _httpClientFactory.CreateClient("MellettemCloud");
         var gateway = new Uri(config.GatewayUrl.TrimEnd('/') + $"{RelayPath}/poll");
 
         using var request = new HttpRequestMessage(HttpMethod.Get, gateway);
@@ -423,13 +457,13 @@ public class SameRowConnectorService : IHostedService, IDisposable
         using var localRequest = new HttpRequestMessage(new HttpMethod(method), localUri);
 
         // Set Jellyfin authorization header
-        string deviceId = string.IsNullOrEmpty(job.DeviceId) ? "samerow" : job.DeviceId;
+        string deviceId = string.IsNullOrEmpty(job.DeviceId) ? "mellettem" : job.DeviceId;
         if (!IsSafeHeaderValue(deviceId) || (job.ApiToken != null && !IsSafeHeaderValue(job.ApiToken)))
         {
             await UploadErrorResponseAsync(config, job.Job, HttpStatusCode.BadRequest, cancellationToken).ConfigureAwait(false);
             return;
         }
-        string authValue = $"MediaBrowser Client=\"SameRow\", Device=\"SameRow Web\", DeviceId=\"{deviceId}\", Version=\"1.0.0\"" +
+        string authValue = $"MediaBrowser Client=\"Mellettem\", Device=\"Mellettem Web\", DeviceId=\"{deviceId}\", Version=\"1.0.0\"" +
                            (!string.IsNullOrEmpty(job.ApiToken) ? $", Token=\"{job.ApiToken}\"" : string.Empty);
         localRequest.Headers.TryAddWithoutValidation("Authorization", authValue);
         localRequest.Headers.TryAddWithoutValidation("Accept-Encoding", "identity");
@@ -453,7 +487,7 @@ public class SameRowConnectorService : IHostedService, IDisposable
             localRequest.Content = new StringContent(job.Body, Encoding.UTF8, contentType);
         }
 
-        using var loopbackClient = _httpClientFactory.CreateClient("SameRowLoopback");
+        using var loopbackClient = _httpClientFactory.CreateClient("MellettemLoopback");
         HttpResponseMessage? localResponse = null;
 
         try
@@ -489,7 +523,7 @@ public class SameRowConnectorService : IHostedService, IDisposable
         HttpResponseMessage upstreamResponse,
         CancellationToken cancellationToken)
     {
-        using var cloudClient = _httpClientFactory.CreateClient("SameRowCloud");
+        using var cloudClient = _httpClientFactory.CreateClient("MellettemCloud");
         var uploadUri = new Uri(config.GatewayUrl.TrimEnd('/') + $"{RelayPath}/response/{jobId}");
 
         using var uploadRequest = new HttpRequestMessage(HttpMethod.Post, uploadUri);
@@ -553,7 +587,7 @@ public class SameRowConnectorService : IHostedService, IDisposable
     {
         try
         {
-            using var cloudClient = _httpClientFactory.CreateClient("SameRowCloud");
+            using var cloudClient = _httpClientFactory.CreateClient("MellettemCloud");
             var uploadUri = new Uri(config.GatewayUrl.TrimEnd('/') + $"{RelayPath}/response/{jobId}");
 
             using var uploadRequest = new HttpRequestMessage(HttpMethod.Post, uploadUri);
@@ -606,11 +640,21 @@ public class SameRowConnectorService : IHostedService, IDisposable
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
         _stopped = true;
+        lock (_pollHealthLock) SetDisconnectedState(ConnectorConnectionState.Stopped);
         _cts.Cancel();
         _cts.Dispose();
         _stateLock.Dispose();
     }
 }
+
+internal sealed record RelayConnectionStatus(
+    ConnectorConnectionState State,
+    string? LastError,
+    DateTime? LastConnectedAt,
+    DateTime? LastDisconnectedAt,
+    DateTime? LastActivityAt,
+    double? ConnectedDurationSeconds,
+    double? LastConnectionDurationSeconds);
 
 public class RelayJob
 {

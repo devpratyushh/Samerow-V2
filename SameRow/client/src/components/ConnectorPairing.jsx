@@ -46,7 +46,7 @@ export default function ConnectorPairing({ serverUrl, onPrivateRoom, disabled })
       if (!response.ok) throw new Error('Could not disconnect this server. Try again.');
       setConnectors(previous => previous.filter(connector => connector.id !== id));
       setRefresh(value => value + 1);
-      window.dispatchEvent(new Event('samerow:connections-changed'));
+      window.dispatchEvent(new Event('mellettem:connections-changed'));
     } catch (failure) { setError(failure.message); }
     finally { setBusy(false); }
   };
@@ -59,15 +59,15 @@ export default function ConnectorPairing({ serverUrl, onPrivateRoom, disabled })
         <div><strong>{connector.name || `Jellyfin server ${connector.id.slice(0, 8)}`}</strong><small>{connector.online ? 'Relay reachable' : 'Offline'}</small></div>
         {confirmId === connector.id ? <div><p>Disconnect this server for your account on every device?</p><button type="button" className="sr-button" disabled={busy} onClick={() => revoke(connector.id)}>Confirm disconnect</button><button type="button" className="sr-button" onClick={() => setConfirmId('')}>Cancel</button></div> : <button type="button" className="sr-button" disabled={busy} onClick={() => setConfirmId(connector.id)}>Disconnect</button>}
         <button type="button" className="sr-button" onClick={() => setReplaceId(replaceId === connector.id ? '' : connector.id)}>Replace installation</button>
-        {replaceId === connector.id && <p>Install SameRow Connect on the replacement server, approve its pairing with this SameRow account, then authorize your Jellyfin user. Keep this connection until the replacement shows Ready; then disconnect this old installation.</p>}
+        {replaceId === connector.id && <p>Install Mellettem Connect on the replacement server, approve its pairing with this Mellettem account, then authorize your Jellyfin user. Keep this connection until the replacement shows Ready; then disconnect this old installation.</p>}
       </div>)}
       <p>Create a private room, then select your server in Share something → Your Jellyfin library.</p>
     </section>}
     <button type="button" className="sr-button" disabled={disabled} onClick={onPrivateRoom}>Generate private room code</button>
     <section className="connector-pairing-section">
       <h4>Jellyfin plugin</h4>
-      <p>Install SameRow Connect on your Jellyfin server. In its plugin settings, select Connect SameRow and approve the connection here.</p>
-      <a href="https://github.com/devpratyushh/Samerow-V2/tree/main/jellyfin-plugin-samerow" target="_blank" rel="noreferrer">Plugin installation guide</a>
+      <p>Install Mellettem Connect on your Jellyfin server. In its plugin settings, select Connect Mellettem and approve the connection here.</p>
+      <a href="https://github.com/devpratyushh/Samerow-V2/tree/main/jellyfin-plugin-mellettem" target="_blank" rel="noreferrer">Plugin installation guide</a>
     </section>
   </div>;
 }

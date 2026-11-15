@@ -2,10 +2,10 @@
 name: Jellyfin plugin
 on:
   push:
-    paths: ['jellyfin-plugin-samerow/**', 'jellyfin-plugin-samerow.tests/**', '.github/workflows/jellyfin-plugin.yml']
-    tags: ['samerow-connect-v*']
+    paths: ['jellyfin-plugin-mellettem/**', 'jellyfin-plugin-mellettem.tests/**', 'jellyfin-plugin-samerow/manifest.json', '.github/workflows/jellyfin-plugin.yml']
+    tags: ['mellettem-connect-v*']
   pull_request:
-    paths: ['jellyfin-plugin-samerow/**', 'jellyfin-plugin-samerow.tests/**', '.github/workflows/jellyfin-plugin.yml']
+    paths: ['jellyfin-plugin-mellettem/**', 'jellyfin-plugin-mellettem.tests/**', 'jellyfin-plugin-samerow/manifest.json', '.github/workflows/jellyfin-plugin.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -20,7 +20,7 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version: '1.26.3'
-          cache-dependency-path: jellyfin-plugin-samerow/sender/go.sum
+          cache-dependency-path: jellyfin-plugin-mellettem/sender/go.sum
       - name: Download official Jellyfin reference assemblies
         run: |
           curl --fail --location --retry 3 https://repo.jellyfin.org/files/server/portable/stable/v12.3/any/jellyfin_12.3.tar.xz --output "$RUNNER_TEMP/jellyfin.tar.xz"
@@ -30,23 +30,23 @@ jobs:
           test -n "$reference"
           echo "JELLYFIN_SERVER_PATH=$(dirname "$reference")" >> "$GITHUB_ENV"
       - name: Build plugin and tests
-        run: dotnet build jellyfin-plugin-samerow.tests -c Release -p:JellyfinServerPath="$JELLYFIN_SERVER_PATH" -warnaserror
+        run: dotnet build jellyfin-plugin-mellettem.tests -c Release -p:JellyfinServerPath="$JELLYFIN_SERVER_PATH" -warnaserror
       - name: Test plugin
-        run: dotnet run --project jellyfin-plugin-samerow.tests -c Release --no-build
+        run: dotnet run --project jellyfin-plugin-mellettem.tests -c Release --no-build
       - name: Test and build direct sender
-        working-directory: jellyfin-plugin-samerow/sender
+        working-directory: jellyfin-plugin-mellettem/sender
         run: |
           go test -race ./...
           mkdir -p "$RUNNER_TEMP/sender"
           for platform in linux darwin windows; do
             for arch in amd64 arm64; do
-              name="samerow-sender-$platform-$arch"
+              name="mellettem-sender-$platform-$arch"
               if [ "$platform" = windows ]; then name="$name.exe"; fi
               CGO_ENABLED=0 GOOS="$platform" GOARCH="$arch" go build -trimpath -o "$RUNNER_TEMP/sender/$name" .
             done
           done
           go list -m -f '{{if .Dir}}{{.Path}} {{.Dir}}{{end}}' all | while read -r module dir; do
-            if [ -z "$dir" ] || [ "$module" = samerow.local/directsender ]; then continue; fi
+            if [ -z "$dir" ] || [ "$module" = mellettem.local/directsender ]; then continue; fi
             for notice in "$dir"/LICENSE* "$dir"/NOTICE* "$dir"/PATENTS*; do
               if [ -f "$notice" ]; then printf '\n%s — %s\n' "$module" "${notice##*/}"; cat "$notice"; fi
             done
@@ -54,18 +54,18 @@ jobs:
           go env GOROOT | xargs -I '{}' sh -c 'printf "\nGo standard library\n"; cat "$1/LICENSE" "$1/PATENTS"' sh '{}' >> "$RUNNER_TEMP/sender/THIRD-PARTY-SENDER.txt"
       - name: Package and validate
         run: |
-          python3 jellyfin-plugin-samerow/package.py --sender-dir "$RUNNER_TEMP/sender"
-          version=$(jq -r .version jellyfin-plugin-samerow/meta.json)
-          if [[ "$GITHUB_REF_TYPE" == "tag" && "$GITHUB_REF_NAME" != "samerow-connect-v$version" ]]; then exit 1; fi
-          python3 -m zipfile --test "jellyfin-plugin-samerow/dist/SameRow-Connect-$version.zip"
-          cd jellyfin-plugin-samerow/dist
-          sha256sum -c "SameRow-Connect-$version.zip.sha256"
+          python3 jellyfin-plugin-mellettem/package.py --sender-dir "$RUNNER_TEMP/sender"
+          version=$(jq -r .version jellyfin-plugin-mellettem/meta.json)
+          if [[ "$GITHUB_REF_TYPE" == "tag" && "$GITHUB_REF_NAME" != "mellettem-connect-v$version" ]]; then exit 1; fi
+          python3 -m zipfile --test "jellyfin-plugin-mellettem/dist/Mellettem-Connect-$version.zip"
+          cd jellyfin-plugin-mellettem/dist
+          sha256sum -c "Mellettem-Connect-$version.zip.sha256"
       - uses: actions/upload-artifact@v4
         with:
-          name: SameRow-Connect
-          path: jellyfin-plugin-samerow/dist/*
+          name: Mellettem-Connect
+          path: jellyfin-plugin-mellettem/dist/*
   prerelease:
-    if: startsWith(github.ref, 'refs/tags/samerow-connect-v')
+    if: startsWith(github.ref, 'refs/tags/mellettem-connect-v')
     needs: plugin
     runs-on: ubuntu-latest
     permissions:
@@ -74,16 +74,16 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
-          name: SameRow-Connect
+          name: Mellettem-Connect
           path: dist
       - name: Publish the plugin and corresponding source
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          version=$(jq -r .version jellyfin-plugin-samerow/meta.json)
-          source="SameRow-Connect-$version-source.tar.gz"
-          git archive --format=tar.gz --prefix="SameRow-Connect-$version/" -o "dist/$source" HEAD \
-            jellyfin-plugin-samerow jellyfin-plugin-samerow.tests .github/workflows/jellyfin-plugin.yml
+          version=$(jq -r .version jellyfin-plugin-mellettem/meta.json)
+          source="Mellettem-Connect-$version-source.tar.gz"
+          git archive --format=tar.gz --prefix="Mellettem-Connect-$version/" -o "dist/$source" HEAD \
+            jellyfin-plugin-mellettem jellyfin-plugin-mellettem.tests .github/workflows/jellyfin-plugin.yml
           (cd dist && sha256sum "$source" > "$source.sha256")
-          gh release create "$GITHUB_REF_NAME" --verify-tag --prerelease --title "SameRow Connect $version (beta)" \
-            --notes 'Direct WebRTC starts automatically on paired Jellyfin servers. Upgrade the plugin and restart Jellyfin. Playback falls back to HTTPS when direct delivery is unavailable.' dist/*
+          gh release create "$GITHUB_REF_NAME" --verify-tag --prerelease --title "Mellettem Connect $version (beta)" \
+            --notes 'The Jellyfin dashboard now shows live relay uptime, the previous connection duration, and relay activity. The plugin is now Mellettem Connect. Existing pairings carry over on upgrade. Restart Jellyfin after installation.' dist/*

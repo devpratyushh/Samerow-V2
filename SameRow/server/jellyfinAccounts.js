@@ -46,7 +46,7 @@ function validateServerUrl(value, policy = {}) {
   if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash || blockedAddress(url.hostname, policy)) {
     throw failure(400, 'Use a Jellyfin HTTP or HTTPS address without credentials, query parameters, or a fragment.');
   }
-  if (policy.origins?.length && !policy.origins.includes(url.origin)) throw failure(403, 'This Jellyfin server is not allowed by this SameRow deployment.');
+  if (policy.origins?.length && !policy.origins.includes(url.origin)) throw failure(403, 'This Jellyfin server is not allowed by this Mellettem deployment.');
   if (policy.production && url.protocol !== 'https:' && !policy.allowPrivate) throw failure(400, 'Use an HTTPS Jellyfin server.');
   // A copied Jellyfin web URL should connect to its server (including any base path).
   url.pathname = url.pathname.replace(/\/web(?:\/index\.html)?\/?$/i, '').replace(/\/+$/, '');
@@ -78,7 +78,7 @@ function upstreamRequest(connection, resource, options = {}) {
   const headers = new Headers(options.headers || {});
   headers.delete('host'); headers.delete('cookie'); headers.delete('content-length');
   headers.set('accept-encoding', 'identity');
-  headers.set('authorization', `MediaBrowser Client="SameRow", Device="SameRow Web", DeviceId="${connection.deviceId}", Version="1.0.0"${connection.apiToken ? `, Token="${connection.apiToken}"` : ''}`);
+  headers.set('authorization', `MediaBrowser Client="Mellettem", Device="Mellettem Web", DeviceId="${connection.deviceId}", Version="1.0.0"${connection.apiToken ? `, Token="${connection.apiToken}"` : ''}`);
   headers.delete('x-emby-token');
   headers.delete('x-emby-authorization');
   headers.delete('x-mediabrowser-token');
@@ -136,7 +136,7 @@ function installJellyfinAccounts(app, options = {}) {
   const getPending = key => shared ? shared.get(`quick:${key}`) : pending.get(key);
   const putPending = (key, value) => shared ? shared.set(`quick:${key}`, value, 600) : pending.set(key, value);
   const deletePending = key => shared ? shared.set(`quick:${key}`, null) : pending.delete(key);
-  const dataDir = path.resolve(options.dataDir || process.env.SAMEROW_DATA_DIR || path.join(__dirname, '.data'));
+  const dataDir = path.resolve(options.dataDir || process.env.MELLETTEM_DATA_DIR || process.env.SAMEROW_DATA_DIR || path.join(__dirname, '.data'));
   const storePath = path.join(dataDir, 'jellyfin-accounts.json');
   let saveTimer;
   const save = () => {
@@ -161,12 +161,12 @@ function installJellyfinAccounts(app, options = {}) {
         connections.set(connection.token, connection);
       }
     }
-  } catch (error) { if (error.code !== 'ENOENT') throw new Error('The saved Jellyfin connections could not be read. Check SAMEROW_DATA_DIR and its permissions.'); }
+  } catch (error) { if (error.code !== 'ENOENT') throw new Error('The saved Jellyfin connections could not be read. Check MELLETTEM_DATA_DIR and its permissions.'); }
 
   const account = connection => ({ serverUrl: connection.base, serverId: connection.serverId, serverName: connection.serverName, userId: connection.userId, userName: connection.userName });
   const requireAccount = req => {
     const user = req.identity;
-    if (!user?.uid || user.connectorId || user.firebase?.sign_in_provider === 'anonymous') throw failure(403, 'Sign in to your SameRow account before linking Jellyfin.');
+    if (!user?.uid || user.connectorId || user.firebase?.sign_in_provider === 'anonymous') throw failure(403, 'Sign in to your Mellettem account before linking Jellyfin.');
     return user.uid;
   };
   const linkedKey = uid => `jellyfin-links:${uid}`;
@@ -224,12 +224,12 @@ function installJellyfinAccounts(app, options = {}) {
     if (typeof result?.AccessToken !== 'string' || !upstreamTokenPattern.test(result.AccessToken) || !validId(result.User?.Id)) throw failure(502, 'Jellyfin returned an invalid sign-in response.');
     const info = await jsonRequest(connection, '/System/Info/Public').catch(() => ({}));
     const value = { token: mintToken(), ownerUid, accountLinked, sameRowEmail: typeof sameRowEmail === 'string' ? sameRowEmail.slice(0, 320) : '', base: connection.base, apiToken: result.AccessToken, userId: result.User.Id, serverId: safeText(result.ServerId || info.Id, 128), userName: safeText(result.User.Name), serverName: safeText(info.ServerName) || 'Jellyfin', deviceId: connection.deviceId, remember: remember !== false, createdAt: Date.now(), lastUsed: Date.now() };
-    if (!shared && connections.size >= 5000) throw failure(503, 'This SameRow server has reached its connection limit.');
+    if (!shared && connections.size >= 5000) throw failure(503, 'This Mellettem server has reached its connection limit.');
     if (!shared) connections.set(value.token, value);
     try { if (shared) await shared.set(`account:${value.token}`, value, value.accountLinked ? 0 : value.remember ? idleLifetime / 1000 : 43200); else if (value.remember) save(); }
-    catch { connections.delete(value.token); request(value, '/Sessions/Logout', { method: 'POST', timeoutMs: 5000 }).then(response => response.body?.cancel()).catch(() => {}); throw failure(503, 'SameRow could not remember this connection. Check shared storage or try again shortly.'); }
+    catch { connections.delete(value.token); request(value, '/Sessions/Logout', { method: 'POST', timeoutMs: 5000 }).then(response => response.body?.cancel()).catch(() => {}); throw failure(503, 'Mellettem could not remember this connection. Check shared storage or try again shortly.'); }
     try { await addLink(value); }
-    catch { await forget(value); throw failure(503, 'SameRow could not save your account link. Try again shortly.'); }
+    catch { await forget(value); throw failure(503, 'Mellettem could not save your account link. Try again shortly.'); }
     return { token: value.token, account: account(value), accountLinked: value.accountLinked };
   };
   const throttle = async (req, kind, maximum, period) => {
@@ -259,7 +259,7 @@ function installJellyfinAccounts(app, options = {}) {
     } catch (error) {
       if (res.headersSent || res.destroyed) return;
       const status = Number.isInteger(error.status) ? error.status : 502;
-      res.status(status).json({ error: error.status ? error.message : error.name === 'AbortError' || error.name === 'TimeoutError' ? 'Jellyfin took too long to respond. Try again.' : 'SameRow could not reach Jellyfin. Use an address reachable from this SameRow server.' });
+      res.status(status).json({ error: error.status ? error.message : error.name === 'AbortError' || error.name === 'TimeoutError' ? 'Jellyfin took too long to respond. Try again.' : 'Mellettem could not reach Jellyfin. Use an address reachable from this Mellettem server.' });
     }
   };
   const router = express.Router();

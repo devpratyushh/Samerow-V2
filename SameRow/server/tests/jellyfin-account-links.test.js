@@ -38,7 +38,7 @@ async function fixture(t) {
   return {request,store,address, login: (extra={},user) => request('/login',{user,body:{serverUrl:address,username:'viewer',password:'correct',linkAccount:true,...extra}}), expire:()=>{accepted=false;}, revoke:()=>{revoked=true;}, restart:()=>{ service.close(); const second=express(); second.use((req,res,next)=>{req.identity={uid:'owner',firebase:{sign_in_provider:'google.com'}};next();}); service=installJellyfinAccounts(second,options); server.removeAllListeners('request'); server.on('request',second); }};
 }
 
-test('explicit links are restored by SameRow identity across browsers and service restarts',async t=>{
+test('explicit links are restored by Mellettem identity across browsers and service restarts',async t=>{
   const f=await fixture(t);
   const login=await f.login();
   assert.equal(login.status,200);

@@ -21,12 +21,12 @@ using MediaBrowser.Model.Serialization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Logging;
-using SameRow.Plugin;
-using SameRow.Plugin.Configuration;
-using SameRow.Plugin.Controllers;
-using SameRow.Plugin.Services;
+using Mellettem.Plugin;
+using Mellettem.Plugin.Configuration;
+using Mellettem.Plugin.Controllers;
+using Mellettem.Plugin.Services;
 
-namespace SameRow.Plugin.Tests;
+namespace Mellettem.Plugin.Tests;
 
 public static class Program
 {
@@ -45,7 +45,7 @@ public static class Program
 
         if (args.Contains("--relay")) return await RunRelayAsync();
 
-        Console.WriteLine("=== Running SameRow Connect Plugin Test Suite ===");
+        Console.WriteLine("=== Running Mellettem Connect Plugin Test Suite ===");
 
         await RunTestAsync("Configuration: Default state and IsPaired logic", TestConfigurationDefaults);
         await RunTestAsync("Credential protection: persistence, permissions, tamper rejection", TestCredentials);
@@ -55,6 +55,7 @@ public static class Program
         await RunTestAsync("Relay Protocol: JSON is carried as opaque bytes", () => TestRelayRangeRequestStreaming(true));
         await RunTestAsync("Relay Lifecycle: 401 Unauthorized enters AuthFailed state", TestRelayAuthFailure);
         await RunTestAsync("Relay lifecycle: a healthy poll keeps the connector online during worker failures", TestRelayWorkerFailures);
+        await RunTestAsync("Relay lifecycle: connection duration rolls over on reconnect", TestConnectionDurations);
         await RunTestAsync("Relay lifecycle: duplicate start and disposal are safe", TestDuplicateLifecycle);
         await RunTestAsync("Controller: Pairing flow (Start, Claim, Status, Disconnect)", TestControllerPairingWorkflow);
         await RunTestAsync("Controller: Settings update and friendly name persistence", TestControllerSettings);
@@ -66,9 +67,9 @@ public static class Program
 
     private static async Task<int> RunRelayAsync()
     {
-            var uri = new Uri(Environment.GetEnvironmentVariable("SAMEROW_TEST_JELLYFIN") ?? "http://127.0.0.1:8096");
-            var gateway = Environment.GetEnvironmentVariable("SAMEROW_TEST_GATEWAY") ?? throw new InvalidOperationException("Missing gateway");
-            var token = Environment.GetEnvironmentVariable("SAMEROW_TEST_CONNECTOR") ?? throw new InvalidOperationException("Missing connector");
+            var uri = new Uri(Environment.GetEnvironmentVariable("MELLETTEM_TEST_JELLYFIN") ?? "http://127.0.0.1:8096");
+            var gateway = Environment.GetEnvironmentVariable("MELLETTEM_TEST_GATEWAY") ?? throw new InvalidOperationException("Missing gateway");
+            var token = Environment.GetEnvironmentVariable("MELLETTEM_TEST_CONNECTOR") ?? throw new InvalidOperationException("Missing connector");
             if (!new Uri(gateway).IsLoopback || !uri.IsLoopback) throw new InvalidOperationException("Test relay is restricted to loopback servers");
             InitMockPlugin(gateway, token);
             var host = DuckProxy.Create<IServerApplicationHost>(proxy =>
@@ -77,7 +78,7 @@ public static class Program
                 proxy.Returns["get_CoreStartupHasCompleted"] = true;
             });
             using var loggerFactory = LoggerFactory.Create(builder => builder.AddConsole().SetMinimumLevel(LogLevel.Debug));
-            using var service = new SameRowConnectorService(host, new RealHttpClientFactory(), loggerFactory.CreateLogger<SameRowConnectorService>());
+            using var service = new MellettemConnectorService(host, new RealHttpClientFactory(), loggerFactory.CreateLogger<MellettemConnectorService>());
             using var cancellation = new CancellationTokenSource();
             Console.CancelKeyPress += (_, eventArgs) => { eventArgs.Cancel = true; cancellation.Cancel(); };
             await service.StartAsync(CancellationToken.None);
@@ -120,7 +121,7 @@ public static class Program
 
     private static Task TestCredentials()
     {
-        var directory = Path.Combine(Path.GetTempPath(), "samerow-credential-test-" + Guid.NewGuid());
+        var directory = Path.Combine(Path.GetTempPath(), "mellettem-credential-test-" + Guid.NewGuid());
         try
         {
             var vault = new CredentialVault(directory);
@@ -152,7 +153,12 @@ public static class Program
         var cfg = new PluginConfiguration();
         Assert(!cfg.IsPaired, "New configuration must not be paired");
         AssertEqual(8, cfg.WorkerCount, "Default worker count should be 8");
-        AssertEqual("https://samerow-v2.vercel.app", cfg.SameRowWebUrl, "Default web URL");
+        AssertEqual("https://samerow-v2.vercel.app", cfg.MellettemWebUrl, "Default web URL");
+
+        using var legacyXml = new StringReader("<PluginConfiguration><SameRowWebUrl>https://watch.example.com</SameRowWebUrl><SameRowControlUrl>https://control.example.com</SameRowControlUrl></PluginConfiguration>");
+        var migrated = (PluginConfiguration)new System.Xml.Serialization.XmlSerializer(typeof(PluginConfiguration)).Deserialize(legacyXml)!;
+        AssertEqual("https://watch.example.com", migrated.MellettemWebUrl, "Existing web origin survives the rename");
+        AssertEqual("https://control.example.com", migrated.MellettemControlUrl, "Existing control origin survives the rename");
 
         cfg.ConnectorToken = "abc.123";
         cfg.GatewayUrl = "https://gateway.example.com";
@@ -181,11 +187,11 @@ public static class Program
 
     private static Task TestPathSecurity()
     {
-        Assert(!SameRowConnectorService.IsAllowedRequest("POST", "/System/Configuration"), "Cloud cannot update server configuration");
-        Assert(!SameRowConnectorService.IsAllowedRequest("DELETE", "/Users/admin"), "Cloud cannot delete users");
-        Assert(!SameRowConnectorService.IsAllowedRequest("GET", "/SameRow/Status"), "Cloud cannot access plugin administration");
-        Assert(SameRowConnectorService.IsAllowedRequest("GET", "/Videos/movie/hls1/a/0.mp4"), "Media is permitted");
-        Assert(SameRowConnectorService.IsAllowedRequest("POST", "/Items/movie/PlaybackInfo"), "Playback negotiation is permitted");
+        Assert(!MellettemConnectorService.IsAllowedRequest("POST", "/System/Configuration"), "Cloud cannot update server configuration");
+        Assert(!MellettemConnectorService.IsAllowedRequest("DELETE", "/Users/admin"), "Cloud cannot delete users");
+        Assert(!MellettemConnectorService.IsAllowedRequest("GET", "/Mellettem/Status"), "Cloud cannot access plugin administration");
+        Assert(MellettemConnectorService.IsAllowedRequest("GET", "/Videos/movie/hls1/a/0.mp4"), "Media is permitted");
+        Assert(MellettemConnectorService.IsAllowedRequest("POST", "/Items/movie/PlaybackInfo"), "Playback negotiation is permitted");
 
         var invalidPaths = new[]
         {
@@ -203,7 +209,7 @@ public static class Program
 
         foreach (var path in invalidPaths)
         {
-            bool isDisallowed = !SameRowConnectorService.IsValidResource(path);
+            bool isDisallowed = !MellettemConnectorService.IsValidResource(path);
             Assert(isDisallowed, $"Path '{path}' must be flagged as disallowed");
         }
 
@@ -267,8 +273,8 @@ public static class Program
 
         var factory = new MockHttpClientFactory(new Dictionary<string, HttpMessageHandler>
         {
-            { "SameRowLoopback", mockLocalHandler },
-            { "SameRowCloud", mockCloudHandler }
+            { "MellettemLoopback", mockLocalHandler },
+            { "MellettemCloud", mockCloudHandler }
         });
 
         var mockAppHost = DuckProxy.Create<IServerApplicationHost>(p =>
@@ -277,7 +283,7 @@ public static class Program
             p.Returns["get_CoreStartupHasCompleted"] = true;
         });
 
-        var service = new SameRowConnectorService(mockAppHost, factory, NullLogger<SameRowConnectorService>.Instance);
+        var service = new MellettemConnectorService(mockAppHost, factory, NullLogger<MellettemConnectorService>.Instance);
 
         InitMockPlugin("https://cloud.example.com", $"{expectedJobId}.secret_digest");
 
@@ -312,8 +318,8 @@ public static class Program
 
         var factory = new MockHttpClientFactory(new Dictionary<string, HttpMessageHandler>
         {
-            { "SameRowLoopback", new MockHttpMessageHandler(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK))) },
-            { "SameRowCloud", mockCloudHandler }
+            { "MellettemLoopback", new MockHttpMessageHandler(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK))) },
+            { "MellettemCloud", mockCloudHandler }
         });
 
         var mockAppHost = DuckProxy.Create<IServerApplicationHost>(p =>
@@ -322,7 +328,7 @@ public static class Program
             p.Returns["get_CoreStartupHasCompleted"] = true;
         });
 
-        var service = new SameRowConnectorService(mockAppHost, factory, NullLogger<SameRowConnectorService>.Instance);
+        var service = new MellettemConnectorService(mockAppHost, factory, NullLogger<MellettemConnectorService>.Instance);
 
         InitMockPlugin("https://cloud.example.com", "0123456789abcdef0123456789abcdef.invalid");
 
@@ -374,11 +380,11 @@ public static class Program
         });
         var factory = new MockHttpClientFactory(new Dictionary<string, HttpMessageHandler>
         {
-            { "SameRowCloud", handler },
-            { "SameRowLoopback", new MockHttpMessageHandler(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK))) }
+            { "MellettemCloud", handler },
+            { "MellettemLoopback", new MockHttpMessageHandler(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK))) }
         });
         var host = DuckProxy.Create<IServerApplicationHost>(p => p.Returns["get_HttpPort"] = 8096);
-        using var service = new SameRowConnectorService(host, factory, NullLogger<SameRowConnectorService>.Instance);
+        using var service = new MellettemConnectorService(host, factory, NullLogger<MellettemConnectorService>.Instance);
         await service.StartAsync(CancellationToken.None);
         try
         {
@@ -390,15 +396,61 @@ public static class Program
         finally { await service.StopAsync(CancellationToken.None); }
     }
 
+    private static async Task TestConnectionDurations()
+    {
+        InitMockPlugin("https://cloud.example.com", "0123456789abcdef0123456789abcdef.invalid");
+        Plugin.Instance!.Configuration.WorkerCount = 1;
+        var factory = new MockHttpClientFactory(new Dictionary<string, HttpMessageHandler>
+        {
+            { "MellettemCloud", new MockHttpMessageHandler(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.NoContent))) }
+        });
+        var host = DuckProxy.Create<IServerApplicationHost>();
+        using var service = new MellettemConnectorService(host, factory, NullLogger<MellettemConnectorService>.Instance);
+        var controller = new MellettemController(service, factory, NullLogger<MellettemController>.Instance);
+        JsonElement Status() => JsonSerializer.SerializeToElement(((OkObjectResult)controller.GetStatus().Result!).Value);
+        async Task<JsonElement> WaitForConnection()
+        {
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+            while (true)
+            {
+                var status = Status();
+                if (status.GetProperty("connectionState").GetString() == "Connected") return status;
+                await Task.Delay(10, timeout.Token);
+            }
+        }
+
+        AssertEqual(JsonValueKind.Null, Status().GetProperty("connectedDurationSeconds").ValueKind, "No initial connection duration");
+        await service.StartAsync(CancellationToken.None);
+        var first = await WaitForConnection();
+        await Task.Delay(150);
+        var later = Status();
+        Assert(later.GetProperty("connectedDurationSeconds").GetDouble() > first.GetProperty("connectedDurationSeconds").GetDouble(), "Uptime advances across successful polls");
+        AssertEqual(first.GetProperty("lastConnectedAt").GetString(), later.GetProperty("lastConnectedAt").GetString(), "Repeated polls do not restart the timer");
+        AssertEqual(JsonValueKind.Null, later.GetProperty("lastConnectionDurationSeconds").ValueKind, "The first session has not finished");
+
+        await service.RestartAsync();
+        var reconnected = await WaitForConnection();
+        var previous = reconnected.GetProperty("lastConnectionDurationSeconds").GetDouble();
+        Assert(previous >= later.GetProperty("connectedDurationSeconds").GetDouble(), "The completed session keeps its final duration");
+        Assert(reconnected.GetProperty("connectedDurationSeconds").GetDouble() < previous, "The new session starts a new timer");
+        Assert(reconnected.GetProperty("lastDisconnectedAt").GetDateTime() <= reconnected.GetProperty("lastConnectedAt").GetDateTime(), "The previous session ends before the new one begins");
+
+        await service.StopAsync(CancellationToken.None);
+        var stopped = Status();
+        AssertEqual("Stopped", stopped.GetProperty("connectionState").GetString(), "Stopping ends the current session");
+        AssertEqual(JsonValueKind.Null, stopped.GetProperty("connectedDurationSeconds").ValueKind, "Offline uptime is unavailable");
+        Assert(stopped.GetProperty("lastConnectionDurationSeconds").GetDouble() >= reconnected.GetProperty("connectedDurationSeconds").GetDouble(), "Stopping records the final duration");
+    }
+
     private static async Task TestDuplicateLifecycle()
     {
         InitMockPlugin("https://cloud.example.com", "0123456789abcdef0123456789abcdef.invalid");
         Plugin.Instance!.Configuration.WorkerCount = 16;
         int polls = 0;
         var handler = new MockHttpMessageHandler(async _ => { Interlocked.Increment(ref polls); await Task.Delay(300); return new HttpResponseMessage(HttpStatusCode.NoContent); });
-        var factory = new MockHttpClientFactory(new Dictionary<string, HttpMessageHandler> { { "SameRowCloud", handler } });
+        var factory = new MockHttpClientFactory(new Dictionary<string, HttpMessageHandler> { { "MellettemCloud", handler } });
         var host = DuckProxy.Create<IServerApplicationHost>(p => { p.Returns["get_HttpPort"] = 8096; p.Returns["get_CoreStartupHasCompleted"] = true; });
-        var service = new SameRowConnectorService(host, factory, NullLogger<SameRowConnectorService>.Instance);
+        var service = new MellettemConnectorService(host, factory, NullLogger<MellettemConnectorService>.Instance);
         await service.StartAsync(CancellationToken.None);
         await service.StartAsync(CancellationToken.None);
         await Task.Delay(150);
@@ -468,8 +520,8 @@ public static class Program
 
         var factory = new MockHttpClientFactory(new Dictionary<string, HttpMessageHandler>
         {
-            { "SameRowLoopback", new MockHttpMessageHandler(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK))) },
-            { "SameRowCloud", mockCloudHandler }
+            { "MellettemLoopback", new MockHttpMessageHandler(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK))) },
+            { "MellettemCloud", mockCloudHandler }
         });
 
         var mockAppHost = DuckProxy.Create<IServerApplicationHost>(p =>
@@ -478,8 +530,8 @@ public static class Program
             p.Returns["get_CoreStartupHasCompleted"] = true;
         });
 
-        var service = new SameRowConnectorService(mockAppHost, factory, NullLogger<SameRowConnectorService>.Instance);
-        var controller = new SameRowController(service, factory, NullLogger<SameRowController>.Instance);
+        var service = new MellettemConnectorService(mockAppHost, factory, NullLogger<MellettemConnectorService>.Instance);
+        var controller = new MellettemController(service, factory, NullLogger<MellettemController>.Instance);
 
         InitMockPlugin("", "");
 
@@ -543,8 +595,8 @@ public static class Program
             p.Returns["get_HttpPort"] = 8096;
         });
 
-        var service = new SameRowConnectorService(mockAppHost, factory, NullLogger<SameRowConnectorService>.Instance);
-        var controller = new SameRowController(service, factory, NullLogger<SameRowController>.Instance);
+        var service = new MellettemConnectorService(mockAppHost, factory, NullLogger<MellettemConnectorService>.Instance);
+        var controller = new MellettemController(service, factory, NullLogger<MellettemController>.Instance);
 
         InitMockPlugin("", "");
 
@@ -567,12 +619,13 @@ public static class Program
     private static Task TestPluginMetadata()
     {
         var plugin = Plugin.Instance!;
-        AssertEqual("SameRow Connect", plugin.Name, "Plugin Name");
+        AssertEqual("Mellettem Connect", plugin.Name, "Plugin Name");
         AssertEqual(Plugin.PluginId, plugin.Id, "Plugin GUID");
+        AssertEqual("SameRow.Plugin.xml", plugin.ConfigurationFileName, "Installed plugin configuration is retained");
         var pages = plugin.GetPages().ToList();
         AssertEqual(1, pages.Count, "Must expose 1 configuration web page");
-        AssertEqual("samerow", pages[0].Name, "Page name must be samerow");
-        AssertEqual("SameRow.Plugin.Configuration.configPage.html", pages[0].EmbeddedResourcePath, "Embedded resource path");
+        AssertEqual("mellettem", pages[0].Name, "Page name must be mellettem");
+        AssertEqual("Mellettem.Plugin.Configuration.configPage.html", pages[0].EmbeddedResourcePath, "Embedded resource path");
         return Task.CompletedTask;
     }
 

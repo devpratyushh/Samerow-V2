@@ -19,7 +19,8 @@ const video=page=>page.locator('.jellyfin-player video');
 const add=async name=>{
  const page=await context.newPage();pages.push(page);page.on('pageerror',error=>errors.push(error.message));
  await page.addInitScript(()=>{window.rtcConnections=[];const Native=window.RTCPeerConnection;window.RTCPeerConnection=class extends Native{constructor(...args){super(...args);window.rtcConnections.push(this);}};});
- await page.goto(`${base}/tests/room-integration.html?server=${encodeURIComponent(server)}&name=${name}&motion=1`);
+ const query = new URLSearchParams({ server, name, token: `dev:${name}`, motion: '1' });
+ await page.goto(`${base}/tests/room-integration.html?${query}`);
  await page.waitForFunction(()=>window.socketEmissions.some(event=>event.name==='join-room'));
  await page.evaluate(()=>window.completeMediaPermission());return page;
 };
@@ -46,7 +47,7 @@ try {
  for (const width of [390, 1280]) {
   await host.setViewportSize({width,height:800});
   assert.ok(await host.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
-  await host.screenshot({path:`/tmp/samerow-network-${width}.png`});
+  await host.screenshot({path:`/tmp/mellettem-network-${width}.png`});
  }
  assert.deepEqual(errors, []);
  console.log('PASS delayed manifest diagnosis, real HLS request timings and bytes, credential redaction, responsive network stats, decoded playback');

@@ -44,7 +44,7 @@ function RoomJellyfinPlayer({ state, ...props }) {
     }
   };
   if (state.native && webPlayer) {
-    return <JellyfinNativePlayer state={state} {...props} onOpenSameRow={() => setWebPlayer(false)} />;
+    return <JellyfinNativePlayer state={state} {...props} onOpenMellettem={() => setWebPlayer(false)} />;
   }
   return <JellyfinPlayer state={state} {...props} onOpenNative={state.native ? openWebPlayer : undefined} />;
 }

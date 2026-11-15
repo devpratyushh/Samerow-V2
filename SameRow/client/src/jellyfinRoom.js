@@ -1,6 +1,6 @@
 import { browserId } from './browserId';
 import { useEffect, useRef, useState } from 'react';
-import { createServerClock } from './playbackSync';
+import { commandServerTime, createServerClock } from './playbackSync';
 import { createPendingPlayback } from './pendingPlayback';
 
 export function jellyfinTime(state, now = performance.now()) {
@@ -32,7 +32,7 @@ export function useJellyfinRoom(socket, roomId, mediaBase, onSnapshot) {
       const now = performance.now();
       const offset = clock.offset(now);
       const age = offset === null ? 0 : Math.max(0, Math.min(10, (now + offset - incoming.updatedAt) / 1000));
-      const next = { ...incoming, timestamp: Math.min(incoming.duration, incoming.timestamp + (incoming.playing ? age : 0)), receivedAt: now };
+      const next = { ...incoming, timestamp: Math.min(incoming.duration, incoming.timestamp + (incoming.playing ? age : 0)), receivedAt: now, serverTimeOffset: offset };
       current.current = next; setState(next);
       snapshotListener.current?.(next);
     };
@@ -66,11 +66,13 @@ export function useJellyfinRoom(socket, roomId, mediaBase, onSnapshot) {
       let timestamp = action === 'seek' ? time : jellyfinTime(previous, now);
       if (action === 'play' && timestamp >= previous.duration - 0.1) timestamp = 0;
       pending.begin(previous, commandId, now);
-      const next = { ...previous, timestamp, playing: action === 'play' ? true : action === 'pause' ? false : previous.playing, receivedAt: now };
+      const next = { ...previous, timestamp, seek: action === 'seek' ? { id: commandId, time } : null, playing: action === 'play' ? true : action === 'pause' ? false : previous.playing, receivedAt: now };
       current.current = next;
       setState(next);
     }
-    socket.emit('jellyfin-command', { roomId, sessionId: previous.sessionId, action, time, commandId });
+    socket.emit('jellyfin-command', { roomId, sessionId: previous.sessionId, action, time, commandId,
+      sentAt: action === 'seek' ? commandServerTime(previous, now) : undefined });
+    return commandId;
   };
   const open = details => new Promise((resolve, reject) => {
     if (!socket.connected) { reject(new Error('Wait for the room to reconnect.')); return; }

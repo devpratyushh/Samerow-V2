@@ -8,8 +8,8 @@ test('request telemetry measures waiting, first byte, bytes and completion witho
   const update = network.begin('manifest');
   time = 2010;
   assert.match(networkDiagnosis(network.snapshot()), /2.0s. No response bytes/);
-  update('Downloading', { loaded: 1024, loading: { start: 10, first: 510 } });
-  assert.match(networkDiagnosis(network.snapshot()), /1 KiB/);
+  update('Downloading', { loaded: 1024, total: 2048, loading: { start: 10, first: 510 } });
+  assert.match(networkDiagnosis(network.snapshot()), /1 KiB \/ 2 KiB/);
   time = 4010;
   update('Complete', { loaded: 2048, retry: 1, loading: { start: 10, first: 510 } }, 200);
   const snapshot = network.snapshot();
@@ -17,6 +17,7 @@ test('request telemetry measures waiting, first byte, bytes and completion witho
   assert.equal(snapshot.completed, 1);
   assert.equal(snapshot.requests[0].ttfb, 500);
   assert.equal(snapshot.requests[0].throughput, 4096);
+  assert.equal(snapshot.requests[0].transferRate, 2048 * 8000 / 3500);
   assert.equal(snapshot.requests[0].retries, 1);
 });
 

@@ -4,7 +4,7 @@
 using System.Security.Cryptography;
 using System.Text;
 
-namespace SameRow.Plugin.Services;
+namespace Mellettem.Plugin.Services;
 
 /// <summary>Protects saved credentials with a server-local, owner-readable key.</summary>
 public sealed class CredentialVault
@@ -32,7 +32,7 @@ public sealed class CredentialVault
             catch (IOException) when (File.Exists(path)) { }
         }
         _key = File.ReadAllBytes(path);
-        if (_key.Length != 32) throw new CryptographicException("SameRow credential key is invalid.");
+        if (_key.Length != 32) throw new CryptographicException("Mellettem credential key is invalid.");
         if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
     }
 
@@ -51,7 +51,7 @@ public sealed class CredentialVault
     {
         if (string.IsNullOrEmpty(value)) return "";
         var input = Convert.FromBase64String(value);
-        if (input.Length < 28) throw new CryptographicException("SameRow credential is invalid.");
+        if (input.Length < 28) throw new CryptographicException("Mellettem credential is invalid.");
         var plaintext = new byte[input.Length - 28];
         using var aes = new AesGcm(_key, 16);
         aes.Decrypt(input.AsSpan(0, 12), input.AsSpan(28), input.AsSpan(12, 16), plaintext, "SameRow credential v1"u8);

@@ -50,7 +50,7 @@ test('local responses disable picture-in-picture at the document level', async t
 
 test('production fails closed on missing services, development auth, unsafe origins and emulator configuration', () => {
   assert.throws(() => configuration({ NODE_ENV: 'production' }), /Production requires/);
-  const env = { NODE_ENV: 'production', REDIS_URL: 'redis://localhost', DATA_ENCRYPTION_KEY: 'a'.repeat(64), CLIENT_ORIGINS: 'https://samerow.example', FIREBASE_PROJECT_ID: 'project', FIREBASE_SERVICE_ACCOUNT_JSON: '{}', LIVEKIT_URL: 'wss://sfu.example', LIVEKIT_API_KEY: 'key', LIVEKIT_API_SECRET: 'secret' };
+  const env = { NODE_ENV: 'production', REDIS_URL: 'redis://localhost', DATA_ENCRYPTION_KEY: 'a'.repeat(64), CLIENT_ORIGINS: 'https://mellettem.example', FIREBASE_PROJECT_ID: 'project', FIREBASE_SERVICE_ACCOUNT_JSON: '{}', LIVEKIT_URL: 'wss://sfu.example', LIVEKIT_API_KEY: 'key', LIVEKIT_API_SECRET: 'secret' };
   assert.equal(configuration(env).mediaMode, 'livekit');
   assert.throws(() => configuration({ ...env, AUTH_MODE: 'development' }));
   assert.throws(() => configuration({ ...env, CLIENT_ORIGINS: '*' }));
@@ -71,7 +71,7 @@ test('private and metadata upstreams are rejected before credentials are sent', 
 });
 
 test('authentication, origin restrictions, membership checks and room capacity are enforced', async t => {
-  const application = await start(t, { config: { origins: ['https://samerow.example'], maxRoomSize: 2 } });
+  const application = await start(t, { config: { origins: ['https://mellettem.example'], maxRoomSize: 2 } });
   const invalid = connect(application.url, { transports: ['websocket'], auth: { token: 'forged' }, reconnection: false });
   t.after(() => invalid.disconnect());
   assert.match((await next(invalid, 'connect_error')).message, /Sign in/);
@@ -127,7 +127,7 @@ test('room chat is unavailable and existing history is retained', async t => {
 
 const redisUrl = process.env.TEST_REDIS_URL;
 test('Redis: two instances share atomic playback, rate limits, encrypted credentials and restart recovery', { skip: !redisUrl }, async t => {
-  const settings = config({ redisUrl, encryptionKey: 'a'.repeat(64), prefix: `samerow-test:${randomUUID()}`, maxRoomSize: 25 });
+  const settings = config({ redisUrl, encryptionKey: 'a'.repeat(64), prefix: `mellettem-test:${randomUUID()}`, maxRoomSize: 25 });
   const firstStore = await createStore(settings), secondStore = await createStore(settings);
   const first = await start(t, { store: firstStore, config: settings }), second = await start(t, { store: secondStore, config: settings });
   const host = (await join(t, first, 'movie', 'owner')).socket, guest = (await join(t, second, 'movie', 'guest')).socket;
@@ -193,7 +193,7 @@ async function startJellyfinFixture(t) {
 
 test('Redis: Jellyfin sign-in, credentials, native gateway and revocation work across separate services', { skip: !redisUrl }, async t => {
   const upstreamUrl = await startJellyfinFixture(t);
-  const settings = config({ redisUrl, encryptionKey: 'b'.repeat(64), prefix: `samerow-test:${randomUUID()}` });
+  const settings = config({ redisUrl, encryptionKey: 'b'.repeat(64), prefix: `mellettem-test:${randomUUID()}` });
   const first = await start(t, { store: await createStore(settings), config: settings });
   const second = await start(t, { store: await createStore(settings), config: settings });
   const media = await start(t, { store: await createStore(settings), config: { ...settings, serviceRole: 'media' } });
@@ -341,7 +341,7 @@ test('the Jellyfin pilot admits only four participants across control replicas',
     MEDIA_PUBLIC_URL: 'https://media.example',
     REDIS_URL: process.env.TEST_REDIS_URL,
     DATA_ENCRYPTION_KEY: 'c'.repeat(64),
-    REDIS_PREFIX: `samerow-pilot-test:${randomUUID()}`,
+    REDIS_PREFIX: `mellettem-pilot-test:${randomUUID()}`,
   });
   assert.equal(settings.maxRoomSize, 4);
   const first = await start(t, { store: await createStore(settings), config: settings });
@@ -370,9 +370,9 @@ test('production control acknowledges a generated room join and the media servic
   const settings = configuration({
     NODE_ENV: 'production',
     SERVICE_ROLE: 'control',
-    CLIENT_ORIGINS: 'https://samerow.example',
+    CLIENT_ORIGINS: 'https://mellettem.example',
     REDIS_URL: process.env.TEST_REDIS_URL,
-    REDIS_PREFIX: `samerow-deploy-test:${randomUUID()}`,
+    REDIS_PREFIX: `mellettem-deploy-test:${randomUUID()}`,
     DATA_ENCRYPTION_KEY: 'd'.repeat(64),
     FIREBASE_PROJECT_ID: 'project',
     FIREBASE_SERVICE_ACCOUNT_JSON: '{}',

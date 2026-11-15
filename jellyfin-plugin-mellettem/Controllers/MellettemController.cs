@@ -16,31 +16,32 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
-using SameRow.Plugin.Configuration;
-using SameRow.Plugin.Services;
+using Mellettem.Plugin.Configuration;
+using Mellettem.Plugin.Services;
 
-namespace SameRow.Plugin.Controllers;
+namespace Mellettem.Plugin.Controllers;
 
 /// <summary>
-/// Admin-only API controller for SameRow Connect pairing, status, and lifecycle management.
+/// Admin-only API controller for Mellettem Connect pairing, status, and lifecycle management.
 /// </summary>
 [ApiController]
+[Route("Mellettem")]
 [Route("SameRow")]
 [Authorize(Policy = "RequiresElevation")]
 [Produces("application/json")]
-public class SameRowController : ControllerBase
+public class MellettemController : ControllerBase
 {
     private static readonly SemaphoreSlim PairingLock = new(1, 1);
     private static PendingPairingAttempt? _currentPending;
 
-    private readonly SameRowConnectorService _connectorService;
+    private readonly MellettemConnectorService _connectorService;
     private readonly IHttpClientFactory _httpClientFactory;
-    private readonly ILogger<SameRowController> _logger;
+    private readonly ILogger<MellettemController> _logger;
 
-    public SameRowController(
-        SameRowConnectorService connectorService,
+    public MellettemController(
+        MellettemConnectorService connectorService,
         IHttpClientFactory httpClientFactory,
-        ILogger<SameRowController> logger)
+        ILogger<MellettemController> logger)
     {
         _connectorService = connectorService;
         _httpClientFactory = httpClientFactory;
@@ -48,7 +49,7 @@ public class SameRowController : ControllerBase
     }
 
     /// <summary>
-    /// Gets the current connection and pairing status of the SameRow plugin.
+    /// Gets the current connection and pairing status of the Mellettem plugin.
     /// </summary>
     [HttpGet("AccountBinding")]
     public async Task<ActionResult<object>> GetAccountBinding()
@@ -57,7 +58,7 @@ public class SameRowController : ControllerBase
         if (!config.IsPaired) return Ok(new { sameRowEmail = "", jellyfinAccount = (object?)null });
         try
         {
-            using var client = _httpClientFactory.CreateClient("SameRowCloud");
+            using var client = _httpClientFactory.CreateClient("MellettemCloud");
             using var request = new HttpRequestMessage(HttpMethod.Get, $"{config.GatewayUrl.TrimEnd('/')}/api/jellyfin-relay/account-binding");
             request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", config.ConnectorToken);
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(8));
@@ -75,25 +76,32 @@ public class SameRowController : ControllerBase
     {
         var config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
         var pending = _currentPending != null && !_currentPending.IsExpired ? _currentPending : null;
+        var connection = _connectorService.GetConnectionStatus();
 
         return Ok(new
         {
             isPaired = config.IsPaired,
-            connectionState = _connectorService.State.ToString(),
+            pluginVersion = typeof(Plugin).Assembly.GetName().Version?.ToString(),
+            connectionState = connection.State.ToString(),
             gatewayUrl = config.GatewayUrl,
             connectorId = config.ConnectorId,
-            sameRowWebUrl = config.SameRowWebUrl,
+            mellettemWebUrl = config.MellettemWebUrl,
+            sameRowWebUrl = config.MellettemWebUrl,
             serverFriendlyName = config.ServerFriendlyName,
             pairedAt = config.PairedAt,
-            lastActivityAt = _connectorService.LastActivityAt,
-            lastConnectedAt = _connectorService.LastConnectedAt,
-            lastError = _connectorService.LastError,
+            lastActivityAt = connection.LastActivityAt,
+            lastConnectedAt = connection.LastConnectedAt,
+            lastDisconnectedAt = connection.LastDisconnectedAt,
+            connectedDurationSeconds = connection.ConnectedDurationSeconds,
+            lastConnectionDurationSeconds = connection.LastConnectionDurationSeconds,
+            lastError = connection.LastError,
             activeJobs = _connectorService.ActiveJobs,
             totalJobs = _connectorService.TotalJobs,
             totalBytes = _connectorService.TotalBytes,
             workerCount = config.WorkerCount,
             autoStart = config.AutoStart,
-            sameRowControlUrl = config.SameRowControlUrl,
+            mellettemControlUrl = config.MellettemControlUrl,
+            sameRowControlUrl = config.MellettemControlUrl,
             rotationPending = !string.IsNullOrEmpty(config.PendingProtectedConnectorToken),
             pendingPairing = pending == null ? null : new
             {
@@ -105,7 +113,7 @@ public class SameRowController : ControllerBase
     }
 
     /// <summary>
-    /// Initiates a new one-time pairing flow with SameRow Cloud.
+    /// Initiates a new one-time pairing flow with Mellettem Cloud.
     /// </summary>
     [HttpPost("Pair/Start")]
     [ProducesResponseType(StatusCodes.Status200OK)]
@@ -113,9 +121,9 @@ public class SameRowController : ControllerBase
     public async Task<IActionResult> StartPairing([FromBody] StartPairingRequest? request)
     {
         var config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
-        string webUrl = !string.IsNullOrWhiteSpace(request?.WebUrl) ? request.WebUrl.TrimEnd('/') : config.SameRowWebUrl;
+        string webUrl = !string.IsNullOrWhiteSpace(request?.WebUrl) ? request.WebUrl.TrimEnd('/') : config.MellettemWebUrl;
         string controlUrl = !string.IsNullOrWhiteSpace(request?.ControlUrl) ? request.ControlUrl.TrimEnd('/') :
-            (!string.IsNullOrWhiteSpace(config.SameRowControlUrl) ? config.SameRowControlUrl.TrimEnd('/') : "https://samerow-v2.onrender.com");
+            (!string.IsNullOrWhiteSpace(config.MellettemControlUrl) ? config.MellettemControlUrl.TrimEnd('/') : "https://samerow-v2.onrender.com");
 
         if (!IsHttpsOrigin(webUrl) || !IsHttpsOrigin(controlUrl))
             return BadRequest(new { error = "Enter an HTTPS origin without a path, credentials, query, or fragment." });
@@ -129,7 +137,7 @@ public class SameRowController : ControllerBase
             string secret = Convert.ToHexString(secretBytes).ToLowerInvariant();
             string claim = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(secret))).ToLowerInvariant();
 
-            using var client = _httpClientFactory.CreateClient("SameRowCloud");
+            using var client = _httpClientFactory.CreateClient("MellettemCloud");
             var startUri = new Uri($"{controlUrl}/api/jellyfin-relay/approval/start");
 
             HttpResponseMessage response;
@@ -140,10 +148,10 @@ public class SameRowController : ControllerBase
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to connect to SameRow Cloud for pairing at {Uri}", startUri);
+                _logger.LogWarning(ex, "Failed to connect to Mellettem Cloud for pairing at {Uri}", startUri);
                 return StatusCode(StatusCodes.Status503ServiceUnavailable, new
                 {
-                    error = "Could not reach SameRow Cloud. Please check your internet connection and try again."
+                    error = "Could not reach Mellettem Cloud. Please check your internet connection and try again."
                 });
             }
 
@@ -152,7 +160,7 @@ public class SameRowController : ControllerBase
             {
                 return StatusCode(StatusCodes.Status503ServiceUnavailable, new
                 {
-                    error = "SameRow Cloud rejected pairing request. Please try again shortly."
+                    error = "Mellettem Cloud rejected pairing request. Please try again shortly."
                 });
             }
 
@@ -161,7 +169,7 @@ public class SameRowController : ControllerBase
             {
                 return StatusCode(StatusCodes.Status503ServiceUnavailable, new
                 {
-                    error = "Invalid pairing handshake response from SameRow Cloud."
+                    error = "Invalid pairing handshake response from Mellettem Cloud."
                 });
             }
 
@@ -193,7 +201,7 @@ public class SameRowController : ControllerBase
     }
 
     /// <summary>
-    /// Checks if the administrator has approved the pairing on SameRow Web and claims the credential.
+    /// Checks if the administrator has approved the pairing on Mellettem Web and claims the credential.
     /// </summary>
     [HttpPost("Pair/Claim")]
     [ProducesResponseType(StatusCodes.Status200OK)]
@@ -217,7 +225,7 @@ public class SameRowController : ControllerBase
                 });
             }
 
-            using var client = _httpClientFactory.CreateClient("SameRowCloud");
+            using var client = _httpClientFactory.CreateClient("MellettemCloud");
             var claimUri = new Uri($"{pending.ControlUrl}/api/jellyfin-relay/approval/claim");
 
             HttpResponseMessage response;
@@ -232,11 +240,11 @@ public class SameRowController : ControllerBase
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to contact SameRow Cloud at {Uri} during claim", claimUri);
+                _logger.LogWarning(ex, "Failed to contact Mellettem Cloud at {Uri} during claim", claimUri);
                 return StatusCode(StatusCodes.Status503ServiceUnavailable, new
                 {
                     status = "unavailable",
-                    error = "Could not reach SameRow Cloud. Retrying shortly..."
+                    error = "Could not reach Mellettem Cloud. Retrying shortly..."
                 });
             }
 
@@ -246,7 +254,7 @@ public class SameRowController : ControllerBase
                 return StatusCode(StatusCodes.Status202Accepted, new
                 {
                     status = "pending",
-                    message = "Waiting for you to sign in and click Approve on SameRow Web."
+                    message = "Waiting for you to sign in and click Approve on Mellettem Web."
                 });
             }
 
@@ -275,7 +283,7 @@ public class SameRowController : ControllerBase
                 return StatusCode(StatusCodes.Status503ServiceUnavailable, new
                 {
                     status = "unavailable",
-                    error = "Malformed credentials received from SameRow Cloud."
+                    error = "Malformed credentials received from Mellettem Cloud."
                 });
             }
 
@@ -283,8 +291,8 @@ public class SameRowController : ControllerBase
             config.ConnectorToken = claimResult.Token;
             config.GatewayUrl = claimResult.Gateway;
             config.ConnectorId = claimResult.Token.Split('.')[0];
-            config.SameRowWebUrl = pending.WebUrl;
-            config.SameRowControlUrl = pending.ControlUrl;
+            config.MellettemWebUrl = pending.WebUrl;
+            config.MellettemControlUrl = pending.ControlUrl;
             config.PairedAt = DateTime.UtcNow;
 
             Plugin.Instance?.SaveConnectorConfiguration();
@@ -307,7 +315,7 @@ public class SameRowController : ControllerBase
     }
 
     /// <summary>
-    /// Disconnects this server from SameRow and revokes credentials.
+    /// Disconnects this server from Mellettem and revokes credentials.
     /// </summary>
     [HttpPost("Disconnect")]
     [ProducesResponseType(StatusCodes.Status200OK)]
@@ -329,7 +337,7 @@ public class SameRowController : ControllerBase
             try
             {
                 using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
-                using var client = _httpClientFactory.CreateClient("SameRowCloud");
+                using var client = _httpClientFactory.CreateClient("MellettemCloud");
                 using var response = await client.SendAsync(request, timeout.Token);
                 if (!response.IsSuccessStatusCode && response.StatusCode != HttpStatusCode.Unauthorized &&
                     response.StatusCode != HttpStatusCode.NotFound)
@@ -337,7 +345,7 @@ public class SameRowController : ControllerBase
             }
             catch (HttpRequestException)
             {
-                return StatusCode(503, new { error = "Could not reach SameRow to disconnect. Try again shortly." });
+                return StatusCode(503, new { error = "Could not reach Mellettem to disconnect. Try again shortly." });
             }
             catch (OperationCanceledException)
             {
@@ -375,7 +383,7 @@ public class SameRowController : ControllerBase
             try
             {
                 using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
-                using var client = _httpClientFactory.CreateClient("SameRowCloud");
+                using var client = _httpClientFactory.CreateClient("MellettemCloud");
                 using var response = await client.SendAsync(message, timeout.Token);
                 if (!response.IsSuccessStatusCode) return StatusCode(503, new { error = "Credential rotation failed. Retry to finish it." });
             }
@@ -414,9 +422,11 @@ public class SameRowController : ControllerBase
             return BadRequest(new { error = "Use Jellyfin user permissions to limit library access." });
         if (request.WorkerCount.HasValue && (request.WorkerCount < 1 || request.WorkerCount > 16))
             return BadRequest(new { error = "Choose between 1 and 16 relay workers." });
-        if (!string.IsNullOrWhiteSpace(request.SameRowWebUrl) && !IsHttpsOrigin(request.SameRowWebUrl.TrimEnd('/')))
+        request.MellettemWebUrl ??= request.SameRowWebUrl;
+        request.MellettemControlUrl ??= request.SameRowControlUrl;
+        if (!string.IsNullOrWhiteSpace(request.MellettemWebUrl) && !IsHttpsOrigin(request.MellettemWebUrl.TrimEnd('/')))
             return BadRequest(new { error = "Enter a valid HTTPS web origin." });
-        if (!string.IsNullOrWhiteSpace(request.SameRowControlUrl) && !IsHttpsOrigin(request.SameRowControlUrl.TrimEnd('/')))
+        if (!string.IsNullOrWhiteSpace(request.MellettemControlUrl) && !IsHttpsOrigin(request.MellettemControlUrl.TrimEnd('/')))
             return BadRequest(new { error = "Enter a valid HTTPS control origin." });
 
         if (request.ServerFriendlyName != null)
@@ -427,11 +437,11 @@ public class SameRowController : ControllerBase
         if (request.WorkerCount.HasValue && request.WorkerCount.Value >= 1 && request.WorkerCount.Value <= 16)
             config.WorkerCount = request.WorkerCount.Value;
 
-        if (!string.IsNullOrWhiteSpace(request.SameRowWebUrl))
-            config.SameRowWebUrl = request.SameRowWebUrl.TrimEnd('/');
+        if (!string.IsNullOrWhiteSpace(request.MellettemWebUrl))
+            config.MellettemWebUrl = request.MellettemWebUrl.TrimEnd('/');
 
-        if (!string.IsNullOrWhiteSpace(request.SameRowControlUrl))
-            config.SameRowControlUrl = request.SameRowControlUrl.TrimEnd('/');
+        if (!string.IsNullOrWhiteSpace(request.MellettemControlUrl))
+            config.MellettemControlUrl = request.MellettemControlUrl.TrimEnd('/');
         if (request.AutoStart.HasValue) config.AutoStart = request.AutoStart.Value;
         Plugin.Instance?.SaveConnectorConfiguration();
 
@@ -462,12 +472,14 @@ public class ClaimPairingRequest
 
 public class UpdateSettingsRequest
 {
-    public string? SameRowControlUrl { get; set; }
+    public string? MellettemControlUrl { get; set; }
     public bool? AutoStart { get; set; }
     public string? ServerFriendlyName { get; set; }
     public string[]? AllowedLibraryIds { get; set; }
     public int? WorkerCount { get; set; }
+    public string? MellettemWebUrl { get; set; }
     public string? SameRowWebUrl { get; set; }
+    public string? SameRowControlUrl { get; set; }
 }
 
 public class StartApprovalResponse

@@ -88,9 +88,9 @@ try {
     for (let i = 0; i < 25; i++) await page.keyboard.press('Shift+ArrowUp');
   }
   assert.ok(await page.evaluate(() => window.originalVideos.every((node, i) => node === document.querySelectorAll('.participant-grid video')[i])));
-  await page.screenshot({path: '/tmp/samerow-fullscreen-circles.png'});
+  await page.screenshot({path: '/tmp/mellettem-fullscreen-circles.png'});
   await layout.selectOption('strip');
-  await page.screenshot({path: '/tmp/samerow-fullscreen-strip.png'});
+  await page.screenshot({path: '/tmp/mellettem-fullscreen-strip.png'});
   await page.keyboard.press('Escape');
   // Exercise the browser fallback and touch pointer capture independently.
   await page.goto(`${base}/ui-preview?scene=screen&count=4`);

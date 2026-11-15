@@ -1,4 +1,4 @@
-module samerow.local/directsender
+module mellettem.local/directsender
 
 go 1.24.0
 

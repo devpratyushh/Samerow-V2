@@ -18,7 +18,7 @@ function Poster({ base, token, item }) {
   return <div className="jellyfin-poster">{src ? <img src={src} alt="" loading="lazy" /> : <FaFilm aria-hidden="true" />}</div>;
 }
 
-export default function JellyfinDialog({ open, onClose, onShare, onCancel, base = '', initialServerUrl = '', onCreatePrivateRoom, connectOnly = false, sameRowAccount, onConnected, onPairServer }) {
+export default function JellyfinDialog({ open, onClose, onShare, onCancel, base = '', initialServerUrl = '', onCreatePrivateRoom, connectOnly = false, mellettemAccount, onConnected, onPairServer }) {
   const [token, setToken] = useState(() => connectOnly ? '' : savedConnection(initialServerUrl));
   const [account, setAccount] = useState(null);
   const [serverUrl, setServerUrl] = useState(initialServerUrl);
@@ -47,10 +47,10 @@ export default function JellyfinDialog({ open, onClose, onShare, onCancel, base 
   const generation = useRef(0);
   const parentId = trail.at(-1)?.id || '';
   const authenticated = reply => {
-    if (connectOnly && reply.accountLinked !== true) throw new Error('This SameRow server needs an update before it can save account links. Please try again after the server update.');
+    if (connectOnly && reply.accountLinked !== true) throw new Error('This Mellettem server needs an update before it can save account links. Please try again after the server update.');
     rememberConnection(reply.token, remember, initialServerUrl); setToken(reply.token); setAccount(reply.account);
     onConnected?.(reply.account);
-    window.dispatchEvent(new Event('samerow:connections-changed'));
+    window.dispatchEvent(new Event('mellettem:connections-changed'));
     setPassword(''); setQuick(null); setPending(''); setError(''); setTrail([]); setPage(0); setSearch(''); setQuery('');
   };
   useEffect(() => {
@@ -147,7 +147,7 @@ export default function JellyfinDialog({ open, onClose, onShare, onCancel, base 
     setPending('logout'); setError('');
     try { await jellyfinRequest(base, '/logout', { token, method: 'POST' }); }
     catch (err) { setError(err.message); setPending(''); return; }
-    rememberConnection('', false, initialServerUrl); window.dispatchEvent(new Event('samerow:connections-changed')); setToken(''); setAccount(null); setItems([]); setPending(''); setPassword('');
+    rememberConnection('', false, initialServerUrl); window.dispatchEvent(new Event('mellettem:connections-changed')); setToken(''); setAccount(null); setItems([]); setPending(''); setPassword('');
   };
   const choose = async item => {
     if (pending === 'share') return;
@@ -161,7 +161,7 @@ export default function JellyfinDialog({ open, onClose, onShare, onCancel, base 
     try { await onCreatePrivateRoom(); }
     catch (err) { setError(err.message || 'Could not create a private room. Try again.'); setPending(''); }
   };
-  return <Dialog open={open} title={connectOnly ? 'Connect your Jellyfin account' : 'Your Jellyfin library'} description={connectOnly ? `Link your Jellyfin user to ${sameRowAccount || 'your signed-in SameRow account'}. We’ll select the server paired with this SameRow account.` : account ? 'Choose something to watch together. Audio and subtitles stay personal.' : 'Connect once, then choose movies and episodes from your library.'} onClose={close} className={account && !connectOnly ? 'jellyfin-library-dialog' : ''}>
+  return <Dialog open={open} title={connectOnly ? 'Connect your Jellyfin account' : 'Your Jellyfin library'} description={connectOnly ? `Link your Jellyfin user to ${mellettemAccount || 'your signed-in Mellettem account'}. We’ll select the server paired with this Mellettem account.` : account ? 'Choose something to watch together. Audio and subtitles stay personal.' : 'Connect once, then choose movies and episodes from your library.'} onClose={close} className={account && !connectOnly ? 'jellyfin-library-dialog' : ''}>
     {error && <div className="jellyfin-error" role="alert"><p>{error}</p>{roomError && onCreatePrivateRoom ? <button className="sr-button" disabled={!!pending} onClick={createPrivateRoom}>{pending === 'room' ? 'Creating room…' : 'Leave and create private room'}</button> : account && <button className="sr-button" onClick={() => setRefresh(value => value + 1)}>Try again</button>}</div>}
     {!account ? <form onSubmit={signIn} className="jellyfin-sign-in">
       {availableConnectors.length > 0 && !initialServerUrl && <label className="room-field">Connected Jellyfin server
@@ -172,8 +172,8 @@ export default function JellyfinDialog({ open, onClose, onShare, onCancel, base 
       </label>}
       {connectorError && !initialServerUrl && <p role="status">{connectorError}</p>}
       {connectOnly && !canSignIn && <div className="jellyfin-account-discovery">
-        {!discoveryComplete && <p role="status">Finding Jellyfin servers paired with your SameRow account…</p>}
-        {discoveryComplete && !connectorError && <p>No Jellyfin server is paired with this SameRow account yet. In the Jellyfin plugin, choose Connect SameRow and approve it with this same Google or GitHub account.</p>}
+        {!discoveryComplete && <p role="status">Finding Jellyfin servers paired with your Mellettem account…</p>}
+        {discoveryComplete && !connectorError && <p>No Jellyfin server is paired with this Mellettem account yet. In the Jellyfin plugin, choose Connect Mellettem and approve it with this same Google or GitHub account.</p>}
         {onPairServer && <button type="button" className="sr-button" onClick={onPairServer}>Pair a Jellyfin server</button>}
         <button type="button" className="sr-button" onClick={() => { setManualServer(true); setServerUrl(''); }}>Enter a server address instead</button>
       </div>}
@@ -185,9 +185,9 @@ export default function JellyfinDialog({ open, onClose, onShare, onCancel, base 
         <div className="jellyfin-login-actions">{showPassword && <button className="sr-button sr-button--primary" type="submit" disabled={!!pending || !serverUrl.trim() || !username.trim()}>{pending === 'login' ? 'Connecting…' : connectOnly ? 'Connect accounts' : 'Sign in'}</button>}
           <button className={`sr-button ${!showPassword ? 'sr-button--primary' : ''}`} type="button" onClick={event => signIn(event, true)} disabled={!!pending || !serverUrl.trim()}>Use Quick Connect</button>{!showPassword && <button className="sr-button" type="button" onClick={() => setPasswordSignIn(true)}>Use Jellyfin username and password</button>}</div></>}
       {quick && <div className="jellyfin-quick-connect" role="status"><p>In Jellyfin, open <strong>Settings → Quick Connect</strong> and approve this code.</p><output aria-label="Quick Connect code">{quick.code}</output><p>Waiting for approval…</p><button type="button" className="sr-button" onClick={() => { setQuick(null); setPending(''); }}>Cancel Quick Connect</button></div>}
-      <p className="jellyfin-form-note">{initialServerUrl ? 'SameRow connects through the Jellyfin server you selected before entering the room.' : connectOnly ? 'Your Jellyfin password is used only to sign in. The connection is saved securely to your SameRow account, so you can use it on other devices.' : 'Use an address the SameRow server can reach. Your password is used only to sign in.'}</p>
+      <p className="jellyfin-form-note">{initialServerUrl ? 'Mellettem connects through the Jellyfin server you selected before entering the room.' : connectOnly ? 'Your Jellyfin password is used only to sign in. The connection is saved securely to your Mellettem account, so you can use it on other devices.' : 'Use an address the Mellettem server can reach. Your password is used only to sign in.'}</p>
     </form> : connectOnly ? <div className="jellyfin-link-success" role="status">
-      <h3>Accounts connected</h3><p><strong>{account.userName}</strong> on <strong>{account.serverName}</strong> is linked to {sameRowAccount || 'your SameRow account'}.</p>
+      <h3>Accounts connected</h3><p><strong>{account.userName}</strong> on <strong>{account.serverName}</strong> is linked to {mellettemAccount || 'your Mellettem account'}.</p>
       <p>Your library is ready to share when you start a room.</p><button className="sr-button sr-button--primary" onClick={close}>Done</button>
     </div> : <>
       <div className="jellyfin-account"><span><strong>{account.serverName}</strong><small>Signed in as {account.userName}</small></span><button className="sr-button" onClick={logout} disabled={!!pending && pending !== 'library'}><FaSignOutAlt />Disconnect</button></div>

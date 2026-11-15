@@ -13,7 +13,7 @@ const cleanPath = value => {
   if (!decoded.startsWith('/') || /[\\\0]/.test(decoded) || decoded.split('/').some(part => part === '..' || part === '.') || /%2e|%2f|%5c/i.test(decoded)) return null;
   return decoded;
 };
-const authorization = (connection, viewer) => `MediaBrowser Client="SameRow Jellyfin Web", Device="Watch party", DeviceId="${viewer.deviceId}", Version="1.0.0", Token="${connection.apiToken}"`;
+const authorization = (connection, viewer) => `MediaBrowser Client="Mellettem Jellyfin Web", Device="Watch party", DeviceId="${viewer.deviceId}", Version="1.0.0", Token="${connection.apiToken}"`;
 const playerLoader = `<script type="module">
   function loadScript(element) {
     return new Promise((resolve, reject) => {

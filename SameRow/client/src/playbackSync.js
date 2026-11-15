@@ -38,13 +38,12 @@ export function createDriftController() {
   let lastSeek = -Infinity;
   return {
     reset() { driftSince = null; direction = 0; lastSeek = -Infinity; },
-    correction({ currentTime, target, playing, now, force = false, suspended = false, rates = [1] }) {
+    correction({ currentTime, target, playing, now, force = false, suspended = false, rates = [1], tolerance = playing ? 0.15 : 0.08 }) {
       const drift = target - currentTime;
       if (suspended || ![currentTime, target, now].every(Number.isFinite)) {
         driftSince = null;
         return { rate: 1 };
       }
-      const tolerance = playing ? 0.15 : 0.08;
       if (Math.abs(drift) <= tolerance) {
         driftSince = null; direction = 0;
         return { rate: 1 };

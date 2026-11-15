@@ -1,0 +1,18 @@
+{
+  "category": "General",
+  "changelog": "Rebrand to Mellettem Connect and show current and previous relay connection durations and activity in the Jellyfin dashboard.",
+  "description": "Connect your Jellyfin server directly to Mellettem for watch parties without port forwarding.",
+  "guid": "a14b5c7e-8d90-4123-b567-9876543210ab",
+  "name": "Mellettem Connect",
+  "overview": "Watch movies and shows together in real time on Mellettem. Connect through the Jellyfin plugin without port forwarding.",
+  "owner": "Mellettem",
+  "targetAbi": "12.3.0.0",
+  "timestamp": "2026-11-15T00:00:00Z",
+  "version": "1.0.6.0",
+  "status": "Active",
+  "autoUpdate": false,
+  "assemblies": [
+    "Mellettem.Plugin.dll"
+  ],
+  "imagePath": "mellettem.png"
+}

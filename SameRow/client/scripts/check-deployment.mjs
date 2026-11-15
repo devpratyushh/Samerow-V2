@@ -21,7 +21,7 @@ export async function checkDeployment(env = process.env, request = fetch) {
   const control = httpsOrigin(env.VITE_SOCKET_URL || legacyControlOrigin, 'VITE_SOCKET_URL');
   const defaultOrigin = env.VERCEL_PROJECT_PRODUCTION_URL && `https://${env.VERCEL_PROJECT_PRODUCTION_URL}`;
   if (control === legacyControlOrigin) {
-    const origin = httpsOrigin(env.SAMEROW_WEB_ORIGIN || defaultOrigin || 'https://samerow-v2.vercel.app', 'SAMEROW_WEB_ORIGIN');
+    const origin = httpsOrigin(env.MELLETTEM_WEB_ORIGIN || env.SAMEROW_WEB_ORIGIN || defaultOrigin || 'https://samerow-v2.vercel.app', 'MELLETTEM_WEB_ORIGIN');
     const options = { headers: { Origin: origin }, redirect: 'error', signal: AbortSignal.timeout(8000) };
     const config = await request(control + '/api/config', options).catch(() => null);
     if (config && await isLegacyRoomServer(control, config, request, { headers: options.headers })) {
@@ -32,7 +32,7 @@ export async function checkDeployment(env = process.env, request = fetch) {
   const missing = required.filter(name => !env[name]?.trim() || env[name].startsWith('<'));
   if (missing.length) throw new Error(`Set these Vercel environment variables: ${missing.join(', ')}.`);
   if (env.VERCEL_ENV === 'preview' || env.VERCEL_ENV === 'development') return;
-  const webOrigin = httpsOrigin(env.SAMEROW_WEB_ORIGIN || defaultOrigin, 'SAMEROW_WEB_ORIGIN');
+  const webOrigin = httpsOrigin(env.MELLETTEM_WEB_ORIGIN || env.SAMEROW_WEB_ORIGIN || defaultOrigin, 'MELLETTEM_WEB_ORIGIN');
 
   async function read(origin, role, path) {
     let response;
@@ -79,9 +79,9 @@ export async function checkDeployment(env = process.env, request = fetch) {
 if (import.meta.main) {
   try {
     await checkDeployment();
-    console.log('SameRow deployment configuration passed.');
+    console.log('Mellettem deployment configuration passed.');
   } catch (error) {
-    console.error(`SameRow deployment check: ${error.message}`);
+    console.error(`Mellettem deployment check: ${error.message}`);
     process.exitCode = 1;
   }
 }

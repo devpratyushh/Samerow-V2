@@ -76,7 +76,7 @@ try {
 } catch (error) {
   for (const [index, page] of pages.entries()) {
     console.error(`Viewer ${index}:`, (await page.locator('body').innerText()).slice(-1200));
-    await page.screenshot({ path: `/tmp/samerow-group-call-failure-${index}.png` });
+    await page.screenshot({ path: `/tmp/mellettem-group-call-failure-${index}.png` });
   }
   throw error;
 } finally {

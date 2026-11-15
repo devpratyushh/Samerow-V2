@@ -1,6 +1,6 @@
 # Movie delivery and quality
 
-See [SameRow V3 direct media](direct-media.md) for the opt-in plugin sender,
+See [Mellettem V3 direct media](direct-media.md) for the opt-in plugin sender,
 WebRTC delivery and HTTPS fallback. The gateway diagrams below describe the
 HTTPS transport.
 
@@ -8,9 +8,9 @@ This describes the repository implementation. Deployment configuration defines
 the intended hosted topology; verify the running revision and environment before
 assuming a hosted installation matches it.
 
-## What is the SameRow media gateway?
+## What is the Mellettem media gateway?
 
-The gateway is SameRow's own Node.js/Express backend running the media role.
+The gateway is Mellettem's own Node.js/Express backend running the media role.
 It authenticates viewer requests, restricts them to the room's selected movie,
 requests media from Jellyfin, and streams the response bytes to the viewer.
 It also proxies the scoped embedded Jellyfin Web player and rewrites playlists
@@ -24,9 +24,9 @@ The repository's `render.yaml` defines:
 
 | Service | Purpose |
 | --- | --- |
-| `samerow-v2`, `SERVICE_ROLE=control` | Room membership, signaling, shared playback and chat; two instances configured |
-| `samerow-media`, `SERVICE_ROLE=media` | Jellyfin APIs, scoped movie delivery and outbound connector relay; one instance configured |
-| `samerow-state` | Redis shared state, credentials, leases and delivery counters |
+| `mellettem-v2`, `SERVICE_ROLE=control` | Room membership, signaling, shared playback and chat; two instances configured |
+| `mellettem-media`, `SERVICE_ROLE=media` | Jellyfin APIs, scoped movie delivery and outbound connector relay; one instance configured |
+| `mellettem-state` | Redis shared state, credentials, leases and delivery counters |
 | External LiveKit service | Hosted camera, microphone and screen tracks |
 
 Both Node services use `SameRow/server`, `npm start`, and the same application
@@ -39,28 +39,28 @@ establish a measured sustainable movie bandwidth capacity.
 
 ```mermaid
 flowchart LR
-    Jellyfin[Public Jellyfin server] --> Gateway[SameRow media gateway]
+    Jellyfin[Public Jellyfin server] --> Gateway[Mellettem media gateway]
     Gateway -->|Separate movie delivery| Alice[Alice browser]
     Gateway -->|Separate movie delivery| Bob[Bob browser]
-    Alice <-->|Timeline and commands| Control[SameRow control service]
+    Alice <-->|Timeline and commands| Control[Mellettem control service]
     Bob <-->|Timeline and commands| Control
 ```
 
-The host signs in and selects a movie. SameRow creates a shared playback session
+The host signs in and selects a movie. Mellettem creates a shared playback session
 and a separate scoped access token for each viewer. Each browser requests its
 own playlist, segments or byte ranges through the gateway. A public Jellyfin
 address makes the server reachable by the gateway; browsers still use the
 scoped gateway in this implementation. The host browser does not forward movie
 bytes to the guest, and the guest does not receive the owner's Jellyfin token.
 
-## Home Jellyfin with SameRow Connect
+## Home Jellyfin with Mellettem Connect
 
-The plugin runs on the Jellyfin server. Viewers use SameRow Web.
+The plugin runs on the Jellyfin server. Viewers use Mellettem Web.
 
 ```mermaid
 flowchart LR
-    Jellyfin[Home Jellyfin media engine] --> Plugin[SameRow Connect plugin]
-    Plugin -->|Authenticated outbound HTTPS relay| Gateway[SameRow media gateway]
+    Jellyfin[Home Jellyfin media engine] --> Plugin[Mellettem Connect plugin]
+    Plugin -->|Authenticated outbound HTTPS relay| Gateway[Mellettem media gateway]
     Gateway --> A[Viewer 1]
     Gateway --> B[Viewer 2]
     Gateway --> C[Viewer 3]
@@ -96,7 +96,7 @@ do not assume identical requests share an encoder or cached delivery.
 | Auto | Allows compatible playback and adapts to connection conditions |
 | 4, 8 or 20 Mbps | Caps requested bitrate on that viewer; Jellyfin may re-encode |
 
-The regular SameRow player currently defaults to Original. The embedded Jellyfin
+The regular Mellettem player currently defaults to Original. The embedded Jellyfin
 Web player defaults to Auto unless the viewer has selected a mode. Both apply
 server quality policy, but their playback/adaptation mechanisms differ.
 
@@ -104,14 +104,14 @@ Quality depends on source bitrate/resolution, browser codec support, selected
 audio, subtitles, available throughput and decoding capacity. Text subtitles
 can overlay the picture. Subtitles requiring burn-in force video conversion.
 Original can fall back to compatible playback when unsupported or unable to
-keep up; SameRow displays the fallback reason. In the regular player, persistent
+keep up; Mellettem displays the fallback reason. In the regular player, persistent
 buffering can lower the requested compatible bitrate based on an HLS throughput
 estimate. This is not a guarantee of source quality or automatic recovery to the
 highest quality in every player.
 
 Optional `JELLYFIN_ORIGIN_BANDWIDTH_MBPS` and
 `JELLYFIN_GATEWAY_BANDWIDTH_MBPS` configure sustainable bandwidth budgets.
-SameRow reserves 20% headroom, divides the configured capacity among active
+Mellettem reserves 20% headroom, divides the configured capacity among active
 viewer leases, and applies the narrower origin/gateway allowance along with the
 viewer mode and source allowance. Redis shares leases across rooms/replicas.
 For example, a 40 Mbps origin budget with four active viewers yields an 8 Mbps
@@ -157,6 +157,6 @@ For an SFU room, uploads go to LiveKit rather than directly to each viewer.
 - [Movie session and segment gateway](../SameRow/server/jellyfin.js)
 - [Scoped Jellyfin Web proxy](../SameRow/server/jellyfinWeb.js)
 - [Connector relay](../SameRow/server/jellyfinRelay.js)
-- [Native connector service](../jellyfin-plugin-samerow/Services/SameRowConnectorService.cs)
+- [Native connector service](../jellyfin-plugin-mellettem/Services/MellettemConnectorService.cs)
 - [Quality policy](../SameRow/server/jellyfinQuality.js)
-- [SameRow movie player](../SameRow/client/src/JellyfinPlayer.jsx)
+- [Mellettem movie player](../SameRow/client/src/JellyfinPlayer.jsx)

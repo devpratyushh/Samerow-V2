@@ -1,37 +1,39 @@
-# SameRow
+# Mellettem
+
+<img src="SameRow/client/public/mellettem.png" width="72" height="72" alt="" />
 
 Watch movies and YouTube together while you talk and share your screen.
 Play, pause, and seek follow the room. Everyone chooses their own volume,
 and Jellyfin viewers can choose their own audio language, subtitles, and quality.
 
-![SameRow watch room with shared video, participant tiles, and chat](docs/images/watch-room.jpg)
+![Mellettem watch room with shared video, participant tiles, and chat](docs/images/watch-room.jpg)
 
 ## Host from your home Jellyfin server
 
-**Install the plugin → Pair your server → Open SameRow → Watch together.**
+**Install the plugin → Pair your server → Open Mellettem → Watch together.**
 
-SameRow Connect is a native Jellyfin server plugin. It lets your home server
-deliver movies to a hosted SameRow room through an outbound HTTPS connection.
+Mellettem Connect is a native Jellyfin server plugin. It lets your home server
+deliver movies to a hosted Mellettem room through an outbound HTTPS connection.
 Your friends join from their browsers.
 
 ### Set it up once
 
-1. Install **SameRow Connect** on your Jellyfin server and restart Jellyfin.
-2. Open **Dashboard → Plugins → SameRow Connect** and select **Connect SameRow**.
-3. Sign in to SameRow Web with Google and approve the connection.
+1. Install **Mellettem Connect** on your Jellyfin server and restart Jellyfin.
+2. Open **Dashboard → Plugins → Mellettem Connect** and select **Connect Mellettem**.
+3. Sign in to Mellettem Web with Google and approve the connection.
 4. Return to Jellyfin's plugin settings and wait for **Connected**.
 
-The public beta targets **Jellyfin 12.3 and .NET 10**. Add this third-party repository in **Dashboard → Plugins → Repositories**, install **SameRow Connect** from **Catalog**, and restart Jellyfin:
+The public beta targets **Jellyfin 12.3 and .NET 10**. Add this third-party repository in **Dashboard → Plugins → Repositories**, install **Mellettem Connect** from **Catalog**, and restart Jellyfin:
 
 ```text
 https://raw.githubusercontent.com/devpratyushh/Samerow-V2/main/jellyfin-plugin-samerow/manifest.json
 ```
 
-[Download the plugin and source](https://github.com/devpratyushh/Samerow-V2/releases/tag/samerow-connect-v1.0.4.0) or follow the [installation and compatibility guide](jellyfin-plugin-samerow/README.md). This is SameRow's repository; acceptance into Jellyfin's default catalog or community directory is separate.
+[Download the plugin and source](https://github.com/devpratyushh/Samerow-V2/releases/tag/samerow-connect-v1.0.5.0) or follow the [installation and compatibility guide](jellyfin-plugin-mellettem/README.md). This is Mellettem's repository; acceptance into Jellyfin's default catalog or community directory is separate.
 
 ### Start a watch party
 
-1. Open [SameRow Web](https://samerow-v2.vercel.app/).
+1. Open [Mellettem Web](https://samerow-v2.vercel.app/).
 2. Expand **Connect Jellyfin** and select **Generate private room code**.
 3. Enter your name and join the private room.
 4. Open **Share something → Your Jellyfin library** and select your connected server.
@@ -71,7 +73,7 @@ while the video stays original.
 Original playback sends binary media through the gateway and feeds compatible
 segments into the browser's Media Source Extensions player. When a container
 needs repackaging, Jellyfin can remux the video without re-encoding it.
-SameRow reports when it switches to compatible playback. The track menu also
+Mellettem reports when it switches to compatible playback. The track menu also
 offers the embedded **Jellyfin Web player**.
 
 HDR and particular audio formats depend on the source, browser, and device.
@@ -79,7 +81,7 @@ HDR acceptance testing is still pending.
 
 ## How the plugin connects
 
-The plugin maintains authenticated outbound HTTPS requests to SameRow's media
+The plugin maintains authenticated outbound HTTPS requests to Mellettem's media
 gateway. The gateway returns library or playback work through that connection.
 The plugin calls Jellyfin's local API and streams each response back to the gateway,
 which delivers it to the viewer.
@@ -87,8 +89,8 @@ which delivers it to the viewer.
 ```mermaid
 flowchart LR
     Jellyfin[Home Jellyfin server]
-    Plugin[SameRow Connect plugin]
-    Gateway[SameRow media gateway]
+    Plugin[Mellettem Connect plugin]
+    Gateway[Mellettem media gateway]
     Browser[Viewer browser]
     Control[Room control service]
 
@@ -98,8 +100,11 @@ flowchart LR
     Browser <-->|Play, pause and seek| Control
 ```
 
-Pairing links the server to the owner's SameRow account. The plugin stores an
-encrypted connector credential and reconnects after interruptions. Media
+Pairing links the server to the owner's Mellettem account. The plugin stores an
+encrypted connector credential and reconnects after interruptions. The plugin dashboard shows time connected,
+the previous connection duration, and relay activity. Time connected starts
+with the first successful authenticated gateway poll and resets on reconnect.
+These metrics are tracked for the running Jellyfin process. Media
 access is scoped to the room, selected item, and current viewer membership.
 Guests receive playback access without receiving the owner's upstream credential.
 
@@ -131,8 +136,8 @@ these stats. Credentials, upstream addresses and access tokens are excluded.
 
 ## Supported setup
 
-Use [SameRow Connect](jellyfin-plugin-samerow/README.md) for a home Jellyfin
-library. Open SameRow Web for watch rooms, calls, and screen sharing.
+Use [Mellettem Connect](jellyfin-plugin-mellettem/README.md) for a home Jellyfin
+library. Open Mellettem Web for watch rooms, calls, and screen sharing.
 See [hosted deployment](docs/production.md) or [local development](#local-development)
 when running the application from source.
 
@@ -142,7 +147,7 @@ Open the invitation link, enter your name, and select **Enter room**.
 Public rooms also accept a room code. Private rooms require the full invitation.
 The lobby generates a four-letter code when you start a room.
 
-![SameRow lobby with name and room code fields](docs/images/lobby.jpg)
+![Mellettem lobby with camera preview and room controls](docs/images/lobby.jpg)
 
 ## Architecture
 
@@ -186,14 +191,14 @@ Use the **.NET 10 SDK** and a Jellyfin 12.3 server installation containing the
 reference assemblies:
 
 ```sh
-dotnet build jellyfin-plugin-samerow/SameRow.Plugin.csproj \
+dotnet build jellyfin-plugin-mellettem/Mellettem.Plugin.csproj \
   -c Release -p:JellyfinServerPath=/absolute/path/to/jellyfin
 
-python3 jellyfin-plugin-samerow/package.py
+python3 jellyfin-plugin-mellettem/package.py
 ```
 
-The ZIP and SHA-256 checksum are written to `jellyfin-plugin-samerow/dist/`.
-The [plugin guide](jellyfin-plugin-samerow/README.md) covers installation,
+The ZIP and SHA-256 checksum are written to `jellyfin-plugin-mellettem/dist/`.
+The [plugin guide](jellyfin-plugin-mellettem/README.md) covers installation,
 credential backup, rotation, updates, troubleshooting, and uninstallation.
 
 ## Deployment
@@ -211,7 +216,7 @@ The latest local run passed:
 - **88 JavaScript tests** with real Redis and no skips.
 - **10 C# plugin tests**, frontend lint, and production builds.
 - Four browsers decoding a **generated 3840×2160 clip** through the real C#
-  connector service, real Jellyfin server, and SameRow gateway.
+  connector service, real Jellyfin server, and Mellettem gateway.
 - Exact HTTP 206 byte-range comparisons, personal audio/subtitles, shared
   seeking, reconnects, and Jellyfin video stream-copy confirmation.
 - A failover probe that recovered **20 of 20 users** across two control instances.
@@ -221,7 +226,7 @@ loopback HTTP. Full acceptance with an installed plugin, hosted HTTPS/Google
 approval, and guests on separate networks remains pending. High-bitrate HDR
 and every browser/codec combination are also outside the completed test run.
 
-Read the [verification report](jellyfin-plugin-samerow/test-results/README.md)
+Read the [verification report](jellyfin-plugin-mellettem/test-results/README.md)
 for results, fixes, commands, and remaining limits.
 
 ### Run checks
@@ -244,12 +249,12 @@ For plugin tests:
 
 ```sh
 JELLYFIN_SERVER_PATH=/absolute/path/to/jellyfin \
-  dotnet run --project jellyfin-plugin-samerow.tests \
+  dotnet run --project jellyfin-plugin-mellettem.tests \
   -c Release -p:JellyfinServerPath=/absolute/path/to/jellyfin
 ```
 
 See the [client browser checks](SameRow/client/README.md#checks) and
-[plugin integration guide](jellyfin-plugin-samerow/README.md#verification-and-distribution)
+[plugin integration guide](jellyfin-plugin-mellettem/README.md#verification-and-distribution)
 for the browser/runtime prerequisites and disposable Jellyfin fixture.
 
 [Application CI](.github/workflows/ci.yml) runs Node checks and Redis recovery.
@@ -260,14 +265,14 @@ and uploads the plugin artifact.
 
 ## License and release status
 
-The SameRow web application and backend use an [All Rights Reserved license](LICENSE). **SameRow Connect and its build/test files are GPL-3.0-or-later**; see the [plugin license](jellyfin-plugin-samerow/LICENSE) and [scope](jellyfin-plugin-samerow/LICENSING.md).
+The Mellettem web application and backend use an [All Rights Reserved license](LICENSE). **Mellettem Connect and its build/test files are GPL-3.0-or-later**; see the [plugin license](jellyfin-plugin-mellettem/LICENSE) and [scope](jellyfin-plugin-mellettem/LICENSING.md).
 
 The plugin is a public beta for Jellyfin 12.3. Local and CI verification passed; full hosted approval and playback across separate networks with three guests still require acceptance testing. The published catalog points to a verified GitHub Release ZIP and its matching source.
 
 ## Jellyfin availability and saved accounts
 
-Use the SameRow Connect Jellyfin plugin to pair your server, then authorize your
-Jellyfin user with your signed-in SameRow account. Sign into the same account on
+Use the Mellettem Connect Jellyfin plugin to pair your server, then authorize your
+Jellyfin user with your signed-in Mellettem account. Sign into the same account on
 another device to restore the library, including from another network.
 
 The dashboard distinguishes Ready, Offline, Reconnecting, Sign-in required,

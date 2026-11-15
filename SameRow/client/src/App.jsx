@@ -256,13 +256,13 @@ function ConnectorApproval({ id }) {
     finally { setBusy(false); }
   };
   return <main className="lobby"><section className="lobby-content">
-    <h1>Connect SameRow</h1>
+    <h1>Connect Mellettem</h1>
     {approved ? <>
       <p role="status">Connection approved.</p>
-      <p>Return to the SameRow Connect settings in Jellyfin and wait for Connected. Then open the SameRow lobby to create a private room.</p>
-      <a href="/" className="sr-button sr-button--primary">Go to SameRow Lobby</a>
+      <p>Return to the Mellettem Connect settings in Jellyfin and wait for Connected. Then open the Mellettem lobby to create a private room.</p>
+      <a href="/" className="sr-button sr-button--primary">Go to Mellettem Lobby</a>
     </> : valid ? <>
-      <p>Approve this request to connect your Jellyfin server to your SameRow account.</p>
+      <p>Approve this request to connect your Jellyfin server to your Mellettem account.</p>
       <button type="button" className="sr-button sr-button--primary" disabled={busy || account === undefined} onClick={() => approve()}>
         {busy ? 'Approving…' : account && !account.isAnonymous ? 'Approve connection' : 'Sign in with Google and approve'}
       </button>

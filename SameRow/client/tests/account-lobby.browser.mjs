@@ -52,7 +52,7 @@ try {
   for (const [width,height] of [[1440,900],[1280,650],[390,844],[375,667]]) {
     await page.setViewportSize({width,height});
     assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth), `No overflow at ${width}`);
-    await page.screenshot({path:`/tmp/samerow-account-${width}.png`});
+    await page.screenshot({path:`/tmp/mellettem-account-${width}.png`});
   }
   await page.evaluate(()=>window.renderAccount('owner-b'));
   await page.getByRole('button',{name:'Connect Jellyfin',exact:true}).waitFor();

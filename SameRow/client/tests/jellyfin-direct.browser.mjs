@@ -18,8 +18,8 @@ const engine = playwright?.[browserName];
 assert.ok(engine, 'Install Playwright and choose chromium, firefox or webkit');
 const executablePath = process.env.BROWSER_EXECUTABLE || (browserName === 'chromium' ?
   ['/Applications/Brave Browser.app/Contents/MacOS/Brave Browser', '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'].find(existsSync) : undefined);
-const senderPath = process.env.SAMEROW_SENDER_PATH;
-assert.ok(senderPath, 'Set SAMEROW_SENDER_PATH to the built Go sender');
+const senderPath = (process.env.MELLETTEM_SENDER_PATH || process.env.SAMEROW_SENDER_PATH);
+assert.ok(senderPath, 'Set MELLETTEM_SENDER_PATH to the built Go sender');
 const redisUrl = process.env.TEST_REDIS_URL;
 const config = { ...configuration({}), redisUrl, prefix: `direct-browser:${randomUUID()}`,
   jellyfinRelay: true, jellyfinDirect: true, encryptionKey: 'a'.repeat(64) };
@@ -81,12 +81,12 @@ const relayWorker = async () => {
     }
   }
 };
-const pluginHarness = process.env.SAMEROW_PLUGIN_TEST_DLL;
+const pluginHarness = process.env.MELLETTEM_PLUGIN_TEST_DLL;
 const workers = pluginHarness ? null : Promise.allSettled(Array.from({ length: 3 }, () => relayWorker()));
-const { SAMEROW_DIRECT_ENABLED: _, ...pluginEnv } = process.env;
+const { MELLETTEM_DIRECT_ENABLED: _, ...pluginEnv } = process.env;
 const sender = pluginHarness ? spawn(process.env.DOTNET_PATH || 'dotnet', [pluginHarness, '--relay'], {
-  env: { ...pluginEnv, SAMEROW_TEST_GATEWAY: mediaOrigin,
-    SAMEROW_TEST_CONNECTOR: connectorToken, SAMEROW_TEST_JELLYFIN: fixture.url },
+  env: { ...pluginEnv, MELLETTEM_TEST_GATEWAY: mediaOrigin,
+    MELLETTEM_TEST_CONNECTOR: connectorToken, MELLETTEM_TEST_JELLYFIN: fixture.url },
   stdio: ['ignore', 'ignore', 'inherit'],
 }) : spawn(senderPath, { stdio: ['pipe', 'inherit', 'inherit'] });
 sender.stdin?.write(JSON.stringify({ Gateway: mediaOrigin, LocalURL: fixture.url, Token: connectorToken }) + '\n');
@@ -121,6 +121,21 @@ const addViewer = async (name, uid, failIce = false) => {
         return channel;
       }
     };
+    if (HTMLVideoElement.prototype.requestVideoFrameCallback) {
+      window.presentedMovieFrames = new WeakMap();
+      const callbacks = new WeakMap();
+      document.addEventListener('loadedmetadata', event => {
+        const video = event.target;
+        if (video.getAttribute('aria-label') !== 'Shared Jellyfin video') return;
+        const previous = callbacks.get(video);
+        if (previous !== undefined) video.cancelVideoFrameCallback(previous);
+        const record = (_, frame) => {
+          window.presentedMovieFrames.set(video, frame.mediaTime);
+          if (video.isConnected) callbacks.set(video, video.requestVideoFrameCallback(record));
+        };
+        callbacks.set(video, video.requestVideoFrameCallback(record));
+      }, true);
+    }
   }, failIce);
   const params = new URLSearchParams({ server, name, token: `dev:${uid}`, room: roomId });
   await page.goto(`${ui}/tests/room-integration.html?${params}`);
@@ -137,6 +152,10 @@ try {
   await play(owner);
   assert.equal(await owner.locator('.jellyfin-player').getAttribute('data-transport'), 'webrtc');
   assert.equal(await owner.locator('.jellyfin-player').getAttribute('data-delivery'), 'original');
+  await owner.locator('.player-nerd-stats > summary').click();
+  await owner.locator('.player-nerd-stats').getByText(/s setup .* s connected/).waitFor();
+  await owner.locator('.player-nerd-stats').getByText('WebRTC path', { exact: true }).waitFor();
+  await owner.locator('.player-nerd-stats > summary').click();
   const ownerOffer = await owner.evaluate(() => {
     return window.socketEmissions.find(event => event.name === 'jellyfin-direct-offer').args[0].sessionId;
   });
@@ -205,15 +224,72 @@ try {
   assert.ok(fixture.requests.some(req => req.path.endsWith('/main.m3u8') && req.query.AudioStreamIndex === '2'));
   assert.equal(await owner.locator('video[aria-label="Shared Jellyfin video"]').evaluate(v => v.textTracks.length), 0);
   assert.equal(relayMedia, 0);
-  const command = action => owner.evaluate(({ action, roomId, sessionId }) => {
-    window.fixtureSocket.emit('jellyfin-command', { roomId, sessionId, action, time: 25 });
-  }, { action, roomId, sessionId });
-  await command('pause');
-  await command('seek');
-  await Promise.all([owner, guest].map(page => page.waitForFunction(() => {
-    const video = document.querySelector('video[aria-label="Shared Jellyfin video"]');
-    return video?.paused && Math.abs(video.currentTime - 25) < 0.75;
-  })));
+  const command = (action, time) => owner.evaluate(({ action, roomId, sessionId, time }) => {
+    window.fixtureSocket.emit('jellyfin-command', { roomId, sessionId, action, time });
+  }, { action, roomId, sessionId, time });
+  const pausedAt = async target => Promise.all([owner, guest].map(async page => {
+    const handle = await page.waitForFunction(target => {
+      const video = document.querySelector('video[aria-label="Shared Jellyfin video"]');
+      if (!video?.paused || video.seeking || video.readyState < 2 || Math.abs(video.currentTime - target) > 0.005) return false;
+      if (!window.presentedMovieFrames) return {};
+      const frame = window.presentedMovieFrames.get(video);
+      return Math.abs(frame - target) < 1 / 12 ? { frame } : false;
+    }, target, { timeout: 10000 });
+    const result = await handle.jsonValue();
+    await handle.dispose();
+    return result;
+  }));
+  await owner.waitForFunction(() => document.querySelector('.player-seek input').style.getPropertyValue('--buffered-track').includes('linear-gradient'));
+  if (await owner.evaluate(() => Boolean(window.presentedMovieFrames))) {
+    const target = 47.9;
+    fixture.controls.resourceDelay = path => /original1[12]\.m4s$/.test(path) ? 900 : 0;
+    await owner.evaluate(target => {
+      const video = document.querySelector('video[aria-label="Shared Jellyfin video"]');
+      const record = (_, frame) => {
+        if (Math.abs(frame.mediaTime - target) < 4) window.firstFrameAfterScrub = frame.mediaTime;
+        else video.requestVideoFrameCallback(record);
+      };
+      video.requestVideoFrameCallback(record);
+    }, target);
+    await command('seek', target);
+    await owner.waitForFunction(() => Number.isFinite(window.firstFrameAfterScrub));
+    const first = await owner.evaluate(() => window.firstFrameAfterScrub);
+    assert.ok(Math.abs(first - target) < 0.15, `Cold playing seek started at ${first}s instead of ${target}s`);
+    delete fixture.controls.resourceDelay;
+  }
+  await owner.getByRole('button', { name: 'Pause for everyone', exact: true }).click();
+  for (const target of [48.1, 9.3, 25.05, 25.1]) {
+    await command('seek', target);
+    const [ownerFrame, guestFrame] = await pausedAt(target);
+    assert.equal(ownerFrame.frame, guestFrame.frame, `Both viewers present the same frame after seeking to ${target}s`);
+  }
+  const slider = owner.locator('.player-seek input');
+  await slider.evaluate(input => {
+    input.addEventListener('pointerup', () => { window.scrubReleasedAt = performance.now(); }, { once: true });
+    const socket = window.fixtureSocket;
+    const emit = socket.emit;
+    socket.emit = function (event, ...args) {
+      if (event === 'jellyfin-command' && args[0].action === 'seek') {
+        window.scrubCommand = { time: args[0].time, delay: performance.now() - window.scrubReleasedAt };
+        socket.emit = emit;
+      }
+      return emit.call(this, event, ...args);
+    };
+  });
+  const bounds = await slider.boundingBox();
+  await owner.mouse.move(bounds.x + bounds.width * 0.62, bounds.y + bounds.height / 2);
+  await owner.mouse.down();
+  await owner.mouse.move(bounds.x + bounds.width * 0.4, bounds.y + bounds.height / 2, { steps: 4 });
+  await owner.mouse.up();
+  const scrub = await owner.evaluate(() => window.scrubCommand);
+  assert.ok(scrub?.delay >= 0 && scrub.delay < 100, `Expected immediate pointer seek, got ${scrub?.delay} ms`);
+  const [ownerFrame, guestFrame] = await pausedAt(scrub.time);
+  assert.equal(ownerFrame.frame, guestFrame.frame);
+  assert.equal(relayMedia, 0);
+  for (const page of [owner, guest]) {
+    assert.equal(await page.locator('.jellyfin-player').getAttribute('data-transport'), 'webrtc');
+  }
+  console.log('PASS both direct viewers converge after distant and 50 ms paused seeks');
   await command('play');
   await guest.evaluate(() => window.movieChannel.close());
   await guest.locator('.jellyfin-player[data-transport=https]').waitFor();
