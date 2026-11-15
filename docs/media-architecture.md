@@ -1,8 +1,10 @@
 # Movie delivery and quality
 
-See [Mellettem V3 direct media](direct-media.md) for the opt-in plugin sender,
+See [Mellettem V3 direct media](direct-media.md) for the bundled plugin sender,
 WebRTC delivery and HTTPS fallback. The gateway diagrams below describe the
 HTTPS transport.
+
+Direct media is enabled in the deployment blueprint and starts automatically on paired plugin installations. Eligible viewers receive movie resources over WebRTC; the gateway sections below describe library access and HTTPS fallback.
 
 This describes the repository implementation. Deployment configuration defines
 the intended hosted topology; verify the running revision and environment before
@@ -24,9 +26,9 @@ The repository's `render.yaml` defines:
 
 | Service | Purpose |
 | --- | --- |
-| `mellettem-v2`, `SERVICE_ROLE=control` | Room membership, signaling, shared playback and chat; two instances configured |
-| `mellettem-media`, `SERVICE_ROLE=media` | Jellyfin APIs, scoped movie delivery and outbound connector relay; one instance configured |
-| `mellettem-state` | Redis shared state, credentials, leases and delivery counters |
+| `samerow-v2`, `SERVICE_ROLE=control` | Room membership, signaling, shared playback and chat; two instances configured |
+| `samerow-media`, `SERVICE_ROLE=media` | Jellyfin APIs, scoped movie delivery and outbound connector relay; one instance configured |
+| `samerow-state` | Redis shared state, credentials, leases and delivery counters |
 | External LiveKit service | Hosted camera, microphone and screen tracks |
 
 Both Node services use `SameRow/server`, `npm start`, and the same application

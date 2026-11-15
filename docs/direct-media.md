@@ -5,19 +5,7 @@ per viewer. The Jellyfin plugin starts and supervises a small Pion executable
 alongside its existing HTTPS connector workers. The plugin passes its existing
 credentials and Jellyfin loopback origin over a private process pipe.
 
-The June pump at `415ce170d84b` (including `6c5cd6b`, `2dcdc6f` and
-`12561c7`) read a continuous MPEG-TS response in the host browser, split it
-into small binary messages and appended it to Media Source. The pump coupled
-viewer backpressure, host LAN availability and the room timeline. V3 retains
-small frames and backpressure while transferring independently requested HLS
-resources. Room synchronization and calls keep their existing transports.
-
-The plugin could host a .NET WebRTC stack in-process, but the previously
-permissively licensed SIPSorcery release considered for this has a known
-vulnerability and current releases have an additional use restriction.
-The MIT-licensed Pion executable isolates the WebRTC stack from Jellyfin's
-assembly load context. It requires a platform build and is supervised by the
-plugin. There is no separately configured daemon or additional hosted service.
+The bundled MIT-licensed Pion sender isolates the WebRTC stack from Jellyfin's assembly load context. The plugin supervises its lifecycle; no separate daemon or additional hosted service is required. Each viewer requests HLS resources independently, while room synchronization and calls retain their own transports.
 
 - `SameRow/server/jellyfinDirect.js` exchanges SDP over the existing viewer
   Socket.IO connection and authenticated connector HTTPS. Shared storage

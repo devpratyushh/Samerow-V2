@@ -11,7 +11,8 @@ applying the Blueprint; this repository does not deploy or purchase resources.
 - Render `samerow-v2` handles authenticated Socket.IO connections, playback state,
   room membership, LiveKit token issuance and chat. Production uses WebSocket
   transport only, avoiding polling session affinity requirements.
-- Render `samerow-media` delivers scoped Jellyfin Web and movie streams. The
+- The Jellyfin plugin's bundled sender delivers movie resources directly over WebRTC where supported. Control and media services coordinate authorization and signaling through Redis.
+- Render `samerow-media` delivers scoped Jellyfin Web and HTTPS fallback movie streams. The
   frontend learns its public origin from the room acknowledgment. Movie traffic
   does not consume the control service's HTTP connections or outbound bandwidth.
 - A private paid Render Key Value instance stores encrypted playback state,
@@ -19,7 +20,7 @@ applying the Blueprint; this repository does not deploy or purchase resources.
   Connect progress and distributed rate limits. Atomic compare-and-set updates
   serialize concurrent state mutations. The Socket.IO Redis adapter carries
   events between instances; application state is stored separately from it.
-- Firebase Authentication verifies Google and anonymous guest identities.
+- Firebase Authentication verifies Google and GitHub account identities; anonymous room access is disabled.
   Firebase Admin writes and reads the existing Firestore message collections;
   clients receive paginated history and live messages over authenticated sockets.
 - LiveKit supplies the SFU, congestion control, simulcast and TURN. Do not try to
@@ -27,14 +28,9 @@ applying the Blueprint; this repository does not deploy or purchase resources.
 
 ## Configure services
 
-The existing Mellettem Render service can still host public rooms, direct peer
-calls, and YouTube watch parties while it runs the original backend. The web
-app detects that specific service by its old status response. Its room codes
-are generated in the browser, and it does not offer private invites, server
-chat, or the hosted Jellyfin pilot. The steps below deploy the updated backend
-for those features.
+Deploy matching control, media, and frontend revisions. The frontend deployment check requires the current room protocol and healthy backend services.
 
-1. In the existing Firebase project, enable Google and Anonymous authentication.
+1. In the existing Firebase project, enable Google and GitHub authentication. Configure the GitHub provider callback and credentials in Firebase.
    Add the production Vercel/custom domain to Firebase's authorized domains.
    Create a dedicated service account with Firebase Authentication read access
    (verification checks revocation) and Firestore document read/write access.

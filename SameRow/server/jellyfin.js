@@ -298,6 +298,12 @@ function installJellyfin(app, io, accounts, options = {}) {
     const requested = Number(params.bitrate);
     const bitrate = Math.min(policy.maxBitrate, Number.isFinite(requested) && requested > 0 ? requested : policy.maxBitrate);
     const query = new URLSearchParams({ MediaSourceId: state.sourceId, DeviceId: viewer.deviceId, PlaySessionId: playSessionId, VideoCodec: 'h264', AudioCodec: 'aac', MaxAudioChannels: '2', VideoBitrate: String(Math.max(1, Math.floor(bitrate - 192000))), AudioBitrate: '192000', SegmentContainer: 'ts', MinSegments: '1', SegmentLength: '4', BreakOnNonKeyFrames: 'true', EnableAutoStreamCopy: 'true', AllowVideoStreamCopy: 'true', AllowAudioStreamCopy: 'true', SubtitleStreamIndex: String(subtitle) });
+    // Stream copy cannot satisfy a lower bitrate. In particular, the startup
+    // fallback must convert a high-bitrate source rather than remux it again.
+    if (!original && (!policy.source.bitrate || bitrate < policy.source.bitrate)) {
+      query.set('AllowVideoStreamCopy', 'false');
+      query.set('EnableAutoStreamCopy', 'false');
+    }
     if (audio !== undefined) query.set('AudioStreamIndex', String(audio));
     if (original) {
       // Use the media playlist directly so Jellyfin cannot advertise a re-encoded variant.

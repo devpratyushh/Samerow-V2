@@ -1,235 +1,139 @@
-# Mellettem
+<p align="center">
+  <img src="SameRow/client/public/mellettem-wordmark.png" alt="Mellettem" width="840" />
+</p>
 
-<img src="SameRow/client/public/mellettem.png" width="72" height="72" alt="" />
+<p align="center"><strong>Your people. Your movies. One shared moment.</strong></p>
+<p align="center">Watch Jellyfin and YouTube together with synchronized playback, video calls, screen sharing, and chat.</p>
+<p align="center">
+  <a href="https://samerow-v2.vercel.app/">Open Mellettem</a> ·
+  <a href="jellyfin-plugin-mellettem/README.md">Install Mellettem Connect</a> ·
+  <a href="docs/media-architecture.md">Architecture</a> ·
+  <a href="docs/production.md">Deployment</a> ·
+  <a href="https://github.com/devpratyushh/Samerow-V2/issues">Report an issue</a>
+</p>
+<p align="center">
+  <a href="https://github.com/devpratyushh/Samerow-V2/actions/workflows/ci.yml"><img src="https://github.com/devpratyushh/Samerow-V2/actions/workflows/ci.yml/badge.svg" alt="Application checks" /></a>
+  <a href="https://github.com/devpratyushh/Samerow-V2/actions/workflows/jellyfin-plugin.yml"><img src="https://github.com/devpratyushh/Samerow-V2/actions/workflows/jellyfin-plugin.yml/badge.svg" alt="Plugin checks" /></a>
+  <a href="https://github.com/devpratyushh/Samerow-V2/releases"><img src="https://img.shields.io/badge/Jellyfin_Connect-12.3-00a4dc" alt="Jellyfin 12.3" /></a>
+</p>
 
-Watch movies and YouTube together while you talk and share your screen.
-Play, pause, and seek follow the room. Everyone chooses their own volume,
-and Jellyfin viewers can choose their own audio language, subtitles, and quality.
+![Mellettem watch room with shared video, participants, and chat](docs/images/watch-room.jpg)
 
-![Mellettem watch room with shared video, participant tiles, and chat](docs/images/watch-room.jpg)
+## A watch party that feels together
 
-## Host from your home Jellyfin server
+- **One shared timeline.** Play, pause, and seek stay in sync across the room.
+- **Your own viewing preferences.** Choose audio language, subtitles, volume, and movie quality independently.
+- **Your home library, wherever friends are.** Mellettem Connect pairs Jellyfin to your account without port forwarding.
+- **Direct movie delivery.** Supported browsers receive HLS resources from your Jellyfin plugin over WebRTC, with HTTPS fallback when needed.
+- **Talk while you watch.** LiveKit carries camera, microphone, and screen sharing; room chat stays alongside the movie.
+- **Private by invitation.** Sign in with Google or GitHub. The host approves each member before room content or calls become accessible.
+- **Pick up again.** Account-linked servers, remembered Jellyfin accounts, reconnect recovery, and playback diagnostics help keep the party going.
 
-**Install the plugin → Pair your server → Open Mellettem → Watch together.**
+The hosted Jellyfin release supports **one host and up to three friends**. The plugin is distributed as a **public beta**; browser and network limits are documented below.
 
-Mellettem Connect is a native Jellyfin server plugin. It lets your home server
-deliver movies to a hosted Mellettem room through an outbound HTTPS connection.
-Your friends join from their browsers.
+## Start watching
 
-### Set it up once
+1. Open [Mellettem Web](https://samerow-v2.vercel.app/) and sign in.
+2. Create a room. For your Jellyfin library, expand **Connect Jellyfin**, generate a private room code, and enter the room.
+3. Choose **Share something → Your Jellyfin library** or share a YouTube video.
+4. Select **Invite friends** and share the full invitation link.
+5. Approve your friends' requests and watch together.
 
-1. Install **Mellettem Connect** on your Jellyfin server and restart Jellyfin.
-2. Open **Dashboard → Plugins → Mellettem Connect** and select **Connect Mellettem**.
-3. Sign in to Mellettem Web with Google and approve the connection.
-4. Return to Jellyfin's plugin settings and wait for **Connected**.
+For Jellyfin, pair your server once using the plugin installation below. Sign into the same Mellettem account on another device to discover your connected server. Jellyfin permissions still determine library access.
 
-The public beta targets **Jellyfin 12.3 and .NET 10**. Add this third-party repository in **Dashboard → Plugins → Repositories**, install **Mellettem Connect** from **Catalog**, and restart Jellyfin:
+## Install Mellettem Connect
+
+Requires **Jellyfin 12.3 / .NET 10**. In Jellyfin, open **Dashboard → Plugins → Repositories** and add:
 
 ```text
 https://raw.githubusercontent.com/devpratyushh/Samerow-V2/main/jellyfin-plugin-samerow/manifest.json
 ```
 
-[Download the plugin and source](https://github.com/devpratyushh/Samerow-V2/releases/tag/mellettem-connect-v1.0.6.0) or follow the [installation and compatibility guide](jellyfin-plugin-mellettem/README.md). This is Mellettem's repository; acceptance into Jellyfin's default catalog or community directory is separate.
+1. Install **Mellettem Connect** from **Catalog** and restart Jellyfin.
+2. Open its plugin settings and select **Connect Mellettem**.
+3. Sign in to Mellettem, approve the connection, and wait for **Connected** in Jellyfin.
+4. In your room, select the connected server and authorize your Jellyfin user, or use **Quick Connect**.
 
-### Start a watch party
+Keep your Jellyfin server and internet connection running during the party. You can close the Jellyfin dashboard after pairing.
 
-1. Open [Mellettem Web](https://samerow-v2.vercel.app/).
-2. Expand **Connect Jellyfin** and select **Generate private room code**.
-3. Enter your name and join the private room.
-4. Open **Share something → Your Jellyfin library** and select your connected server.
-5. Sign in to Jellyfin or use **Quick Connect**. You can remember the connection.
-6. Browse your library and select a movie.
-7. Use **Invite friends** and send the full invitation link.
+[Plugin downloads](https://github.com/devpratyushh/Samerow-V2/releases) · [Full installation, updates, and recovery guide](jellyfin-plugin-mellettem/README.md)
 
-Friends open the invitation, sign in with Google or GitHub, and request to join.
-The host must approve each member before they can access room content
-or calls. Anonymous guest access is disabled. Leaving and joining again requires
-fresh approval; reconnecting after a network interruption retains approval.
-The hosted Jellyfin pilot supports **one host and up to three members**. Members
-can join with their camera and microphone off and receive access to the selected
-movie through the room.
-
-Your home server, Jellyfin, and internet connection must stay running during
-the party. Once pairing is complete, you can close Jellyfin's dashboard.
-
-### Audio, subtitles, and quality
-
-| Setting | What happens |
-| --- | --- |
-| Play, pause, and seek | Everyone follows the shared timeline. |
-| Audio language | Each viewer selects a track from the movie. |
-| Subtitles | Each viewer selects their own subtitles or turns them off. |
-| Volume and mute | Each viewer controls their own sound. |
-| Original | Copies the source video when the device, selected tracks, and available bandwidth permit it. |
-| Auto | Uses compatible playback and adjusts to connection conditions. |
-| Manual quality | Caps bitrate on that device at 4, 8, or 20 Mbps. Jellyfin may convert the video. |
-
-One viewer can use Japanese audio with English subtitles while another uses
-the English dub. Text subtitles are displayed over the picture. Subtitles
-that need to be burned into the picture require video conversion for the
-viewer who selects them. Unsupported audio can be converted independently
-while the video stays original.
-
-Original playback sends binary media through the gateway and feeds compatible
-segments into the browser's Media Source Extensions player. When a container
-needs repackaging, Jellyfin can remux the video without re-encoding it.
-Mellettem reports when it switches to compatible playback. The track menu also
-offers the embedded **Jellyfin Web player**.
-
-HDR and particular audio formats depend on the source, browser, and device.
-HDR acceptance testing is still pending.
-
-## How the plugin connects
-
-The plugin maintains authenticated outbound HTTPS requests to Mellettem's media
-gateway. The gateway returns library or playback work through that connection.
-The plugin calls Jellyfin's local API and streams each response back to the gateway,
-which delivers it to the viewer.
-
-```mermaid
-flowchart LR
-    Jellyfin[Home Jellyfin server]
-    Plugin[Mellettem Connect plugin]
-    Gateway[Mellettem media gateway]
-    Browser[Viewer browser]
-    Control[Room control service]
-
-    Plugin <-->|Local Jellyfin API| Jellyfin
-    Plugin <-->|Outbound HTTPS relay| Gateway
-    Browser <-->|Library requests and binary video| Gateway
-    Browser <-->|Play, pause and seek| Control
-```
-
-Pairing links the server to the owner's Mellettem account. The plugin stores an
-encrypted connector credential and reconnects after interruptions. The plugin dashboard shows time connected,
-the previous connection duration, and relay activity. Time connected starts
-with the first successful authenticated gateway poll and resets on reconnect.
-These metrics are tracked for the running Jellyfin process. Media
-access is scoped to the room, selected item, and current viewer membership.
-Guests receive playback access without receiving the owner's upstream credential.
-
-### Upload and room capacity
-
-Media is relayed separately to each viewer. Four viewers streaming at 8 Mbps
-can use roughly **32 Mbps of home upload**, plus headroom for bitrate peaks and
-calls. Original-quality sources can require substantially more bandwidth.
-
-The hosted pilot currently uses four participants per room and **one media
-replica**. Control services share state through Redis. Multiple media replicas
-need explicit connector routing before they can be enabled.
-
-## Stats for nerds and local video quality
-
-In a room, open **More options → Stats for nerds**. While open, it refreshes
-call upload/download, each peer’s bitrate, resolution, FPS, codec, packet loss,
-jitter and available encoder/RTT information every five seconds. Unsupported
-browser metrics appear as unavailable. Call stats describe this device’s links;
-in hosted rooms, upload goes to LiveKit and received tracks come from LiveKit.
-
-For Jellyfin, the panel shows media delivered to each current room member and
-their reported decoded resolution, buffered seconds, and dropped/total frames.
-Delivery is measured at the gateway, includes prefetch/retries, and is separate
-from the encoded movie bitrate. The first sample measures a baseline; a fully
-buffered viewer can receive zero bytes while playback continues. Viewer reports
-expire after 20 seconds without updates. Only current room members can request
-these stats. Credentials, upstream addresses and access tokens are excluded.
-
-## Supported setup
-
-Use [Mellettem Connect](jellyfin-plugin-mellettem/README.md) for a home Jellyfin
-library. Open Mellettem Web for watch rooms, calls, and screen sharing.
-See [hosted deployment](docs/production.md) or [local development](#local-development)
-when running the application from source.
-
-## Join a room
-
-Open the invitation link, enter your name, and select **Enter room**.
-Public rooms also accept a room code. Private rooms require the full invitation.
-The lobby generates a four-letter code when you start a room.
-
-![Mellettem lobby with camera preview and room controls](docs/images/lobby.jpg)
+This repository supplies a third-party Jellyfin catalog. It does not imply inclusion in Jellyfin's default catalog.
 
 ## Architecture
 
-Read the [movie delivery and quality guide](docs/media-architecture.md) for public
-Jellyfin and plugin paths, the media gateway, four-viewer bandwidth, quality
-selection, synchronization, and local blur troubleshooting.
+Mellettem separates room coordination, calls, and movie delivery. The Jellyfin plugin supervises a bundled Pion sender; supported browsers request their own HLS resources over an authorized WebRTC DataChannel. HTTPS remains available for incompatible browsers or restrictive networks.
 
-Clients correct playback drift locally. Rejoining tabs refresh their room
-access and can reclaim a seat in a full room. Movie delivery uses the media
-gateway, and call tracks use LiveKit.
+```mermaid
+flowchart TB
+    Browser["Mellettem Web · React / Vite"]
+    Control["Control service · Node.js / Socket.IO"]
+    Media["Media service · HTTPS fallback / Jellyfin APIs"]
+    Redis["Redis · shared state / authorization"]
+    Auth["Firebase Authentication / Firestore"]
+    Calls["LiveKit · camera / microphone / screen"]
+    Plugin["Mellettem Connect · .NET plugin + Pion sender"]
+    Jellyfin["Home Jellyfin server"]
+    Browser <-->|"Room timeline / signaling / chat"| Control
+    Control <--> Redis
+    Media <--> Redis
+    Control <--> Auth
+    Browser <-->|"Call tracks"| Calls
+    Plugin <-->|"Local API / HLS"| Jellyfin
+    Plugin <-->|"Authorized outbound HTTPS"| Media
+    Browser <-->|"Direct WebRTC movie resources"| Plugin
+    Browser <-->|"Library / HTTPS movie fallback"| Media
+```
 
-## Local development
+| Component | Responsibility |
+| --- | --- |
+| React frontend on Vercel | Rooms, player, personal track preferences, call UI, and diagnostics |
+| Node control service | Membership, approval, timeline, chat, and direct-media signaling |
+| Node media service | Connector work, scoped library APIs, embedded Jellyfin Web, and HTTPS fallback |
+| Redis | Shared state, encrypted credentials, authorization leases, and distributed limits |
+| Firebase | Account authentication and persistent chat storage |
+| LiveKit | Camera, microphone, and screen media |
+| Jellyfin plugin and Go sender | Local Jellyfin access and direct HLS resource delivery |
 
-Use **Node.js 24** and npm. From the repository root, start the backend:
+The deployment blueprint configures two control instances and one media instance. Multiple media replicas need connector routing before enabling them. LiveKit calls and Jellyfin movie delivery use separate transports.
+
+[Movie delivery and quality](docs/media-architecture.md) · [Direct transport, fallback, and rollout](docs/direct-media.md) · [Production runbook](docs/production.md)
+
+## Playback and capacity
+
+| Control | Behavior |
+| --- | --- |
+| Play / pause / seek | Shared by the room |
+| Audio / subtitles / volume | Personal to each viewer |
+| Original | Requests source video stream-copy when supported; remuxing or audio conversion may still be needed |
+| Auto | Uses compatible playback and adapts to connection conditions |
+| 4 / 8 / 20 Mbps | Caps that viewer's requested bitrate; Jellyfin may transcode |
+
+Each viewer receives a separate stream. Four viewers at 8 Mbps require approximately **32 Mbps of home upload**, plus headroom for peaks, retries, and calls. Direct delivery avoids gateway movie bandwidth for that viewer; it does not remove home upload requirements. Jellyfin handles remuxing and transcoding.
+
+**More options → Stats for nerds** shows the selected movie transport, fallback reason, delivery and playback metrics, and call statistics. Codec, HDR, subtitle burn-in, and device support depend on the source, Jellyfin configuration, and browser. Native HLS uses HTTPS. Restrictive NATs may require HTTPS because direct movie delivery has no TURN dependency.
+
+## Develop locally
+
+Use **Node.js 24** and npm. Install and start the backend:
 
 ```sh
 npm --prefix SameRow/server ci
 npm --prefix SameRow/server start
 ```
 
-In another terminal, start the frontend:
+In another terminal:
 
 ```sh
 npm --prefix SameRow/client ci
 npm --prefix SameRow/client run dev
 ```
 
-Open the URL printed by Vite. Its development proxy targets the backend on
-port 3000. If your backend uses another address, set `VITE_SOCKET_URL`.
-For a UI preview with sample data, open `/ui-preview?scene=lobby`.
+Vite proxies to the backend on port 3000. See the [client configuration](SameRow/client/.env.example) and [server configuration](SameRow/server/.env.example). Keep credentials outside Git and browser-facing `VITE_*` variables. `/ui-preview?scene=lobby` provides a sample-data preview.
 
-Configuration examples are in
-[client/.env.example](SameRow/client/.env.example) and
-[server/.env.example](SameRow/server/.env.example).
-Store server credentials and connector secrets outside Git and client-side
-`VITE_*` variables.
+Build the plugin with .NET 10 and Jellyfin 12.3 reference assemblies. Its bundled sender uses Go; [plugin build and packaging instructions](jellyfin-plugin-mellettem/README.md) and the [release workflow](.github/workflows/jellyfin-plugin.yml) describe all platform binaries and dependency notices.
 
-### Build the Jellyfin plugin
-
-Use the **.NET 10 SDK** and a Jellyfin 12.3 server installation containing the
-reference assemblies:
-
-```sh
-dotnet build jellyfin-plugin-mellettem/Mellettem.Plugin.csproj \
-  -c Release -p:JellyfinServerPath=/absolute/path/to/jellyfin
-
-python3 jellyfin-plugin-mellettem/package.py
-```
-
-The ZIP and SHA-256 checksum are written to `jellyfin-plugin-mellettem/dist/`.
-The [plugin guide](jellyfin-plugin-mellettem/README.md) covers installation,
-credential backup, rotation, updates, troubleshooting, and uninstallation.
-
-## Deployment
-
-Deploy matching frontend and backend revisions before using the plugin with
-the hosted service.
-
-Follow the [production runbook](docs/production.md) for Firebase, LiveKit,
-Redis, origins, readiness, and deployment recovery.
-
-## Verification
-
-The latest local run passed:
-
-- **88 JavaScript tests** with real Redis and no skips.
-- **10 C# plugin tests**, frontend lint, and production builds.
-- Four browsers decoding a **generated 3840×2160 clip** through the real C#
-  connector service, real Jellyfin server, and Mellettem gateway.
-- Exact HTTP 206 byte-range comparisons, personal audio/subtitles, shared
-  seeking, reconnects, and Jellyfin video stream-copy confirmation.
-- A failover probe that recovered **20 of 20 users** across two control instances.
-
-The C# integration test uses a local host adapter, development identities, and
-loopback HTTP. Full acceptance with an installed plugin, hosted HTTPS/Google
-approval, and guests on separate networks remains pending. High-bitrate HDR
-and every browser/codec combination are also outside the completed test run.
-
-Read the [verification report](jellyfin-plugin-mellettem/test-results/README.md)
-for results, fixes, commands, and remaining limits.
-
-### Run checks
+## Verify and deploy
 
 ```sh
 npm --prefix SameRow/server test
@@ -238,46 +142,24 @@ npm --prefix SameRow/client run lint
 npm --prefix SameRow/client run build
 ```
 
-Set `TEST_REDIS_URL` to disposable local Redis to include the shared-state checks:
+Set `TEST_REDIS_URL` to a disposable Redis instance to include shared-state checks. [Application CI](.github/workflows/ci.yml) also exercises reconnects, direct HLS, and HTTPS fallback. [Plugin CI](.github/workflows/jellyfin-plugin.yml) builds and tests the plugin and packages senders for Linux, macOS, and Windows on amd64 and arm64.
 
-```sh
-TEST_REDIS_URL=redis://127.0.0.1:6379 npm --prefix SameRow/server test
-TEST_REDIS_URL=redis://127.0.0.1:6379 npm --prefix SameRow/server run test:reconnect
-```
+Deploy matching frontend and backend revisions using the [production runbook](docs/production.md). Production requires Firebase, LiveKit, Redis, HTTPS origins, and a persistent encryption key. Readiness endpoints and the frontend deployment check validate the configured services before publication.
 
-For plugin tests:
+Local integration covers real Jellyfin media, direct delivery, byte ranges, tracks, synchronization, and simulated fallback. Hosted approval and playback across separate networks, physical iOS, high-bitrate HDR, and regular desktop Firefox still need the acceptance checks in the [direct-media guide](docs/direct-media.md#validation). See the [integration report](jellyfin-plugin-mellettem/test-results/README.md) for the scope of earlier runs.
 
-```sh
-JELLYFIN_SERVER_PATH=/absolute/path/to/jellyfin \
-  dotnet run --project jellyfin-plugin-mellettem.tests \
-  -c Release -p:JellyfinServerPath=/absolute/path/to/jellyfin
-```
+## Project guide
 
-See the [client browser checks](SameRow/client/README.md#checks) and
-[plugin integration guide](jellyfin-plugin-mellettem/README.md#verification-and-distribution)
-for the browser/runtime prerequisites and disposable Jellyfin fixture.
+| Path | Contents |
+| --- | --- |
+| `SameRow/client` | Web application and browser checks |
+| `SameRow/server` | Control and media services |
+| `jellyfin-plugin-mellettem` | Jellyfin plugin, sender, packaging, and license |
+| `jellyfin-plugin-samerow/manifest.json` | Stable catalog address used by installed servers |
+| `docs` | Architecture, deployment, and brand assets |
 
-[Application CI](.github/workflows/ci.yml) runs Node checks and Redis recovery.
-[Plugin CI](.github/workflows/jellyfin-plugin.yml) builds, tests, validates,
-and uploads the plugin artifact.
+## Support and licensing
 
-## Repository layout
+[Report a bug](https://github.com/devpratyushh/Samerow-V2/issues/new?template=bug_report.yml) with your browser, plugin version, chosen transport, and reproduction steps. Omit credentials, private invitation links, and personal media URLs. See [security reporting](SECURITY.md) for private reports.
 
-## License and release status
-
-The Mellettem web application and backend use an [All Rights Reserved license](LICENSE). **Mellettem Connect and its build/test files are GPL-3.0-or-later**; see the [plugin license](jellyfin-plugin-mellettem/LICENSE) and [scope](jellyfin-plugin-mellettem/LICENSING.md).
-
-The plugin is a public beta for Jellyfin 12.3. Local and CI verification passed; full hosted approval and playback across separate networks with three guests still require acceptance testing. The published catalog points to a verified GitHub Release ZIP and its matching source.
-
-## Jellyfin availability and saved accounts
-
-Use the Mellettem Connect Jellyfin plugin to pair your server, then authorize your
-Jellyfin user with your signed-in Mellettem account. Sign into the same account on
-another device to restore the library, including from another network.
-
-The dashboard distinguishes Ready, Offline, Reconnecting, Sign-in required,
-Jellyfin unavailable, and Status unavailable. It shows each server and Jellyfin
-user, the bound account, and when the server was last reached. Set a default if
-you have multiple servers. Binding survives shutdowns and inactivity; explicitly
-disconnect it to remove access. Lost device connectivity does not mark the home
-server offline. Playback retains the room timeline while reconnecting.
+The web application and backend are [All Rights Reserved](LICENSE). Mellettem Connect and its build/test files are [GPL-3.0-or-later](jellyfin-plugin-mellettem/LICENSE); see the [licensing scope](jellyfin-plugin-mellettem/LICENSING.md). Brand assets are supplied for identifying Mellettem and do not change the software licenses.

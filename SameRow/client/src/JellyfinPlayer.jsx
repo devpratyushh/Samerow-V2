@@ -248,7 +248,14 @@ export default function JellyfinPlayer({ state, base, socket, command, connected
     let bufferingSince = 0;
     let decoderTimeout;
     const switchToCompatibleStream = reason => {
-      if (!disposed) setFallback({ key: streamKey, reason });
+      if (disposed) return;
+      // A startup failure has no throughput estimate yet. Retrying the same
+      // source bitrate just downloads the same large segments until timeout.
+      const estimate = ready ? hls?.bandwidthEstimate : null;
+      setNetworkBitrate(Math.max(250000, Math.floor(Math.min(4000000,
+        qualitySourceBitrate ? qualitySourceBitrate * 0.7 : Infinity,
+        Number.isFinite(estimate) && estimate > 0 ? estimate * 0.7 : Infinity))));
+      setFallback({ key: streamKey, reason });
     };
     const switchToRelay = reason => {
       if (disposed || relayReasonForSession.current) return;
@@ -322,12 +329,12 @@ export default function JellyfinPlayer({ state, base, socket, command, connected
       } else if (relayReason) {
         setTransportStatus('Connecting to HTTPS relay…');
       }
-      if (!validated && !original && video.canPlayType('application/vnd.apple.mpegurl')) {
+      const { default: Hls } = await import('hls.js');
+      if (disposed) return;
+      if (!validated && !original && !Hls.isSupported() && video.canPlayType('application/vnd.apple.mpegurl')) {
         setDiagnostics(previous => ({ ...previous, stage: 'Requesting stream playlist…' }));
         video.src = url; video.load();
       } else {
-        const { default: Hls } = await import('hls.js');
-        if (disposed) return;
         if (!Hls.isSupported()) {
           if (original) switchToCompatibleStream('This browser cannot use the original video player.');
           else { setPhase('error'); setError('This browser cannot play this video. Try a current browser with HLS support.'); }

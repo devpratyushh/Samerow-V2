@@ -154,7 +154,7 @@ const Lobby = ({ joinRoom, generateRoom, serverUrl, initialRoom, userStream, tog
   return (
     <main className="lobby">
       <header className="lobby-header">
-        <a className="lobby-brand" href="/" aria-label="Mellettem home"><img className="mellettem-mark" src="/mellettem.png" alt="" />Mellettem</a>
+        <a className="lobby-brand" href="/" aria-label="Mellettem home"><img className="mellettem-wordmark" src="/mellettem-wordmark.png" alt="Mellettem" /></a>
         <span className={`lobby-connection ${serverConnected ? 'is-connected' : ''}`} role="status"><span aria-hidden="true" />{serverConnected ? 'Ready to connect' : 'Connecting to server'}</span>
       </header>
       <div className="lobby-content">

@@ -7,6 +7,27 @@ const { configuration } = require('../config');
 
 const movie = base => ({ base, sourceId: 'source', item: { MediaSources: [{ Id: 'source', Bitrate: 40000000, MediaStreams: [{ Type: 'Video', Width: 3840, Height: 2160 }] }] } });
 
+test('startup bitrate fallback converts high-bitrate video instead of copying it again', async () => {
+  const { installJellyfin } = require('../jellyfin');
+  const service = installJellyfin(require('express')(), { on() {}, off() {} }, null);
+  try {
+    const state = { ...movie('https://movies.example'), itemId: 'movie', audioTracks: [], subtitleTracks: [] };
+    state.item.MediaSources[0].MediaStreams[0].Codec = 'h264';
+    const viewer = { token: 'fallback', deviceId: 'viewer' };
+    // Direct planning uses the same media query without needing a stored viewer.
+    const query = async params => new URL((await service.planStream({ viewer, state }, params, true)).resource, state.base).searchParams;
+    const fallback = await query({ bitrate: '4000000' });
+    assert.equal(fallback.get('VideoBitrate'), '3808000');
+    assert.equal(fallback.get('AllowVideoStreamCopy'), 'false');
+    assert.equal(fallback.get('EnableAutoStreamCopy'), 'false');
+    const original = await query({ original: '1' });
+    assert.equal(original.get('VideoCodec'), 'copy');
+    assert.equal(original.get('AllowVideoStreamCopy'), 'true');
+    const unchanged = await query({ bitrate: '50000000' });
+    assert.equal(unchanged.get('AllowVideoStreamCopy'), 'true');
+  } finally { service.close(); }
+});
+
 test('manual quality caps apply per viewer and obey shared capacity', async () => {
   const policy = createQualityPolicy(new MemoryStore(), { gatewayMbps: 10 });
   const state = movie('https://movies.example');

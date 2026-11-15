@@ -76,5 +76,33 @@ try {
   await stalled.getByRole('button', { name: 'Retry playback settings' }).waitFor();
   assert.match(await stalled.locator('.jellyfin-player-status').innerText(), /request timed out after 10 seconds/);
   await stalled.close();
+  const fallback = await browser.newPage();
+  await fallback.clock.install();
+  // Chromium can advertise native HLS while also supporting MediaSource.
+  // The fallback should retain Hls.js request visibility in that case.
+  await fallback.addInitScript(() => {
+    const native = HTMLMediaElement.prototype.canPlayType;
+    HTMLMediaElement.prototype.canPlayType = function (type) { return type.includes('mpegurl') ? 'probably' : native.call(this, type); };
+  });
+  await fallback.route('**/quality', route => route.fulfill({ json: {
+    mode: 'original', maxBitrate: 30000000, revision: 0, source: { bitrate: 24000000, height: 2160 },
+  } }));
+  let compatibleUrl;
+  await fallback.route('**/stream.m3u8?**', route => {
+    const url = new URL(route.request().url());
+    if (url.searchParams.get('original') === '1') return;
+    compatibleUrl = url;
+    return route.fulfill({ contentType: 'application/vnd.apple.mpegurl', body: '#EXTM3U\n#EXT-X-TARGETDURATION:6\n#EXTINF:6,\n/fallback-segment.ts\n#EXT-X-ENDLIST\n' });
+  });
+  await fallback.route('**/fallback-segment.ts', route => route.fulfill({ status: 503, body: 'unavailable' }));
+  await fallback.goto(`${process.env.UI_BASE_URL || 'http://127.0.0.1:5175'}/tests/jellyfin-diagnostics.html`);
+  await fallback.locator('.jellyfin-player-status > p[role="status"]').filter({ hasText: 'Requesting stream playlist…' }).waitFor();
+  await fallback.clock.runFor(30100);
+  await fallback.getByText(/Using compatible playback/).waitFor();
+  await fallback.locator('.jellyfin-player-status > p[role="status"]').filter({ hasText: 'Downloading media segment…' }).waitFor();
+  assert.ok(compatibleUrl, 'Startup timeout must request a compatible stream');
+  assert.equal(Number(compatibleUrl.searchParams.get('bitrate')), 4000000);
+  assert.equal(compatibleUrl.searchParams.has('original'), false);
+  await fallback.close();
   console.log('PASS settings HTTP failure, timeout and retry; real HLS segment/HTTP diagnostics; elapsed time; live bottom-of-player stats; mobile layout; no credential exposure.');
 } finally { await browser.close(); }

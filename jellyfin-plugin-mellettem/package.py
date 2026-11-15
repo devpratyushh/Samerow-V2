@@ -68,6 +68,7 @@ if args.source_url:
     version = {key: meta[key] for key in ("version", "targetAbi", "changelog", "timestamp")}
     version.update(sourceUrl=args.source_url, checksum=hashlib.md5(data).hexdigest())
     entry = {key: meta[key] for key in ("guid", "name", "description", "overview", "owner", "category")}
+    entry["imageUrl"] = "https://raw.githubusercontent.com/devpratyushh/Samerow-V2/main/jellyfin-plugin-mellettem/mellettem.png"
     entry["versions"] = [version]
     (output / "manifest.json").write_text(json.dumps([entry], indent=2) + "\n")
 print(archive)

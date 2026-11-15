@@ -2,7 +2,7 @@
   "framework": "vite",
   "buildCommand": "node scripts/check-deployment.mjs && npm run build",
   "outputDirectory": "dist",
-  "rewrites": [{ "source": "/((?!assets/|mellettem\\.png).*)", "destination": "/index.html" }],
+  "rewrites": [{ "source": "/((?!assets/|mellettem(?:-wordmark|-social)?\\.png).*)", "destination": "/index.html" }],
   "headers": [
     {
       "source": "/(.*)",

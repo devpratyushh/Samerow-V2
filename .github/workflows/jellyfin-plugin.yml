@@ -86,4 +86,4 @@ jobs:
             jellyfin-plugin-mellettem jellyfin-plugin-mellettem.tests .github/workflows/jellyfin-plugin.yml
           (cd dist && sha256sum "$source" > "$source.sha256")
           gh release create "$GITHUB_REF_NAME" --verify-tag --prerelease --title "Mellettem Connect $version (beta)" \
-            --notes 'The Jellyfin dashboard now shows live relay uptime, the previous connection duration, and relay activity. The plugin is now Mellettem Connect. Existing pairings carry over on upgrade. Restart Jellyfin after installation.' dist/*
+            --notes-file "docs/releases/mellettem-connect-$version.md" dist/*

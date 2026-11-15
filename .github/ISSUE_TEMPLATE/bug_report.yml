@@ -1,0 +1,27 @@
+name: Bug report
+description: Report a reproducible Mellettem issue
+title: "[Bug]: "
+body:
+  - type: markdown
+    attributes:
+      value: "Do not include credentials, private invitation links, or personal media URLs. Use SECURITY.md for security issues."
+  - type: textarea
+    id: problem
+    attributes:
+      label: What happened?
+      description: Include the expected behavior and what you observed.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Browser and OS, Jellyfin and plugin versions, direct WebRTC or HTTPS, and relevant redacted diagnostics.
+    validations:
+      required: true
