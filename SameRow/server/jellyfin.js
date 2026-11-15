@@ -6,6 +6,8 @@ const { createQualityPolicy, qualityModes } = require('./jellyfinQuality');
 const { readText, readJson } = require('./upstreamBody');
 const { connectorId } = require('./jellyfinRelay');
 const { upstreamRequest, validateServerUrl } = require('./jellyfinAccounts');
+const { prepareStart, markStartReady } = require('./roomPlaybackStart');
+const { isRoomOwner } = require('./roomOwner');
 
 const idPattern = /^[a-zA-Z0-9_-]{1,128}$/;
 const token = () => randomBytes(24).toString('hex');
@@ -20,7 +22,7 @@ function installJellyfin(app, io, accounts, options = {}) {
   const request = accounts?.request || upstreamRequest;
   const member = (socket, roomId) => typeof roomId === 'string' && socket.rooms.has(roomId);
   const permitted = (socket, roomId) => options.canControl ? options.canControl(socket, roomId) : member(socket, roomId);
-  const snapshot = (state, now = Date.now()) => ({ sessionId: state.id, native: !!state.connectionToken, ...(options.direct && connectorId(state.base) ? { direct: true } : {}), itemId: state.itemId, title: state.title, duration: state.duration, audioTracks: state.audioTracks, subtitleTracks: state.subtitleTracks, playing: state.playing, timestamp: position(state, now), updatedAt: now, revision: state.revision, commandId: state.commandId, seek: state.seek });
+  const snapshot = (state, now = Date.now()) => ({ sessionId: state.id, native: !!state.connectionToken, ...(options.direct && connectorId(state.base) ? { direct: true } : {}), itemId: state.itemId, title: state.title, duration: state.duration, audioTracks: state.audioTracks, subtitleTracks: state.subtitleTracks, playing: state.playing, timestamp: position(state, now), updatedAt: now, revision: state.revision, commandId: state.commandId, seek: state.seek, ...(state.startup ? { starting: true } : {}) });
   const requestsFor = viewer => {
     let active = activeRequests.get(viewer.token);
     if (!active) { active = { sessionId: viewer.sessionId, requests: new Set() }; activeRequests.set(viewer.token, active); }
@@ -92,7 +94,7 @@ function installJellyfin(app, io, accounts, options = {}) {
       if (options.production && !connection) { ack({ error: 'Sign in to your Jellyfin library first.' }); return; }
       if (connectorId(connection?.base)) {
         const room = await store.get(`room:${roomId}`);
-        if (room?.ownerUid !== socket.data.uid) {
+        if (!isRoomOwner(room, socket)) {
           ack({ code: 'JELLYFIN_ROOM_OWNER_REQUIRED', error: 'Only the room creator can share from a paired Jellyfin server. Create your own private room to watch together.' });
           return;
         }
@@ -132,10 +134,10 @@ function installJellyfin(app, io, accounts, options = {}) {
           if (controller.signal.aborted || !member(socket, roomId) || await store.get(`jellyfin-pending:${roomId}`) !== operation) { ack({ error: 'Playback selection was cancelled or replaced.' }); return; }
           const streams = source.MediaStreams || item.MediaStreams || [], duration = Number(source.RunTimeTicks || item.RunTimeTicks) / 10000000;
           if (!Number.isFinite(duration) || duration <= 0) throw new Error('This item has no playable video duration.');
-          const old = await store.get(`jellyfin-room:${roomId}`);
-          let state = { id: randomUUID(), base, apiToken, connectionToken: connection?.token, item: { ...item, MediaSources: sources }, itemId, sourceId: source.Id, sourceIds: sources.map(value => value.Id), title: item.Name || 'Jellyfin video', duration, audioTracks: streams.filter(stream => stream.Type === 'Audio').map(trackInfo), subtitleTracks: streams.filter(stream => stream.Type === 'Subtitle').map(trackInfo), playing: true, timestamp: 0, updatedAt: Date.now(), revision: (old?.revision || 0) + 1 };
-          const selection = state;
-          state = await store.guardedUpdate(`jellyfin-pending:${roomId}`, operation, `jellyfin-room:${roomId}`, current => ({ ...selection, revision: (current?.revision || 0) + 1 }), roomTtl);
+          const [old, startup] = await Promise.all([store.get(`jellyfin-room:${roomId}`), prepareStart(io, roomId, socket)]);
+          if (controller.signal.aborted || !member(socket, roomId)) { ack({ error: 'Playback selection was cancelled or replaced.' }); return; }
+          const selection = { id: randomUUID(), base, apiToken, connectionToken: connection?.token, item: { ...item, MediaSources: sources }, itemId, sourceId: source.Id, sourceIds: sources.map(value => value.Id), title: item.Name || 'Jellyfin video', duration, audioTracks: streams.filter(stream => stream.Type === 'Audio').map(trackInfo), subtitleTracks: streams.filter(stream => stream.Type === 'Subtitle').map(trackInfo), startup, playing: !startup, timestamp: 0, updatedAt: Date.now() };
+          const state = await store.guardedUpdate(`jellyfin-pending:${roomId}`, operation, `jellyfin-room:${roomId}`, current => ({ ...selection, revision: (current?.revision || 0) + 1 }), roomTtl);
           if (!state) { ack({ error: 'Another playback selection replaced this request.' }); return; }
           revoke(old); await publish(roomId, state); ack({ ok: true });
         } catch (error) { ack({ error: error.name === 'AbortError' ? 'Connection cancelled or timed out. Try again.' : error.status === 503 ? error.message : 'Could not open Jellyfin playback. Check the selected server and your connection.' }); }
@@ -144,6 +146,13 @@ function installJellyfin(app, io, accounts, options = {}) {
     });
     on('jellyfin-cancel-open', async roomId => {
       if (member(socket, roomId) && await permitted(socket, roomId)) { pending.get(roomId)?.abort(); pending.delete(roomId); await store.set(`jellyfin-pending:${roomId}`, token(), 60); }
+    });
+    on('jellyfin-start-ready', async payload => {
+      const { roomId, sessionId, revision } = payload || {};
+      if (!socket.data.initialBuffer || !member(socket, roomId)) return;
+      const state = await markStartReady({ store, key: `jellyfin-room:${roomId}`, ttl: roomTtl, socket, sessionId, revision,
+        getId: value => value.id, start: (value, now) => ({ ...value, playing: true, updatedAt: now }) });
+      if (state) await publish(roomId, state);
     });
     on('jellyfin-command', async (payload = {}) => {
       const receivedAt = Date.now();
@@ -164,7 +173,7 @@ function installJellyfin(app, io, accounts, options = {}) {
         const timestamp = payload.action === 'seek'
           ? Math.min(current.duration, payload.time + (current.playing ? (now - seekStart) / 1000 : 0))
           : position(current, now);
-        return { ...current, timestamp: payload.action === 'play' && timestamp >= current.duration - 0.1 ? 0 : timestamp,
+        return { ...current, startup: null, timestamp: payload.action === 'play' && timestamp >= current.duration - 0.1 ? 0 : timestamp,
           playing: payload.action === 'play' ? true : payload.action === 'pause' ? false : current.playing,
           seek: payload.action === 'seek' ? { id: commandId || current.revision + 1, time: payload.time } : null,
           commandId, updatedAt: now, revision: current.revision + 1 };

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
+import { randomUUID } from 'node:crypto';
 import { createServer } from 'vite';
 import { jellyfinFixture } from './helpers/jellyfin-fixture.mjs';
 const require = createRequire(import.meta.url);
@@ -27,22 +28,27 @@ try {
   await signedOut.getByRole('button', { name: 'Continue with GitHub', exact: true }).waitFor();
   assert.equal(await signedOut.getByText('No account needed to join.', { exact: true }).count(), 0);
   await signedOut.close();
+  const admissionContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const originalTab = randomUUID();
+  await admissionContext.addInitScript(id => sessionStorage.setItem('mellettem.room-tab', id), originalTab);
   const pages = await Promise.all(['Host', 'Member', 'Declined'].map(async name => {
-    const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+    const page = await admissionContext.newPage();
     page.on('pageerror', error => errors.push(error.message));
     return { page, name };
   }));
   const open = async ({ page, name }) => {
-    const query = new URLSearchParams({ server: `http://127.0.0.1:${app.server.address().port}`, room: 'approval-test', name, token: `dev:${name}` });
+    const query = new URLSearchParams({ server: `http://127.0.0.1:${app.server.address().port}`, room: 'approval-test', name, token: `dev:${name === 'Member' ? 'Host' : name}`, persistTab: '1' });
     await page.goto(`${vite.resolvedUrls.local[0]}tests/room-integration.html?${query}`);
     await page.locator('.room-shell').waitFor();
   };
   const [{ page: host }, { page: guest }, { page: declined }] = pages;
   await open(pages[0]);
   await host.waitForFunction(() => window.fixtureSocket.roomConfig?.isOwner);
+  assert.equal(await host.evaluate(() => window.fixtureSocket.auth.clientId), originalTab);
   await host.getByRole('button', { name: 'Mute microphone', exact: true }).focus();
   await open(pages[1]);
   await guest.getByRole('dialog', { name: 'Joining private room' }).waitFor();
+  assert.notEqual(await guest.evaluate(() => window.fixtureSocket.auth.clientId), originalTab);
   const requestPopup = host.getByRole('dialog', { name: 'Someone wants to join' });
   await requestPopup.waitFor();
   assert.equal(await requestPopup.getAttribute('aria-modal'), null);
@@ -52,6 +58,11 @@ try {
   assert.equal(await app.store.get(`member:approval-test:${await guest.evaluate(() => window.fixtureSocket.id)}`), null);
   await host.getByRole('button', { name: 'Accept', exact: true }).click();
   await guest.getByRole('dialog', { name: 'Joining private room' }).waitFor({ state: 'detached' });
+  const guestReview = await guest.evaluate(() => window.fixtureSocket.timeout(5000).emitWithAck('room-requests', 'approval-test'));
+  assert.equal(guestReview.status, 403);
+  await host.reload();
+  await host.waitForFunction(() => window.fixtureSocket.roomConfig?.isOwner);
+  assert.equal(await host.evaluate(() => window.fixtureSocket.auth.clientId), originalTab);
   const joinsBeforeReconnect = await guest.evaluate(() => window.socketEmissions.filter(event => event.name === 'join-room').length);
   await guest.evaluate(() => { window.fixtureSocket.io.engine.close(); });
   await guest.waitForFunction(() => window.fixtureSocket.connected && window.fixtureSocket.roomConfig?.ok);
@@ -65,16 +76,16 @@ try {
   await declined.getByRole('button', { name: 'Cancel and leave' }).click();
   assert.equal(await declined.evaluate(() => window.leftRoom), true);
   assert.deepEqual(errors, []);
-  console.log('PASS required sign-in, host acceptance, member waiting, reconnect and decline dialogs on mobile');
+  console.log('PASS required sign-in, acceptance of a second tab on the same account, reconnect and decline on mobile');
 
-  await Promise.all(pages.map(({ page }) => page.close()));
+  await admissionContext.close();
   fixture = await jellyfinFixture({ media: true });
   const base = `http://127.0.0.1:${app.server.address().port}`;
   const enter = async (room, name, setup) => {
     const page = await browser.newPage();
     page.on('pageerror', error => errors.push(error.message));
     await setup?.(page);
-    const query = new URLSearchParams({ server: base, room, name, token: `dev:${name}` });
+    const query = new URLSearchParams({ server: base, room, name, token: `dev:${name}`, initialBuffer: '1' });
     await page.goto(`${vite.resolvedUrls.local[0]}tests/room-integration.html?${query}`);
     return page;
   };
@@ -129,12 +140,20 @@ try {
   const youtubeRoom = 'buffered-join-youtube';
   const youtubeHost = await enter(youtubeRoom, 'YouTube host', page => mockYouTube(page, false));
   await youtubeHost.waitForFunction(() => window.fixtureSocket.roomConfig?.isOwner);
-  const youtubeMember = await enter(youtubeRoom, 'YouTube member', page => mockYouTube(page, false));
+  const youtubeMember = await enter(youtubeRoom, 'YouTube member', page => mockYouTube(page, true));
   await youtubeHost.getByRole('button', { name: 'Accept', exact: true }).click();
   await youtubeMember.waitForFunction(() => window.fixtureSocket.roomConfig?.ok);
   await youtubeHost.evaluate(roomId => window.fixtureSocket.emit('youtube-change', {
     roomId, url: 'https://www.youtube.com/watch?v=M7lc1UVf-VE', timestamp: 10,
   }), youtubeRoom);
+  await youtubeMember.waitForFunction(() => typeof window.resumeYouTube === 'function');
+  await youtubeHost.waitForFunction(() => window.socketEmissions.some(event => event.name === 'youtube-start-ready'));
+  await youtubeMember.waitForTimeout(4000);
+  const { state: warmingYouTube } = await emit(youtubeHost, 'sync-request', youtubeRoom);
+  assert.equal(warmingYouTube.starting, true);
+  assert.equal(warmingYouTube.isPlaying, false);
+  assert.equal(warmingYouTube.timestamp, 10);
+  await youtubeMember.evaluate(() => window.resumeYouTube());
   for (const viewer of [youtubeHost, youtubeMember]) {
     await viewer.waitForFunction(() => {
       const player = document.querySelector('youtube-video');
@@ -144,6 +163,8 @@ try {
       throw error;
     });
   }
+  const { state: startedYouTube } = await emit(youtubeHost, 'sync-request', youtubeRoom);
+  assert.ok(startedYouTube.timestamp >= 10 && startedYouTube.timestamp < 11.5, `YouTube opened at ${startedYouTube.timestamp}`);
   const youtubeGuest = await enter(youtubeRoom, 'YouTube guest', page => mockYouTube(page, true));
   await youtubeHost.getByRole('button', { name: 'Accept', exact: true }).click();
   const youtubeWaiting = youtubeGuest.getByRole('dialog', { name: 'Joining private room' });
@@ -179,10 +200,21 @@ try {
     const room = `buffered-join-${delivery}`;
     const hostPage = await enter(room, 'Host');
     await hostPage.waitForFunction(() => window.fixtureSocket?.roomConfig?.isOwner);
+    let releaseStart;
+    const startupHeld = new Promise(resolve => { releaseStart = resolve; });
+    await hostPage.route('**/stream.m3u8?*', async route => { await startupHeld; await route.continue(); }, { times: 1 });
     assert.equal((await emit(hostPage, 'jellyfin-open', {
       roomId: room, serverUrl: fixture.url, apiToken: 'fixture-token', itemId: 'fixture-video',
     })).ok, true);
+    if (delivery === 'original') await hostPage.waitForTimeout(4000);
+    const { state: warmingJellyfin } = await emit(hostPage, 'jellyfin-sync-request', room);
+    assert.equal(warmingJellyfin.starting, true);
+    assert.equal(warmingJellyfin.playing, false);
+    assert.equal(warmingJellyfin.timestamp, 0);
+    releaseStart();
     await playing(hostPage);
+    const { currentTime: firstTime } = await hostPage.locator('.jellyfin-player video').evaluate(video => ({ currentTime: video.currentTime }));
+    assert.ok(firstTime < 1.5, `Jellyfin opened at ${firstTime}`);
     if (delivery === 'compatible') {
       await hostPage.getByLabel('Audio and subtitles', { exact: true }).click();
       await hostPage.getByLabel('Quality on this device', { exact: true }).selectOption('auto');

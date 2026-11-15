@@ -36,7 +36,7 @@ function bufferedTrack(video, duration) {
   return stops.length ? `linear-gradient(to right, ${stops.join(', ')})` : undefined;
 }
 
-export default function JellyfinPlayer({ state, base, socket, command, connected, focused, onBrowse, onOpenNative, onPlaybackStats, onJoinStatus }) {
+export default function JellyfinPlayer({ state, base, socket, command, connected, focused, onBrowse, onOpenNative, onPlaybackStats, onJoinStatus, onStartReady }) {
   const videoRef = useRef(null);
   const hlsRef = useRef(null);
   const networkRef = useRef(null);
@@ -202,6 +202,10 @@ export default function JellyfinPlayer({ state, base, socket, command, connected
       setTime(correction.seek);
     }
     if (state.playing && video.paused && !blocked.current && !loading.current) play();
+    if (state.starting && !suspended && !video.seeking && correction.seek === undefined && video.readyState >= 3 &&
+        Math.abs(video.currentTime - target) <= playbackTolerance) {
+      onStartReady?.(state);
+    }
     if (onJoinStatus && !video.seeking && correction.seek === undefined && Math.abs(roomTime - video.currentTime) <= 0.75 &&
       video.readyState >= (state.playing ? 3 : 2) && !loading.current && video.paused === !state.playing) {
       onJoinStatus({ phase: 'ready', state });
@@ -478,7 +482,7 @@ export default function JellyfinPlayer({ state, base, socket, command, connected
       {(policyFailed || phase === 'error') && <button className="sr-button" onClick={retry}>{policyFailed ? 'Retry playback settings' : 'Reconnect playback'}</button>}
     </div>}
     {fallbackReason && <p className="jellyfin-fallback-note" role="status">Using compatible playback. {fallbackReason}</p>}
-    <PlaybackControls docked label="for everyone" playing={state.playing && phase !== 'blocked' && time < state.duration - 0.1} currentTime={time} duration={state.duration} bufferedTrack={bufferTrack} onTogglePlay={togglePlay} onSeek={seek} disabled={!command || ['loading', 'error'].includes(phase)} volume={volume} muted={muted} onMute={() => setMuted(value => !value)} onVolumeChange={value => { setVolume(value); setMuted(value === 0); }} note={connected ? transportStatus || 'Everyone can control playback' : 'Reconnecting to room…'}>
+    <PlaybackControls docked label="for everyone" playing={state.playing && phase !== 'blocked' && time < state.duration - 0.1} currentTime={time} duration={state.duration} bufferedTrack={bufferTrack} onTogglePlay={togglePlay} onSeek={seek} disabled={!command || ['loading', 'error'].includes(phase)} volume={volume} muted={muted} onMute={() => setMuted(value => !value)} onVolumeChange={value => { setVolume(value); setMuted(value === 0); }} note={connected ? state.starting ? 'Getting playback ready for the room…' : transportStatus || 'Everyone can control playback' : 'Reconnecting to room…'}>
       <details className="player-track-menu" onKeyDown={event => { if (event.key === 'Escape') { event.currentTarget.open = false; event.currentTarget.querySelector('summary').focus(); event.stopPropagation(); } }}>
         <summary className="player-control" aria-label="Audio and subtitles" title="Audio and subtitles"><FaCog /></summary>
         <div className="player-track-panel">

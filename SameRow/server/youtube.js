@@ -3,13 +3,15 @@ const { randomUUID } = require('node:crypto');
 const isVideoUrl = (url) => typeof url === 'string' && /^https:\/\/www\.youtube\.com\/watch\?v=[A-Za-z0-9_-]{11}$/.test(url);
 const isTimestamp = (time) => typeof time === 'number' && Number.isFinite(time) && time >= 0;
 
-function createState(url = null, timestamp = 0, now = Date.now(), revision = 0) {
-  return { revision, url, sessionId: randomUUID(), isPlaying: !!url, timestamp, lastUpdate: now };
+function createState(url = null, timestamp = 0, now = Date.now(), revision = 0, startup = null) {
+  return { revision, url, sessionId: randomUUID(), isPlaying: !!url && !startup, timestamp, lastUpdate: now, startup };
 }
 
 function snapshot(state, now = Date.now()) {
+  const { startup, ...playback } = state;
   return {
-    ...state,
+    ...playback,
+    ...(startup ? { starting: true } : {}),
     timestamp: state.timestamp + (state.isPlaying ? Math.max(0, now - state.lastUpdate) / 1000 : 0),
     lastUpdate: now
   };
@@ -21,7 +23,7 @@ function updateState(state, update, now = Date.now()) {
   // Old clients omit it; unreasonable or stale estimates never advance the clock.
   const age = Number.isFinite(update.sentAt) && update.sentAt <= now + 100 && now - update.sentAt <= 5000
     ? Math.max(0, now - update.sentAt) / 1000 : 0;
-  return { ...state, commandId: typeof update.commandId === 'string' && update.commandId.length <= 128 ? update.commandId : null, revision: (state.revision || 0) + 1, isPlaying: update.isPlaying,
+  return { ...state, startup: null, commandId: typeof update.commandId === 'string' && update.commandId.length <= 128 ? update.commandId : null, revision: (state.revision || 0) + 1, isPlaying: update.isPlaying,
     timestamp: update.timestamp + (update.isPlaying ? age : 0), lastUpdate: now };
 }
 

@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { io } from 'socket.io-client';
 import Room from '../src/Room';
+import { getRoomTab } from '../src/roomTab';
 import '../src/index.css';
 if (!import.meta.env.DEV) throw new Error('Development fixture only.');
 const params = new URLSearchParams(window.location.search);
@@ -15,7 +16,8 @@ const mockSocket = {
   emit(name, ...args) { window.socketEmissions.push({name,args}); },
 };
 window.socketEmissions = [];
-const socket = params.get('server') ? io(params.get('server'), { auth: { clientId: crypto.randomUUID(), prepareJellyfin: true, prepareYouTube: true, ...(params.get('token') ? { token: params.get('token') } : {}) } }) : mockSocket;
+const tab = params.has('persistTab') ? await getRoomTab() : { id: crypto.randomUUID(), persistent: true };
+const socket = params.get('server') ? io(params.get('server'), { auth: { clientId: tab.id, prepareJellyfin: true, prepareYouTube: true, hostTab: tab.persistent, initialBuffer: params.has('initialBuffer'), ...(params.get('token') ? { token: params.get('token') } : {}) } }) : mockSocket;
 if (params.get('server')) socket.onAnyOutgoing((name,...args)=>window.socketEmissions.push({name,args}));
 window.fixtureSocket = socket;
 function testStream() {

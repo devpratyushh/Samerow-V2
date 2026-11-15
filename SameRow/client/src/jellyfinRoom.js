@@ -66,7 +66,7 @@ export function useJellyfinRoom(socket, roomId, mediaBase, onSnapshot) {
       let timestamp = action === 'seek' ? time : jellyfinTime(previous, now);
       if (action === 'play' && timestamp >= previous.duration - 0.1) timestamp = 0;
       pending.begin(previous, commandId, now);
-      const next = { ...previous, timestamp, seek: action === 'seek' ? { id: commandId, time } : null, playing: action === 'play' ? true : action === 'pause' ? false : previous.playing, receivedAt: now };
+      const next = { ...previous, starting: false, timestamp, seek: action === 'seek' ? { id: commandId, time } : null, playing: action === 'play' ? true : action === 'pause' ? false : previous.playing, receivedAt: now };
       current.current = next;
       setState(next);
     }

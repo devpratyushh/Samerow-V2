@@ -9,6 +9,8 @@ const { configuration } = require('./config');
 const { MemoryStore } = require('./store');
 const { createIdentity, installIdentity, requireAccount } = require('./auth');
 const { isVideoUrl, isTimestamp, createState, snapshot, updateState } = require('./youtube');
+const { prepareStart, markStartReady } = require('./roomPlaybackStart');
+const { isRoomOwner } = require('./roomOwner');
 
 const validRoom = value => typeof value === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(value);
 const failure = (status, message) => Object.assign(new Error(message), { status });
@@ -69,6 +71,7 @@ function createApplication(options = {}) {
     maxRoomSize: config.maxRoomSize,
     role: config.serviceRole,
     roomProtocol: 1,
+    roomStartupBuffer: true,
     ...(config.production ? { firebaseProjectId: config.firebaseProjectId, mediaOrigin: config.mediaOrigin } : {}),
     ...(config.jellyfinRelay ? { jellyfinRelay: true } : {}),
     ...(config.jellyfinDirect && config.jellyfinRelay ? { jellyfinDirect: true } : {}),
@@ -101,10 +104,13 @@ function createApplication(options = {}) {
   const canControl = async (socket, roomId) => {
     if (!validRoom(roomId) || socket.data.roomId !== roomId || !socket.rooms.has(roomId)) return false;
     if (config.controlPolicy === 'everyone') return true;
-    return (await store.get(`room:${roomId}`))?.ownerUid === socket.data.uid;
+    return isRoomOwner(await store.get(`room:${roomId}`), socket);
   };
   io.on('connection', socket => {
     socket.data.clientId = typeof socket.handshake.auth?.clientId === 'string' && /^[a-f0-9-]{36}$/i.test(socket.handshake.auth.clientId) ? socket.handshake.auth.clientId : socket.id;
+    socket.data.initialBuffer = socket.handshake.auth?.initialBuffer === true;
+    const owner = { ownerUid: socket.data.uid,
+      ...(socket.handshake.auth?.hostTab === true && socket.data.clientId !== socket.id ? { ownerClientId: socket.data.clientId } : {}) };
     socket.identityVerifiedAt = Date.now();
     socket.queue = Promise.resolve(); socket.pendingEvents = 0;
     // Preserve arrival order across asynchronous joins and Redis operations.
@@ -142,7 +148,7 @@ function createApplication(options = {}) {
         try {
           await store.update(`room:${code}`, current => {
             if (current) throw failure(409, 'Room code is in use.');
-            return { ownerUid: socket.data.uid, createdAt: Date.now(), invite };
+            return { ...owner, createdAt: Date.now(), invite };
           }, 300);
           return ack({ code, invite });
         } catch (error) {
@@ -158,13 +164,13 @@ function createApplication(options = {}) {
       const name = userName.trim().replace(/[\u0000-\u001f\u007f]/g, '');
       const requestId = randomUUID(), newInvite = randomBytes(24).toString('hex');
       const reserved = await store.update(`room:${roomId}`, current => {
-        if (socket.data.connectorId && (!current || current.ownerUid !== socket.data.uid)) {
+        if (socket.data.connectorId && !isRoomOwner(current, socket)) {
           throw failure(403, 'Start a room from your connector.');
         }
-        const room = current || { ownerUid: socket.data.uid, createdAt: Date.now(), invite: newInvite };
+        const room = current || { ...owner, createdAt: Date.now(), invite: newInvite };
         room.invite ||= newInvite;
         room.admissions = (room.admissions || []).filter(value => value.status === 'approved' || value.until > Date.now());
-        if (room.ownerUid !== socket.data.uid) {
+        if (!isRoomOwner(room, socket)) {
           const existing = room.admissions.find(value => value.uid === socket.data.uid && value.clientId === socket.data.clientId);
           if (!existing) {
             if (room.admissions.length >= 100) throw failure(429, 'Too many join requests. Try again later.');
@@ -173,7 +179,8 @@ function createApplication(options = {}) {
         }
         return room;
       }, config.roomTtl);
-      if (reserved.ownerUid !== socket.data.uid) {
+      const isOwner = isRoomOwner(reserved, socket);
+      if (!isOwner) {
         const admission = reserved.admissions.find(value => value.uid === socket.data.uid && value.clientId === socket.data.clientId);
         if (admission.status === 'denied') throw failure(403, 'The host declined your join request.');
         if (admission.status !== 'approved') {
@@ -226,7 +233,7 @@ function createApplication(options = {}) {
       const alreadyJoined = socket.rooms.has(roomId);
       socket.data.roomId = roomId; socket.data.userName = name; socket.membershipRenewedAt = now; await socket.join(roomId);
       await clearPreparation(socket, false).catch(() => { stats.storageFailures++; });
-      const reply = { ok: true, isOwner: reserved.ownerUid === socket.data.uid, mediaMode: config.mediaMode, mediaBase: config.mediaOrigin, canControl: config.controlPolicy === 'everyone' || reserved.ownerUid === socket.data.uid, invite: reserved.invite, maxRoomSize: config.maxRoomSize };
+      const reply = { ok: true, isOwner, mediaMode: config.mediaMode, mediaBase: config.mediaOrigin, canControl: config.controlPolicy === 'everyone' || isOwner, invite: reserved.invite, maxRoomSize: config.maxRoomSize };
       if (typeof ack === 'function') ack(reply); socket.emit('room-ready', reply);
       if (!alreadyJoined) socket.to(roomId).emit('user-connected', { userId: socket.id, userName: name });
     };
@@ -240,13 +247,13 @@ function createApplication(options = {}) {
     });
     socket.handle('room-requests', async (roomId, ack) => {
       const room = validRoom(roomId) && await store.get(`room:${roomId}`);
-      if (!socket.rooms.has(roomId) || room?.ownerUid !== socket.data.uid) throw failure(403, 'Only the host can review join requests.');
+      if (!socket.rooms.has(roomId) || !isRoomOwner(room, socket)) throw failure(403, 'Only the host can review join requests.');
       if (typeof ack === 'function') ack({ requests: (room.admissions || []).filter(value => value.status === 'pending' && value.until > Date.now()).map(({ id, name }) => ({ id, name })) });
     });
     socket.handle('room-request-answer', async (roomId, requestId, accept, ack) => {
       if (!validRoom(roomId) || !socket.rooms.has(roomId) || typeof accept !== 'boolean') throw failure(403, 'Only the host can review join requests.');
       await store.update(`room:${roomId}`, room => {
-        if (room?.ownerUid !== socket.data.uid) throw failure(403, 'Only the host can review join requests.');
+        if (!isRoomOwner(room, socket)) throw failure(403, 'Only the host can review join requests.');
         const request = room.admissions?.find(value => value.id === requestId && value.status === 'pending' && value.until > Date.now());
         if (!request) throw failure(410, 'This join request has expired.');
         request.status = accept ? 'approved' : 'denied';
@@ -263,8 +270,16 @@ function createApplication(options = {}) {
     });
     socket.handle('youtube-change', async (payload = {}) => {
       if (!payload || !await canControl(socket, payload.roomId) || payload.url !== null && !isVideoUrl(payload.url) || !isTimestamp(payload.timestamp ?? 0)) return;
-      const state = await store.update(`youtube:${payload.roomId}`, current => createState(payload.url, payload.url ? payload.timestamp || 0 : 0, Date.now(), (current?.revision || 0) + 1), config.roomTtl);
+      const startup = payload.url ? await prepareStart(io, payload.roomId, socket) : null;
+      const state = await store.update(`youtube:${payload.roomId}`, current => createState(payload.url, payload.url ? payload.timestamp || 0 : 0, Date.now(), (current?.revision || 0) + 1, startup), config.roomTtl);
       io.to(payload.roomId).emit('youtube-sync', snapshot(state));
+    });
+    socket.handle('youtube-start-ready', async payload => {
+      const { roomId, sessionId, revision } = payload || {};
+      if (!socket.data.initialBuffer || !validRoom(roomId) || !socket.rooms.has(roomId)) return;
+      const state = await markStartReady({ store, key: `youtube:${roomId}`, ttl: config.roomTtl, socket, sessionId, revision,
+        getId: value => value.sessionId, start: (value, now) => ({ ...value, isPlaying: true, lastUpdate: now }) });
+      if (state) io.to(roomId).emit('youtube-sync', snapshot(state));
     });
     socket.handle('youtube-state-change', async (payload = {}) => {
       if (!payload || !await canControl(socket, payload.roomId)) return;

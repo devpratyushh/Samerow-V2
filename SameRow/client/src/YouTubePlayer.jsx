@@ -6,7 +6,7 @@ import { commandServerTime, createDriftController } from './playbackSync';
 import PlaybackControls from './components/PlaybackControls';
 import './YouTubePlayer.css';
 
-export default function YouTubePlayer({ state, socket, roomId, onClose, focused = true, onJoinStatus }) {
+export default function YouTubePlayer({ state, socket, roomId, onClose, focused = true, onJoinStatus, onStartReady }) {
   const playerRef = useRef(null);
   const desired = useRef(state);
   const ready = useRef(false);
@@ -88,8 +88,8 @@ export default function YouTubePlayer({ state, socket, roomId, onClose, focused 
       ? Math.max(0, length - (preparing && !hasPlayed.current ? 0.1 : 0))
       : Infinity;
     const target = Math.max(0, Math.min(limit, playbackTime(wanted)));
-    // Load a paused room's frame locally with the guest's player muted.
-    const warmingPausedFrame = preparing && !wanted.isPlaying && (!hasPlayed.current || buffering.current);
+    // Play silently to load a frame before parking the video at the starting position.
+    const warmingPausedFrame = (preparing || wanted.starting) && !wanted.isPlaying && (!hasPlayed.current || buffering.current);
     if (!wanted.isPlaying && !warmingPausedFrame) {
       playRequest.current = null; clearTimeout(playStartTimer.current);
       autoplayBlocked.current = false; buffering.current = false;
@@ -140,11 +140,14 @@ export default function YouTubePlayer({ state, socket, roomId, onClose, focused 
   const reportReady = useEffectEvent(() => {
     const player = playerRef.current;
     const wanted = desired.current;
-    if (!onJoinStatus || !ready.current || !hasPlayed.current || !player || buffering.current || autoplayBlocked.current) return;
+    if (!ready.current || !hasPlayed.current || !player || buffering.current || autoplayBlocked.current) return;
     const target = Math.min(playbackTime(wanted), player.duration || Infinity);
-    if (ended.current || (player.readyState >= 3 && !isSeeking() && player.paused === !wanted.isPlaying &&
-        Math.abs(player.currentTime - target) <= 0.75)) {
-      onJoinStatus({ phase: 'ready', state: wanted });
+    const positioned = player.readyState >= 3 && !isSeeking() && !player.seeking && player.paused === !wanted.isPlaying;
+    if (wanted.starting && (ended.current || (positioned && Math.abs(player.currentTime - target) <= 0.15))) {
+      onStartReady?.(wanted);
+    }
+    if (ended.current || (positioned && Math.abs(player.currentTime - target) <= 0.75)) {
+      onJoinStatus?.({ phase: 'ready', state: wanted });
     }
   });
   useEffect(() => {
@@ -162,7 +165,7 @@ export default function YouTubePlayer({ state, socket, roomId, onClose, focused 
     const timestamp = position ?? (Number.isFinite(player.currentTime) ? player.currentTime : 0);
     const commandId = globalThis.crypto?.randomUUID?.() || `${socket.id || 'viewer'}:${performance.now()}:${Math.random().toString(36).slice(2)}`;
     pendingCommand.current = { id: commandId, revision: desired.current.revision ?? -1, expires: performance.now() + 5000 };
-    desired.current = { ...desired.current, isPlaying, timestamp, receivedAt: performance.now() };
+    desired.current = { ...desired.current, starting: false, isPlaying, timestamp, receivedAt: performance.now() };
     socket.emit('youtube-state-change', { roomId, sessionId: state.sessionId, isPlaying, timestamp, sentAt: commandServerTime(desired.current), commandId });
   };
   const seek = position => {
@@ -220,7 +223,7 @@ export default function YouTubePlayer({ state, socket, roomId, onClose, focused 
 
   return <section className="youtube-watch" aria-label="YouTube watch together">
     <div className="youtube-watch-video">
-      <ReactPlayer key={attempt} ref={playerRef} src={state.url} width="100%" height="100%" controls={false} muted={!focused || muted} volume={volume} playsInline preload="auto" playbackRate={playbackRate} config={config}
+      <ReactPlayer key={attempt} ref={playerRef} src={state.url} width="100%" height="100%" controls={false} muted={!focused || muted || Boolean(state.starting)} volume={volume} playsInline preload="auto" playbackRate={playbackRate} config={config}
         onLoadStart={event => {
           // Apply config before the custom element constructs its iframe URL.
           if ('config' in event.target) event.target.config = config.youtube;
@@ -254,6 +257,6 @@ export default function YouTubePlayer({ state, socket, roomId, onClose, focused 
     {['loading', 'buffering'].includes(phase) && <div className="youtube-loading" role="status"><span className="room-spinner" />{phase === 'loading' ? 'Loading YouTube…' : 'Buffering…'}</div>}
     {phase === 'blocked' && <div className="youtube-feedback" role="status"><p>Press play to join the video.</p><button onClick={joinPlayback}>Join playback</button></div>}
     {error && <div className="youtube-feedback" role="alert"><p>{error}</p><div><button onClick={retry}>Retry</button><a href={state.url} target="_blank" rel="noopener noreferrer">Open on YouTube ↗</a></div></div>}
-    <PlaybackControls label="Video" playing={playing} currentTime={currentTime} duration={duration} volume={volume} muted={muted} disabled={phase === 'loading' || phase === 'error' || Boolean(error) || !socket.connected} onTogglePlay={togglePlay} onSeek={seek} onVolumeChange={value => { setVolume(value); setMuted(value === 0); }} onMute={() => { if (muted || volume === 0) { if (volume === 0) setVolume(0.5); setMuted(false); } else setMuted(true); }} note={socket.connected ? 'Playback shared with the room' : 'Reconnecting…'}><button className="player-control" onClick={onClose} aria-label="Close video for everyone" title="Close video for everyone"><FaTimes /></button></PlaybackControls>
+    <PlaybackControls label="Video" playing={playing && !state.starting} currentTime={state.starting ? state.timestamp : currentTime} duration={duration} volume={volume} muted={muted} disabled={phase === 'loading' || phase === 'error' || Boolean(error) || !socket.connected} onTogglePlay={togglePlay} onSeek={seek} onVolumeChange={value => { setVolume(value); setMuted(value === 0); }} onMute={() => { if (muted || volume === 0) { if (volume === 0) setVolume(0.5); setMuted(false); } else setMuted(true); }} note={socket.connected ? state.starting ? 'Getting playback ready for the room…' : 'Playback shared with the room' : 'Reconnecting…'}><button className="player-control" onClick={onClose} aria-label="Close video for everyone" title="Close video for everyone"><FaTimes /></button></PlaybackControls>
   </section>;
 }
