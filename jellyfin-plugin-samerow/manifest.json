@@ -2,11 +2,19 @@
   {
     "guid": "a14b5c7e-8d90-4123-b567-9876543210ab",
     "name": "Mellettem Connect",
-    "description": "Connect your Jellyfin server directly to Mellettem for watch parties without port forwarding.",
-    "overview": "Watch movies and shows together in real time on Mellettem. Connect through the Jellyfin plugin without port forwarding.",
+    "description": "Bring your Jellyfin library to Mellettem watch parties. Pair once, invite friends, and watch together without port forwarding.",
+    "overview": "Synchronized movies with video calls and chat. Direct WebRTC delivery where supported, HTTPS fallback, and personal audio, subtitles, and quality.",
     "owner": "Mellettem",
     "category": "General",
     "versions": [
+      {
+        "version": "1.0.7.0",
+        "targetAbi": "12.3.0.0",
+        "changelog": "New Mellettem identity across the plugin and catalog. Direct WebRTC movie delivery with HTTPS fallback, synchronized watch rooms, and personal playback preferences.",
+        "timestamp": "2026-11-15T18:30:00Z",
+        "sourceUrl": "https://github.com/devpratyushh/Samerow-V2/releases/download/mellettem-connect-v1.0.7.0/Mellettem-Connect-1.0.7.0.zip",
+        "checksum": "bdf16f0060f668c562abcaa554af7672"
+      },
       {
         "version": "1.0.6.0",
         "targetAbi": "12.3.0.0",
@@ -39,6 +47,7 @@
         "sourceUrl": "https://github.com/devpratyushh/Samerow-V2/releases/download/samerow-connect-v1.0.2.0/SameRow-Connect-1.0.2.0.zip",
         "checksum": "0e8fb8c3366d178c63b3eade6ff87bdf"
       }
-    ]
+    ],
+    "imageUrl": "https://raw.githubusercontent.com/devpratyushh/Samerow-V2/main/jellyfin-plugin-mellettem/mellettem.png"
   }
 ]

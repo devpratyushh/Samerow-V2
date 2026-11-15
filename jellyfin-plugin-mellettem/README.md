@@ -6,7 +6,7 @@ This plugin connects a Jellyfin server to Mellettem using outbound HTTPS. The se
 
 ## Install from the Jellyfin catalog
 
-**The published beta targets Jellyfin 12.3 and .NET 10.** Mellettem Connect 1.0.7.0 is available from the catalog and includes connection metrics. A [third-party directory submission](https://github.com/jellyfin/jellyfin.org/pull/2089) is awaiting maintainer review. Inclusion in Jellyfin's default repository requires separate acceptance.
+**The published beta targets Jellyfin 12.3 and .NET 10.** Mellettem Connect 1.0.7.0 is available from the catalog and includes connection metrics. Install using the third-party repository URL below. The earlier [directory submission](https://github.com/jellyfin/jellyfin.org/pull/2089) was closed without merging; this plugin is not listed in Jellyfin's default repository or directory.
 
 1. Open Jellyfin **Dashboard → Plugins → Repositories** and add a repository.
 2. Name it **Mellettem Connect** and paste this URL:
