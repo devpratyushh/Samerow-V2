@@ -1,35 +1,66 @@
+<h1 align="center">Mellettem</h1>
+
+<hr />
+
+<h3 align="center">Watch the same movie. Hear it your way.</h3>
+<p align="center">Synchronized watch parties for your Jellyfin library and YouTube.</p>
+
+<hr />
+
 <p align="center">
-  <img src="SameRow/client/public/mellettem-wordmark.png" alt="Mellettem" width="840" />
+  <img src="SameRow/client/public/mellettem-wordmark.png" alt="Mellettem — watch together" width="840" />
 </p>
 
-<p align="center"><strong>Your people. Your movies. One shared moment.</strong></p>
-<p align="center">Watch Jellyfin and YouTube together with synchronized playback, video calls, screen sharing, and chat.</p>
-<p align="center">
-  <a href="https://samerow-v2.vercel.app/">Open Mellettem</a> ·
-  <a href="jellyfin-plugin-mellettem/README.md">Install Mellettem Connect</a> ·
-  <a href="docs/media-architecture.md">Architecture</a> ·
-  <a href="docs/production.md">Deployment</a> ·
-  <a href="https://github.com/devpratyushh/Samerow-V2/issues">Report an issue</a>
-</p>
 <p align="center">
   <a href="https://github.com/devpratyushh/Samerow-V2/actions/workflows/ci.yml"><img src="https://github.com/devpratyushh/Samerow-V2/actions/workflows/ci.yml/badge.svg" alt="Application checks" /></a>
   <a href="https://github.com/devpratyushh/Samerow-V2/actions/workflows/jellyfin-plugin.yml"><img src="https://github.com/devpratyushh/Samerow-V2/actions/workflows/jellyfin-plugin.yml/badge.svg" alt="Plugin checks" /></a>
-  <a href="https://github.com/devpratyushh/Samerow-V2/releases"><img src="https://img.shields.io/badge/Jellyfin_Connect-12.3-00a4dc" alt="Jellyfin 12.3" /></a>
+  <a href="https://github.com/devpratyushh/Samerow-V2/releases"><img src="https://img.shields.io/badge/Mellettem_Connect-v1.0.7.0-9b6dff" alt="Mellettem Connect v1.0.7.0" /></a>
+  <a href="jellyfin-plugin-mellettem/README.md"><img src="https://img.shields.io/badge/Jellyfin-12.3-00a4dc" alt="Jellyfin 12.3" /></a>
 </p>
 
-![Mellettem watch room with shared video, participants, and chat](docs/images/watch-room.jpg)
+<p align="center">
+  <a href="https://samerow-v2.vercel.app/">Open Mellettem</a> ·
+  <a href="jellyfin-plugin-mellettem/README.md">Get the Jellyfin plugin</a> ·
+  <a href="docs/media-architecture.md">Documentation</a> ·
+  <a href="https://github.com/devpratyushh/Samerow-V2/releases">Releases</a>
+</p>
 
-## A watch party that feels together
+<hr />
 
-- **One shared timeline.** Play, pause, and seek stay in sync across the room.
-- **Your own viewing preferences.** Choose audio language, subtitles, volume, and movie quality independently.
-- **Your home library, wherever friends are.** Mellettem Connect pairs Jellyfin to your account without port forwarding.
-- **Direct movie delivery.** Supported browsers receive HLS resources from your Jellyfin plugin over WebRTC, with HTTPS fallback when needed.
-- **Talk while you watch.** LiveKit carries camera, microphone, and screen sharing; room chat stays alongside the movie.
-- **Private by invitation.** Sign in with Google or GitHub. The host approves each member before room content or calls become accessible.
-- **Pick up again.** Account-linked servers, remembered Jellyfin accounts, reconnect recovery, and playback diagnostics help keep the party going.
+Mellettem brings your people together around your movies. Start a private watch room, invite your friends, and enjoy a shared timeline with video calls and chat alongside the film. Play, pause, and seek stay synchronized while each person keeps their own viewing preferences.
 
-The hosted Jellyfin release supports **one host and up to three friends**. The plugin is distributed as a **public beta**; browser and network limits are documented below.
+Your Jellyfin server stays at home. **Mellettem Connect** links it to your account and makes your library available in Mellettem, so you can host a movie night from another device or network. Friends join in their browsers after the host approves them.
+
+## Same video, different audio tracks
+
+**Watch together without having to agree on one language.** Each viewer chooses their own audio track from the same movie while everyone stays at the same point in the story. You can listen to the original Japanese audio while a friend chooses the English dub.
+
+Subtitles work the same way: choose your own language, or turn them off. Audio, subtitles, volume, and quality are personal; the room's play, pause, and seek controls keep the shared experience in sync. Available languages depend on the tracks in your Jellyfin media.
+
+## Native resolution over WebRTC, with HTTPS fallback
+
+**Your library's picture quality belongs on movie night.** Original mode requests the source video at its native resolution, including 4K when the source, browser, device, and connection support it. Compatible video can be copied without re-encoding; Jellyfin can repackage the container or convert unsupported audio when needed.
+
+Supported browsers receive movie resources directly from Mellettem Connect over **WebRTC**. If the browser or network cannot use that path, playback falls back to **HTTPS**. Both delivery paths support original-resolution playback when compatible; each viewer can also choose Auto or a bitrate limit to suit their connection. The active transport and playback details appear in **Stats for nerds**.
+
+Native resolution depends on codec support and available bandwidth. Some subtitle formats need burn-in, and incompatible devices or lower quality settings can require transcoding. See the [playback and quality guide](docs/media-architecture.md) for details.
+
+## No port forwarding. Linked to your Google account.
+
+**Pair once and bring your library with you.** Install Mellettem Connect on Jellyfin, select **Connect Mellettem**, sign in with Google, and approve the connection. The plugin connects outbound, so you do not need to open router ports, expose Jellyfin publicly, or configure a reverse proxy for friends.
+
+Sign into the same Mellettem account on another device to find your linked server. Authorize your Jellyfin user to browse the libraries that account can access, then invite friends into your room. Your home server and internet connection stay running during the party; the Jellyfin dashboard can be closed after pairing.
+
+## More ways to spend time together
+
+- **YouTube watch parties:** share a video and follow the same room timeline.
+- **Video calls and screen sharing:** see and hear your friends while you watch.
+- **Room chat:** keep the conversation beside the movie.
+- **Private invitations and host approval:** decide who enters your room.
+- **Reconnect recovery:** resume the room session after a connection interruption.
+- **Playback diagnostics:** inspect transport, buffering, movie delivery, and call statistics.
+
+The hosted Jellyfin release supports **one host and up to three friends**. Mellettem Connect is available as a **public beta**. See the [compatibility and rollout checks](docs/direct-media.md#validation) for browser and network coverage.
 
 ## Start watching
 
