@@ -42,27 +42,12 @@ Your Jellyfin server stays at home. **Mellettem Connect** links it to your accou
 4. **Choose what to watch.** Open **Share something** and share a YouTube video, or select **Your Jellyfin library**, choose your connected server, and sign in to Jellyfin or use **Quick Connect** to pick a movie.
 5. **Invite and watch.** Select **Invite friends**, send the full invitation link, and approve your friends' requests. Each viewer can choose their own available audio and subtitle tracks.
 
-<details>
-<summary><strong>First time using Jellyfin? Install and pair Mellettem Connect</strong></summary>
+**Using your Jellyfin library?** Mellettem Connect is a Jellyfin server plugin that securely links your home library to your Mellettem account through an outbound connection. It needs no port forwarding or public Jellyfin address. Install it once, connect with Google, and your server is available from your account on other devices. Friends can join your room without installing the plugin.
 
-Requires **Jellyfin 12.3 / .NET 10**. In Jellyfin, open **Dashboard → Plugins → Repositories** and add:
-
-```text
-https://raw.githubusercontent.com/devpratyushh/Samerow-V2/main/jellyfin-plugin-samerow/manifest.json
-```
-
-1. Install **Mellettem Connect** from **Catalog** and restart Jellyfin.
-2. Open its plugin settings and select **Connect Mellettem**.
-3. Sign in to Mellettem, approve the connection, and wait for **Connected** in Jellyfin.
-4. In your room, select the connected server and authorize your Jellyfin user, or use **Quick Connect**.
-
-Keep your Jellyfin server and internet connection running during the party. You can close the Jellyfin dashboard after pairing.
-
-[Plugin downloads](https://github.com/devpratyushh/Samerow-V2/releases) · [Full installation, updates, and recovery guide](jellyfin-plugin-mellettem/README.md)
-
-This repository supplies a third-party Jellyfin catalog. It does not imply inclusion in Jellyfin's default catalog.
-
-</details>
+- Requires **Jellyfin 12.3 / .NET 10**.
+- The plugin supports direct movie delivery over WebRTC and HTTPS fallback where needed.
+- Install from the [Mellettem Connect catalog](jellyfin-plugin-samerow/manifest.json), then pair it from Jellyfin's plugin settings.
+- Follow the illustrated [Mellettem Connect installation guide](docs/mellettem-connect-installation.md) for repository setup, pairing, and troubleshooting.
 
 ![Mellettem lobby with sign-in, room controls, and connected-library access](docs/images/lobby.jpg)
 
