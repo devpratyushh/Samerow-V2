@@ -13,6 +13,8 @@ const { isVideoUrl, isTimestamp, createState, snapshot, updateState } = require(
 const validRoom = value => typeof value === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(value);
 const failure = (status, message) => Object.assign(new Error(message), { status });
 const LEASE_SECONDS = 90;
+const IDENTITY_RECHECK_GRACE_MS = 60000;
+const temporaryIdentityErrors = new Set(['app/network-error', 'app/network-timeout', 'auth/internal-error']);
 
 function createApplication(options = {}) {
   const config = options.config || configuration();
@@ -103,6 +105,7 @@ function createApplication(options = {}) {
   };
   io.on('connection', socket => {
     socket.data.clientId = typeof socket.handshake.auth?.clientId === 'string' && /^[a-f0-9-]{36}$/i.test(socket.handshake.auth.clientId) ? socket.handshake.auth.clientId : socket.id;
+    socket.identityVerifiedAt = Date.now();
     socket.queue = Promise.resolve(); socket.pendingEvents = 0;
     // Preserve arrival order across asynchronous joins and Redis operations.
     socket.handle = (event, handler) => socket.on(event, (...args) => {
@@ -127,7 +130,8 @@ function createApplication(options = {}) {
       if (!await store.limit(`auth-refresh:${socket.data.uid}`, 10, 60)) throw failure(429, 'Please wait before refreshing your sign-in.');
       const user = requireAccount(await identity.verify(token));
       if (user.uid !== socket.data.uid) { socket.disconnect(true); return; }
-      socket.identityToken = token; socket.data.expiresAt = user.exp * 1000; if (typeof ack === 'function') ack({ ok: true });
+      socket.identityToken = token; socket.identityVerifiedAt = Date.now();
+      socket.data.expiresAt = user.exp * 1000; if (typeof ack === 'function') ack({ ok: true });
     });
     socket.handle('generate-room', async (privateRoom, ack) => {
       if (typeof ack !== 'function') return;
@@ -339,8 +343,21 @@ function createApplication(options = {}) {
             socket.warnedExpiry = socket.data.expiresAt; socket.emit('session-expiring');
           }
           const roomId = socket.data.roomId; if (!roomId) return;
-          try { await identity.verify(socket.identityToken); }
-          catch { socket.emit('session-expired'); socket.conn.close(); return; }
+          const token = socket.identityToken;
+          try {
+            await identity.verify(token);
+            if (socket.identityToken === token) socket.identityVerifiedAt = Date.now();
+          } catch (error) {
+            // A refresh may have replaced the token while Firebase was checking it.
+            if (socket.identityToken === token) {
+              const now = Date.now();
+              if (!temporaryIdentityErrors.has(error?.code) || now >= socket.data.expiresAt ||
+                  now - socket.identityVerifiedAt >= IDENTITY_RECHECK_GRACE_MS) {
+                socket.emit('session-expired'); socket.conn.close(); return;
+              }
+            }
+          }
+          if (!socket.connected || socket.data.roomId !== roomId) return;
           if (!rooms.has(roomId)) rooms.set(roomId, []);
           rooms.get(roomId).push(socket);
         }));

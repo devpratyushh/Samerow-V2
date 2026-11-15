@@ -272,6 +272,55 @@ test('session expiration warns in advance and closes a recoverable transport aft
   assert.notEqual(await disconnected, 'io server disconnect');
 });
 
+test('brief Firebase verification failures preserve the socket and its room lease', async t => {
+  let fault;
+  const application = await start(t, { identity: { verify: async token => {
+    if (fault) throw Object.assign(Error('Firebase verification failed'), { code: fault });
+    return identity.verify(token);
+  } } });
+  const { socket } = await join(t, application, 'movie', 'viewer');
+  const serverSocket = application.io.sockets.sockets.get(socket.id);
+  const verifiedAt = serverSocket.identityVerifiedAt;
+  fault = 'app/network-timeout';
+  await application.renewMemberships();
+  await application.renewMemberships();
+  assert.equal((await ack(socket, 'sync-request', 'movie')).state.revision, 0);
+  assert.deepEqual(await application.store.get(`member:movie:${socket.id}`), { uid: 'viewer' });
+  assert.equal(serverSocket.identityVerifiedAt, verifiedAt);
+
+  serverSocket.identityVerifiedAt = Date.now() - 61000;
+  const disconnected = next(socket, 'disconnect');
+  await application.renewMemberships();
+  await disconnected;
+});
+
+test('a revoked Firebase token disconnects immediately unless it was replaced during verification', async t => {
+  let holdOldCheck = false, revokeNewToken = false, rejectOldCheck;
+  let markCheckStarted;
+  const checkStarted = new Promise(resolve => { markCheckStarted = resolve; });
+  const revoked = Object.assign(Error('Revoked token'), { code: 'auth/id-token-revoked' });
+  const application = await start(t, { identity: { verify: async token => {
+    if (revokeNewToken && token === 'test:viewer:new') throw revoked;
+    if (holdOldCheck && token === 'test:viewer') {
+      return new Promise((_, reject) => { rejectOldCheck = reject; markCheckStarted(); });
+    }
+    return identity.verify(token === 'test:viewer:new' ? 'test:viewer' : token);
+  } } });
+  const { socket } = await join(t, application, 'movie', 'viewer');
+  holdOldCheck = true;
+  const heartbeat = application.renewMemberships();
+  await checkStarted;
+  assert.deepEqual(await ack(socket, 'auth-refresh', 'test:viewer:new'), { ok: true });
+  rejectOldCheck(revoked);
+  await heartbeat;
+  assert.equal((await ack(socket, 'sync-request', 'movie')).state.revision, 0);
+
+  revokeNewToken = true;
+  const disconnected = next(socket, 'disconnect');
+  await application.renewMemberships();
+  await disconnected;
+});
+
 test('a reconnect reclaims its authenticated tab seat in a full room without evicting another user', async t => {
   const app = await start(t, { config: { maxRoomSize: 2 } });
   await join(t, app, 'full-room', 'guest');
