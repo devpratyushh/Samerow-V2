@@ -19,6 +19,7 @@
 </p>
 
 <p align="center">
+  <a href="#quick-start">Quick start</a> ·
   <a href="https://samerow-v2.vercel.app/">Open Mellettem</a> ·
   <a href="jellyfin-plugin-mellettem/README.md">Get the Jellyfin plugin</a> ·
   <a href="docs/media-architecture.md">Documentation</a> ·
@@ -31,11 +32,52 @@ Mellettem brings your people together around your movies. Start a private watch 
 
 Your Jellyfin server stays at home. **Mellettem Connect** links it to your account and makes your library available in Mellettem, so you can host a movie night from another device or network. Friends join in their browsers after the host approves them.
 
+## Quick start
+
+**Open Mellettem → Sign in → Start a room → Invite your friends.**
+
+1. **Sign in.** Open [Mellettem Web](https://samerow-v2.vercel.app/) and continue with Google or GitHub.
+2. **Bring your video.** YouTube is ready to share from a room. For Jellyfin, pair your server once with **Mellettem Connect** using the setup below.
+3. **Start a room.** Enter your name and create a room. For Jellyfin, expand **Connect Jellyfin**, select **Generate private room code**, and enter the private room.
+4. **Choose what to watch.** Open **Share something** and share a YouTube video, or select **Your Jellyfin library**, choose your connected server, and sign in to Jellyfin or use **Quick Connect** to pick a movie.
+5. **Invite and watch.** Select **Invite friends**, send the full invitation link, and approve your friends' requests. Each viewer can choose their own available audio and subtitle tracks.
+
+<details>
+<summary><strong>First time using Jellyfin? Install and pair Mellettem Connect</strong></summary>
+
+Requires **Jellyfin 12.3 / .NET 10**. In Jellyfin, open **Dashboard → Plugins → Repositories** and add:
+
+```text
+https://raw.githubusercontent.com/devpratyushh/Samerow-V2/main/jellyfin-plugin-samerow/manifest.json
+```
+
+1. Install **Mellettem Connect** from **Catalog** and restart Jellyfin.
+2. Open its plugin settings and select **Connect Mellettem**.
+3. Sign in to Mellettem, approve the connection, and wait for **Connected** in Jellyfin.
+4. In your room, select the connected server and authorize your Jellyfin user, or use **Quick Connect**.
+
+Keep your Jellyfin server and internet connection running during the party. You can close the Jellyfin dashboard after pairing.
+
+[Plugin downloads](https://github.com/devpratyushh/Samerow-V2/releases) · [Full installation, updates, and recovery guide](jellyfin-plugin-mellettem/README.md)
+
+This repository supplies a third-party Jellyfin catalog. It does not imply inclusion in Jellyfin's default catalog.
+
+</details>
+
+![Mellettem lobby with sign-in, room controls, and connected-library access](docs/images/lobby.jpg)
+
+*Start or join a room from the lobby, and manage your linked Jellyfin server through your account.*
+
+
 ## Same video, different audio tracks
 
 **Watch together without having to agree on one language.** Each viewer chooses their own audio track from the same movie while everyone stays at the same point in the story. You can listen to the original Japanese audio while a friend chooses the English dub.
 
 Subtitles work the same way: choose your own language, or turn them off. Audio, subtitles, volume, and quality are personal; the room's play, pause, and seek controls keep the shared experience in sync. Available languages depend on the tracks in your Jellyfin media.
+
+![Mellettem watch room with the shared movie, participant tiles, playback controls, and chat](docs/images/watch-room.jpg)
+
+*The movie, your friends, and the conversation share one room. Playback follows the room timeline while viewing preferences stay personal.*
 
 ## Native resolution over WebRTC, with HTTPS fallback
 
@@ -61,35 +103,6 @@ Sign into the same Mellettem account on another device to find your linked serve
 - **Playback diagnostics:** inspect transport, buffering, movie delivery, and call statistics.
 
 The hosted Jellyfin release supports **one host and up to three friends**. Mellettem Connect is available as a **public beta**. See the [compatibility and rollout checks](docs/direct-media.md#validation) for browser and network coverage.
-
-## Start watching
-
-1. Open [Mellettem Web](https://samerow-v2.vercel.app/) and sign in.
-2. Create a room. For your Jellyfin library, expand **Connect Jellyfin**, generate a private room code, and enter the room.
-3. Choose **Share something → Your Jellyfin library** or share a YouTube video.
-4. Select **Invite friends** and share the full invitation link.
-5. Approve your friends' requests and watch together.
-
-For Jellyfin, pair your server once using the plugin installation below. Sign into the same Mellettem account on another device to discover your connected server. Jellyfin permissions still determine library access.
-
-## Install Mellettem Connect
-
-Requires **Jellyfin 12.3 / .NET 10**. In Jellyfin, open **Dashboard → Plugins → Repositories** and add:
-
-```text
-https://raw.githubusercontent.com/devpratyushh/Samerow-V2/main/jellyfin-plugin-samerow/manifest.json
-```
-
-1. Install **Mellettem Connect** from **Catalog** and restart Jellyfin.
-2. Open its plugin settings and select **Connect Mellettem**.
-3. Sign in to Mellettem, approve the connection, and wait for **Connected** in Jellyfin.
-4. In your room, select the connected server and authorize your Jellyfin user, or use **Quick Connect**.
-
-Keep your Jellyfin server and internet connection running during the party. You can close the Jellyfin dashboard after pairing.
-
-[Plugin downloads](https://github.com/devpratyushh/Samerow-V2/releases) · [Full installation, updates, and recovery guide](jellyfin-plugin-mellettem/README.md)
-
-This repository supplies a third-party Jellyfin catalog. It does not imply inclusion in Jellyfin's default catalog.
 
 ## Architecture
 
