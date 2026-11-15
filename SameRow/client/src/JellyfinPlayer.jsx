@@ -25,6 +25,21 @@ function applySeek(video, request) {
   video.currentTime = request.time;
 }
 
+function waitForSeekFrame(video, request, isCurrent, onPresented) {
+  if (typeof video.requestVideoFrameCallback !== 'function') {
+    request.presented = true;
+    return;
+  }
+  if (request.frameWaitStarted) return;
+  request.frameWaitStarted = true;
+  const check = () => {
+    if (!isCurrent()) return;
+    request.presented = true;
+    onPresented();
+  };
+  video.requestVideoFrameCallback(check);
+}
+
 function bufferedTrack(video, duration) {
   const stops = [];
   const ranges = video.buffered;
@@ -159,6 +174,13 @@ export default function JellyfinPlayer({ state, base, socket, command, connected
       }
       // Hold playback until the browser has decoded the seek target.
       if (video.seeking || video.readyState < (state.playing ? 3 : 2)) return;
+      // currentTime and readyState can reach the target before the browser has
+      // submitted its first frame there. Keep the room paused until that frame
+      // is actually presented, otherwise a scrub can briefly resume stale video.
+      if (!requested.presented) {
+        waitForSeekFrame(video, requested, () => landing.current === requested, () => synchronize());
+        return;
+      }
       if (state.playing && !requested.retried && Math.abs(video.currentTime - requested.time) > playbackTolerance) {
         // The stream can move the playhead to a nearby buffered position during a seek.
         requested.retried = true;
