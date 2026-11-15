@@ -8,6 +8,14 @@
     "category": "General",
     "versions": [
       {
+        "version": "1.0.6.0",
+        "targetAbi": "12.3.0.0",
+        "changelog": "Rebrand to Mellettem Connect and show current and previous relay connection durations and activity in the Jellyfin dashboard.",
+        "timestamp": "2026-11-15T00:00:00Z",
+        "sourceUrl": "https://github.com/devpratyushh/Samerow-V2/releases/download/mellettem-connect-v1.0.6.0/Mellettem-Connect-1.0.6.0.zip",
+        "checksum": "bd10ddc7c89a0df33a862a82631f4ada"
+      },
+      {
         "version": "1.0.5.0",
         "targetAbi": "12.3.0.0",
         "changelog": "Keep relay connection status stable when individual workers hit rate limits or a viewer cancels a request.",
