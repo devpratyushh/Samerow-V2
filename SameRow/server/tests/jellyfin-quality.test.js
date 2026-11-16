@@ -7,7 +7,7 @@ const { configuration } = require('../config');
 
 const movie = base => ({ base, sourceId: 'source', item: { MediaSources: [{ Id: 'source', Bitrate: 40000000, MediaStreams: [{ Type: 'Video', Width: 3840, Height: 2160 }] }] } });
 
-test('startup bitrate fallback converts high-bitrate video instead of copying it again', async () => {
+test('compatible playback encodes video on the HLS segment grid at any bitrate', async () => {
   const { installJellyfin } = require('../jellyfin');
   const service = installJellyfin(require('express')(), { on() {}, off() {} }, null);
   try {
@@ -23,8 +23,9 @@ test('startup bitrate fallback converts high-bitrate video instead of copying it
     const original = await query({ original: '1' });
     assert.equal(original.get('VideoCodec'), 'copy');
     assert.equal(original.get('AllowVideoStreamCopy'), 'true');
-    const unchanged = await query({ bitrate: '50000000' });
-    assert.equal(unchanged.get('AllowVideoStreamCopy'), 'true');
+    const highBitrate = await query({ bitrate: '50000000' });
+    assert.equal(highBitrate.get('AllowVideoStreamCopy'), 'false');
+    assert.equal(highBitrate.get('BreakOnNonKeyFrames'), 'false');
   } finally { service.close(); }
 });
 

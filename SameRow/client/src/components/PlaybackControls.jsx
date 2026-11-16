@@ -5,7 +5,7 @@ import { formatTime } from './roomLayout';
 import './PlaybackControls.css';
 
 /** Local sound controls; play/pause and completed seeks are supplied by the room. */
-export default function PlaybackControls({ playing, currentTime = 0, duration = 0, bufferedTrack, volume = 1, muted = false, onTogglePlay, onSeek, onVolumeChange, onMute, canSeek = true, disabled = false, docked = false, label = 'Video', note, children }) {
+export default function PlaybackControls({ playing, currentTime = 0, seekTarget = null, duration = 0, bufferedTrack, volume = 1, muted = false, onTogglePlay, onSeek, onVolumeChange, onMute, canSeek = true, disabled = false, docked = false, label = 'Video', note, children }) {
   const [draft, setDraft] = useState(null);
   const draftRef = useRef(null);
   const { fullscreen, toggleFullscreen } = useRoomPresentation();
@@ -48,7 +48,7 @@ export default function PlaybackControls({ playing, currentTime = 0, duration = 
     };
   }, [scheduleHide]);
   const finiteDuration = Number.isFinite(duration) && duration > 0;
-  const time = draft ?? currentTime;
+  const time = draft ?? seekTarget ?? currentTime;
   const positionText = formatTime(time, true);
   const seekable = !disabled && canSeek && finiteDuration;
   const finishSeek = event => {
@@ -58,7 +58,7 @@ export default function PlaybackControls({ playing, currentTime = 0, duration = 
     onSeek?.(Math.min(duration, Math.max(0, target)), event.type === 'keyup' ? 'keyboard' : 'commit');
     setDraft(null);
   };
-  const skip = delta => onSeek?.(Math.min(duration, Math.max(0, currentTime + delta)));
+  const skip = delta => onSeek?.(Math.min(duration, Math.max(0, (seekTarget ?? currentTime) + delta)));
   return <>
     <div className="playback-hit-area" aria-hidden="true"
       onPointerMove={event => { if (event.pointerType !== 'touch') wake(); }}
@@ -80,9 +80,9 @@ export default function PlaybackControls({ playing, currentTime = 0, duration = 
       <button className="player-control player-play" aria-label={playing ? `Pause ${label.toLowerCase()}` : `Play ${label.toLowerCase()}`} title={playing ? 'Pause' : 'Play'} disabled={disabled} onClick={onTogglePlay}>{playing ? <FaPause /> : <FaPlay />}</button>
       <button className="player-control player-skip" aria-label="Back 10 seconds" title="Back 10 seconds" onClick={() => skip(-10)} disabled={!seekable}><FaUndo /><small>10</small></button>
       <button className="player-control player-skip" aria-label="Forward 10 seconds" title="Forward 10 seconds" onClick={() => skip(10)} disabled={!seekable}><FaRedo /><small>10</small></button>
-      <span className="player-clock">{positionText}<span> / {finiteDuration ? formatTime(duration, true) : duration === Infinity ? 'LIVE' : '—:—'}</span></span>
+      <span className="player-clock">{seekTarget === null ? positionText : formatTime(currentTime, true)}<span> / {finiteDuration ? formatTime(duration, true) : duration === Infinity ? 'LIVE' : '—:—'}</span></span>
       <span className="player-controls-spacer" />
-      {note && <span className="player-control-note">{note}</span>}
+      {seekTarget !== null ? <span className="player-control-note" role="status">Seeking to {formatTime(seekTarget, true)}…</span> : note && <span className="player-control-note">{note}</span>}
       <div className="player-volume"><button className="player-control" aria-label={muted || volume === 0 ? 'Unmute video' : 'Mute video'} title={muted || volume === 0 ? 'Unmute video' : 'Mute video'} onClick={onMute}>{muted || volume === 0 ? <FaVolumeMute /> : <FaVolumeUp />}</button><input aria-label="Video volume" type="range" min="0" max="1" step="0.05" value={muted ? 0 : volume} onChange={event => onVolumeChange?.(Number(event.target.value))} /></div>
       {children}
       <button className="player-control player-fullscreen" aria-label={fullscreen ? 'Exit video fullscreen' : 'Video fullscreen'} title={fullscreen ? 'Exit fullscreen' : 'Fullscreen'} onClick={toggleFullscreen || undefined} disabled={!toggleFullscreen}>{fullscreen ? <FaCompress /> : <FaExpand />}</button>

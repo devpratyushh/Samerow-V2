@@ -56,9 +56,7 @@ export default function RoomAdmission({ socket, roomId, isOwner, connected, wait
     {isOwner && connected && requests.length > 0 && portalRoot && createPortal(
       <section className="room-admission-popup" role="dialog" aria-labelledby={titleId}>
         <div aria-live="polite">
-          <h2 id={titleId}>Someone wants to join</h2>
-          <p>{requests[0].name} is waiting to enter your private room.</p>
-          {requests.length > 1 && <p>{requests.length} people waiting</p>}
+          <h2 id={titleId}>{requests[0].name}</h2>
         </div>
         {error && <p role="alert">{error}</p>}
         <div className="room-admission-actions">

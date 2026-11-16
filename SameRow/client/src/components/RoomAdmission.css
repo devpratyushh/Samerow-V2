@@ -4,10 +4,10 @@
   top: calc(72px + env(safe-area-inset-top));
   right: max(12px, env(safe-area-inset-right));
   box-sizing: border-box;
-  width: min(340px, calc(100% - 24px));
+  width: min(300px, calc(100% - 24px));
   max-height: calc(100dvh - 88px - env(safe-area-inset-top));
   overflow: auto;
-  padding: 16px;
+  padding: 12px;
   color: var(--text, #f3f3f3);
   background: var(--surface-raised, #27282b);
   border: 1px solid var(--border, #36373a);
@@ -19,6 +19,7 @@
 .room-admission-popup h2 {
   margin: 0;
   font-size: 16px;
+  line-height: 1.3;
 }
 
 .room-admission-popup p {
@@ -44,5 +45,5 @@
 
 .room-admission-actions {
   flex-wrap: wrap;
-  margin-top: 16px;
+  margin-top: 10px;
 }

@@ -42,11 +42,9 @@ try{
  await host.waitForTimeout(100);assert.equal(await video(host).count(),0);assert.equal(await host.getByText('Preparing the stream…',{exact:true}).count(),0);
  assert.equal((await pending).ok,true);
  await playing(host);await playing(guest);
- assert.equal(await host.locator('.jellyfin-player').getAttribute('data-delivery'),'original');
- assert.equal(await guest.locator('.jellyfin-player').getAttribute('data-delivery'),'original');
- console.log('PASS copied video in fragmented MP4 decodes on two viewers');
+ console.log('PASS video decodes on two viewers');
  const coldTarget = 52.3;
- fixture.controls.resourceDelay = path => path.endsWith('/original13.m4s') ? 1000 : 0;
+ fixture.controls.resourceDelay = path => path.endsWith('/segment13.ts') ? 1000 : 0;
  await video(host).evaluate(v => {
   window.seekResumeTime = null;
   v.addEventListener('playing', () => { window.seekResumeTime = v.currentTime; }, { once: true });
@@ -61,6 +59,8 @@ try{
  }, coldTarget, { timeout: 5000 });
  await host.waitForFunction(() => window.seekResumeTime !== null, null, { timeout: 10000 });
  assert.ok(Math.abs(await host.evaluate(() => window.seekResumeTime) - coldTarget) < 0.2);
+ assert.equal(await host.locator('.jellyfin-player').getAttribute('data-delivery'), 'compatible');
+ assert.equal(await guest.locator('.jellyfin-player').getAttribute('data-delivery'), 'compatible');
  delete fixture.controls.resourceDelay;
  console.log('PASS delayed seek holds the selected position and resumes from it');
  await guest.getByRole('button',{name:'Pause for everyone',exact:true}).click();
