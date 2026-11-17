@@ -58,7 +58,10 @@ Mellettem Connect is in public beta for **Jellyfin 12.3 / .NET 10**. Install the
 - Open **Dashboard → Plugins → Mellettem Connect**, select **Connect Mellettem**, and approve the connection.
 - Follow the [full installation guide and troubleshooting steps](docs/mellettem-connect-installation.md).
 
-![Mellettem lobby with sign-in, room controls, and connected-library access](docs/images/lobby.jpg)
+<p align="center">
+  <img src="docs/images/lobby.png" alt="Mellettem lobby with sign-in, camera preview, room controls, and Jellyfin connection" width="49%" />
+  <img src="docs/images/lobby-playback.png" alt="Mellettem watch room with synchronized playback and per-viewer subtitle settings" width="49%" />
+</p>
 
 *Start or join a room from the lobby, and manage your linked Jellyfin server through your account.*
 
@@ -70,6 +73,10 @@ Mellettem Connect is in public beta for **Jellyfin 12.3 / .NET 10**. Install the
 Subtitles work the same way: choose your own language, or turn them off. Audio, subtitles, volume, and quality are personal; the room's play, pause, and seek controls keep the shared experience in sync. Available languages depend on the tracks in your Jellyfin media.
 
 [![Two synced viewers choose their own audio and subtitle languages while watching together](docs/images/independent-audio-subtitles.png)](docs/images/independent-audio-subtitles.png)
+
+The room keeps playback synchronized while each viewer chooses their own available audio and subtitle tracks.
+
+![A viewer changes their personal audio and subtitle tracks from the player settings while the room stays in sync](docs/images/player-track-selection.png)
 
 ## Native resolution over WebRTC, with HTTPS fallback
 
