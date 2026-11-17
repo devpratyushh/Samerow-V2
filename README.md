@@ -42,7 +42,7 @@ Your Jellyfin server stays at home. **Mellettem Connect** links it to your accou
 4. **Choose what to watch.** Open **Share something** and share a YouTube video, or select **Your Jellyfin library**, choose your connected server, and sign in to Jellyfin or use **Quick Connect** to pick a movie.
 5. **Invite and watch.** Select **Invite friends**, send the full invitation link, and approve your friends' requests. Each viewer can choose their own available audio and subtitle tracks.
 
-[![Watch your Jellyfin library remotely with Mellettem, without port forwarding](docs/images/watch-from-anywhere.png)](docs/images/watch-from-anywhere.png)
+[![Install Mellettem Connect, link your Google account, and open your Jellyfin library from anywhere](docs/images/install-plugin-steps.png)](docs/images/install-plugin-steps.png)
 
 **Using your Jellyfin library?** Mellettem Connect is a Jellyfin server plugin that securely links your home library to your Mellettem account through an outbound connection. It needs no port forwarding or public Jellyfin address. Install it once, connect with Google, and your server is available from your account on other devices. Friends can join your room without installing the plugin.
 
@@ -51,7 +51,7 @@ Your Jellyfin server stays at home. **Mellettem Connect** links it to your accou
 - Install from the [Mellettem Connect catalog](jellyfin-plugin-samerow/manifest.json), then pair it from Jellyfin's plugin settings.
 - Follow the illustrated [Mellettem Connect installation guide](docs/mellettem-connect-installation.md) for repository setup, pairing, and troubleshooting.
 
-[![Install Mellettem Connect, link your Google account, and open your Jellyfin library from anywhere](docs/images/install-plugin-steps.png)](docs/images/install-plugin-steps.png)
+[![Watch your Jellyfin library remotely with Mellettem, without port forwarding](docs/images/watch-from-anywhere.png)](docs/images/watch-from-anywhere.png)
 
 ![Mellettem lobby with sign-in, room controls, and connected-library access](docs/images/lobby.jpg)
 
@@ -64,9 +64,7 @@ Your Jellyfin server stays at home. **Mellettem Connect** links it to your accou
 
 Subtitles work the same way: choose your own language, or turn them off. Audio, subtitles, volume, and quality are personal; the room's play, pause, and seek controls keep the shared experience in sync. Available languages depend on the tracks in your Jellyfin media.
 
-![Mellettem watch room with the shared movie, participant tiles, playback controls, and chat](docs/images/watch-room.jpg)
-
-*The movie, your friends, and the conversation share one room. Playback follows the room timeline while viewing preferences stay personal.*
+[![Two synced viewers choose their own audio and subtitle languages while watching together](docs/images/independent-audio-subtitles.png)](docs/images/independent-audio-subtitles.png)
 
 ## Native resolution over WebRTC, with HTTPS fallback
 
