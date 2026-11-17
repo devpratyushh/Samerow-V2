@@ -8,6 +8,14 @@
     "category": "General",
     "versions": [
       {
+        "version": "1.0.8.0",
+        "targetAbi": "12.3.0.0",
+        "changelog": "Responsive Jellyfin settings with grouped account and relay details, plus correctly scaled plugin artwork in the catalog and installed plugin cards.",
+        "timestamp": "2026-11-17T07:49:54Z",
+        "sourceUrl": "https://github.com/devpratyushh/Samerow-V2/releases/download/mellettem-connect-v1.0.8.0/Mellettem-Connect-1.0.8.0.zip",
+        "checksum": "033a4cc8c6040f2a849810c25ff2829f"
+      },
+      {
         "version": "1.0.7.0",
         "targetAbi": "12.3.0.0",
         "changelog": "New Mellettem identity across the plugin and catalog. Direct WebRTC movie delivery with HTTPS fallback, synchronized watch rooms, and personal playback preferences.",
