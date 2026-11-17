@@ -5,7 +5,7 @@ import { formatTime } from './roomLayout';
 import './PlaybackControls.css';
 
 /** Local sound controls; play/pause and completed seeks are supplied by the room. */
-export default function PlaybackControls({ playing, currentTime = 0, seekTarget = null, duration = 0, bufferedTrack, volume = 1, muted = false, onTogglePlay, onSeek, onVolumeChange, onMute, canSeek = true, disabled = false, docked = false, label = 'Video', note, children }) {
+export default function PlaybackControls({ playing, currentTime = 0, timelineTime = currentTime, seekTarget = null, duration = 0, bufferedTrack, volume = 1, muted = false, onTogglePlay, onSeek, getSkipPosition, onVolumeChange, onMute, canSeek = true, disabled = false, docked = false, label = 'Video', note, children }) {
   const [draft, setDraft] = useState(null);
   const draftRef = useRef(null);
   const { fullscreen, toggleFullscreen } = useRoomPresentation();
@@ -48,8 +48,10 @@ export default function PlaybackControls({ playing, currentTime = 0, seekTarget 
     };
   }, [scheduleHide]);
   const finiteDuration = Number.isFinite(duration) && duration > 0;
-  const time = draft ?? seekTarget ?? currentTime;
+  const target = draft ?? seekTarget;
+  const time = target ?? timelineTime;
   const positionText = formatTime(time, true);
+  const played = finiteDuration ? Math.max(0, Math.min(100, time / duration * 100)) : 0;
   const seekable = !disabled && canSeek && finiteDuration;
   const finishSeek = event => {
     const target = draftRef.current;
@@ -58,7 +60,10 @@ export default function PlaybackControls({ playing, currentTime = 0, seekTarget 
     onSeek?.(Math.min(duration, Math.max(0, target)), event.type === 'keyup' ? 'keyboard' : 'commit');
     setDraft(null);
   };
-  const skip = delta => onSeek?.(Math.min(duration, Math.max(0, (seekTarget ?? currentTime) + delta)));
+  const skip = delta => {
+    const position = seekTarget ?? getSkipPosition?.() ?? timelineTime;
+    onSeek?.(Math.min(duration, Math.max(0, position + delta)));
+  };
   return <>
     <div className="playback-hit-area" aria-hidden="true"
       onPointerMove={event => { if (event.pointerType !== 'touch') wake(); }}
@@ -75,14 +80,19 @@ export default function PlaybackControls({ playing, currentTime = 0, seekTarget 
     <div ref={controlsRef} className={`player-controls ${isDocked ? 'is-docked' : ''} ${!playing ? 'is-paused' : ''} ${!visible ? 'is-hidden' : ''}`} role="group" aria-label={`${label} playback controls`}
       onPointerEnter={wake} onPointerLeave={() => scheduleHide(1200)} onFocusCapture={wake} onKeyDown={wake}
       onPointerDown={() => { dragging.current = true; wake(); }}>
-    <label className="player-seek"><span className="sr-only">Seek {label.toLowerCase()}</span><input type="range" min="0" max={finiteDuration ? duration : 1} step="0.1" value={Math.max(0, Math.min(time, finiteDuration ? duration : 1))} disabled={!seekable} aria-valuetext={`${positionText} of ${finiteDuration ? formatTime(duration, true) : 'unknown duration'}`} onChange={event => { draftRef.current = Number(event.target.value); setDraft(draftRef.current); }} onPointerDown={event => event.currentTarget.setPointerCapture(event.pointerId)} onPointerCancel={() => { draftRef.current = null; setDraft(null); }} onPointerUp={finishSeek} onKeyUp={finishSeek} onBlur={finishSeek} style={{ '--buffered-track': bufferedTrack, '--played': `${finiteDuration ? Math.max(0, Math.min(100, time / duration * 100)) : 0}%` }} /></label>
+    <div className="player-seek" style={{ '--played': `${played}%` }}>
+      <input type="range" min="0" max={finiteDuration ? duration : 1} step="0.1" value={Math.max(0, Math.min(time, finiteDuration ? duration : 1))} disabled={!seekable} aria-label={`Seek ${label.toLowerCase()}`} aria-valuetext={`${positionText} of ${finiteDuration ? formatTime(duration, true) : 'unknown duration'}`} onChange={event => { draftRef.current = Number(event.target.value); setDraft(draftRef.current); }} onPointerDown={event => event.currentTarget.setPointerCapture(event.pointerId)} onPointerCancel={() => { draftRef.current = null; setDraft(null); }} onPointerUp={finishSeek} onKeyUp={finishSeek} onBlur={finishSeek} style={{ '--buffered-track': bufferedTrack }} />
+      {target !== null && <span className="player-seek-preview" aria-hidden={draft !== null || undefined} role={draft === null ? 'status' : undefined}>
+        {draft !== null ? `Seek to ${positionText}` : `Seeking to ${positionText}…`}
+      </span>}
+    </div>
     <div className="player-controls-row">
       <button className="player-control player-play" aria-label={playing ? `Pause ${label.toLowerCase()}` : `Play ${label.toLowerCase()}`} title={playing ? 'Pause' : 'Play'} disabled={disabled} onClick={onTogglePlay}>{playing ? <FaPause /> : <FaPlay />}</button>
       <button className="player-control player-skip" aria-label="Back 10 seconds" title="Back 10 seconds" onClick={() => skip(-10)} disabled={!seekable}><FaUndo /><small>10</small></button>
       <button className="player-control player-skip" aria-label="Forward 10 seconds" title="Forward 10 seconds" onClick={() => skip(10)} disabled={!seekable}><FaRedo /><small>10</small></button>
-      <span className="player-clock">{seekTarget === null ? positionText : formatTime(currentTime, true)}<span> / {finiteDuration ? formatTime(duration, true) : duration === Infinity ? 'LIVE' : '—:—'}</span></span>
+      <span className="player-clock">{formatTime(currentTime, true)}<span> / {finiteDuration ? formatTime(duration, true) : duration === Infinity ? 'LIVE' : '—:—'}</span></span>
       <span className="player-controls-spacer" />
-      {seekTarget !== null ? <span className="player-control-note" role="status">Seeking to {formatTime(seekTarget, true)}…</span> : note && <span className="player-control-note">{note}</span>}
+      {note && <span className="player-control-note">{note}</span>}
       <div className="player-volume"><button className="player-control" aria-label={muted || volume === 0 ? 'Unmute video' : 'Mute video'} title={muted || volume === 0 ? 'Unmute video' : 'Mute video'} onClick={onMute}>{muted || volume === 0 ? <FaVolumeMute /> : <FaVolumeUp />}</button><input aria-label="Video volume" type="range" min="0" max="1" step="0.05" value={muted ? 0 : volume} onChange={event => onVolumeChange?.(Number(event.target.value))} /></div>
       {children}
       <button className="player-control player-fullscreen" aria-label={fullscreen ? 'Exit video fullscreen' : 'Video fullscreen'} title={fullscreen ? 'Exit fullscreen' : 'Fullscreen'} onClick={toggleFullscreen || undefined} disabled={!toggleFullscreen}>{fullscreen ? <FaCompress /> : <FaExpand />}</button>

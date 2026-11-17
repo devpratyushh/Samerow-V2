@@ -38,11 +38,29 @@ try {
   await page.goto(`${process.env.UI_BASE_URL || 'http://127.0.0.1:5175'}/tests/jellyfin-timeline.html`);
   await page.waitForFunction(() => document.querySelector('video')?.readyState >= 2);
   assert.equal(await page.locator('.jellyfin-player').getAttribute('data-delivery'), 'original');
+  const slider = page.getByRole('slider', { name: 'Seek for everyone' });
+  const clock = page.locator('.player-clock');
+  const preview = page.locator('.player-seek-preview');
   // Use the actual seek control; assert image content as well as the clock.
-  for (const [target, channel] of [[60, 0], [80, 1], [60, 0]]) {
-    const slider = page.locator('.player-seek input');
-    await slider.fill(String(target));
-    await slider.blur();
+  for (const [seconds, channel] of [[60, 0], [80, 1], [60, 0]]) {
+    let target = seconds;
+    if (seconds === 80) {
+      await slider.scrollIntoViewIfNeeded();
+      const bounds = await slider.boundingBox();
+      await page.mouse.move(bounds.x + bounds.width * 0.38, bounds.y + bounds.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(bounds.x + bounds.width * seconds / 180, bounds.y + bounds.height / 2, { steps: 5 });
+      target = Number(await slider.inputValue());
+      assert.ok(Math.abs(target - seconds) < 1, `Dragging to ${seconds}s selected ${target}s`);
+      assert.equal(await clock.textContent(), '1:00.0 / 3:00.0');
+      const destination = (await slider.getAttribute('aria-valuetext')).split(' of ')[0];
+      assert.equal(await preview.textContent(), `Seek to ${destination}`);
+      assert.equal(await page.locator('video').evaluate(video => video.currentTime), 60);
+      await page.mouse.up();
+    } else {
+      await slider.fill(String(target));
+      await slider.blur();
+    }
     await page.waitForFunction(({ target, channel }) => {
       const video = document.querySelector('video');
       if (video.seeking || video.readyState < 2 || Math.abs(video.currentTime - target) > 0.1) return false;
@@ -51,9 +69,34 @@ try {
       const pixel = context.getImageData(0, 0, 1, 1).data;
       return pixel[channel] > 180 && pixel[(channel + 1) % 3] < 80 && pixel[(channel + 2) % 3] < 80;
     }, { target, channel });
+    await preview.waitFor({ state: 'detached' });
+    assert.equal(Number(await slider.inputValue()), target, 'The settled slider retains the exact seek position');
     assert.equal(await page.locator('.jellyfin-player').getAttribute('data-delivery'), 'compatible');
     console.log(`PASS ${target}s displays the correct source scene`);
   }
+  const waitForPausedPosition = async target => {
+    await page.waitForFunction(position => {
+      const video = document.querySelector('video');
+      return video.paused && !video.seeking && video.readyState >= 2 && Math.abs(video.currentTime - position) < 0.005;
+    }, target, { timeout: 5000 });
+    await preview.waitFor({ state: 'detached' });
+    assert.equal(Number(await slider.inputValue()), target);
+  };
+  // At 4 fps there is no frame at 60.1s. Skips must still build on that exact seek.
+  await slider.fill('60.1');
+  await slider.blur();
+  await waitForPausedPosition(60.1);
+  const forward = page.getByRole('button', { name: 'Forward 10 seconds' });
+  await forward.click();
+  await waitForPausedPosition(70.1);
+  await forward.click();
+  await waitForPausedPosition(80.1);
+  await slider.fill('60.1');
+  await slider.blur();
+  await waitForPausedPosition(60.1);
+  await forward.dblclick();
+  await waitForPausedPosition(80.1);
+  console.log('PASS two paused skips add exactly 20s to an absolute seek between frames');
   assert.deepEqual(errors, []);
 } finally {
   await browser?.close();

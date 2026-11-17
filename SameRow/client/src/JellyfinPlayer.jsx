@@ -252,7 +252,8 @@ export default function JellyfinPlayer({ state, base, socket, command, connected
     if (!video || video.readyState < 2) return;
     const frame = presentedFrame.current;
     if (video.ended) setTime(state.duration);
-    else if (frame) setTime(Math.min(state.duration, Math.max(0, frame.mediaTime)));
+    // The controls display tenths, so frames within one tenth can share a render.
+    else if (frame) setTime(Math.min(state.duration, Math.max(0, Math.round(frame.mediaTime * 10) / 10)));
     else if (!video.seeking && !landing.current) setTime(video.currentTime);
   });
   const updateTimeline = useEffectEvent(() => {
@@ -462,7 +463,7 @@ export default function JellyfinPlayer({ state, base, socket, command, connected
         markFrame();
         presentedFrame.current = frame;
         if (landing.current) synchronize();
-        if (video.paused) readPlaybackPosition();
+        readPlaybackPosition();
         frameCallback = video.requestVideoFrameCallback(onFrame);
       };
       frameCallback = video.requestVideoFrameCallback(onFrame);
@@ -523,6 +524,11 @@ export default function JellyfinPlayer({ state, base, socket, command, connected
     if (input === 'keyboard') seekTimer.current = setTimeout(commitSeek, 180);
     else commitSeek();
   };
+  const timelineTime = state.playing ? time : state.timestamp;
+  const getSkipPosition = () => {
+    const video = videoRef.current;
+    return state.playing && video?.readyState >= 1 && !video.seeking ? video.currentTime : timelineTime;
+  };
   const subtitleUrl = selectedSubtitle?.text ? preferDirect
     ? subtitleBlob?.peer === directPeer && subtitleBlob?.index === subtitle ? subtitleBlob.url : null
     : `${root}/subtitle/${subtitle}` : null;
@@ -549,7 +555,7 @@ export default function JellyfinPlayer({ state, base, socket, command, connected
       {(policyFailed || phase === 'error') && <button className="sr-button" onClick={retry}>{policyFailed ? 'Retry playback settings' : 'Reconnect playback'}</button>}
     </div>}
     {fallbackReason && <p className="jellyfin-fallback-note" role="status">Using compatible playback. {fallbackReason}</p>}
-    <PlaybackControls docked label="for everyone" playing={state.playing && phase !== 'blocked' && phase !== 'ended' && (seekTarget ?? time) < state.duration - 0.1} currentTime={time} seekTarget={seekTarget} duration={state.duration} bufferedTrack={bufferTrack} onTogglePlay={togglePlay} onSeek={seek} disabled={!command || ['loading', 'error'].includes(phase)} volume={volume} muted={muted} onMute={() => setMuted(value => !value)} onVolumeChange={value => { setVolume(value); setMuted(value === 0); }} note={connected ? state.starting ? 'Getting playback ready for the room…' : transportStatus || 'Everyone can control playback' : 'Reconnecting to room…'}>
+    <PlaybackControls docked label="for everyone" playing={state.playing && phase !== 'blocked' && phase !== 'ended' && (seekTarget ?? time) < state.duration - 0.1} currentTime={time} timelineTime={timelineTime} seekTarget={seekTarget} duration={state.duration} bufferedTrack={bufferTrack} onTogglePlay={togglePlay} onSeek={seek} getSkipPosition={getSkipPosition} disabled={!command || ['loading', 'error'].includes(phase)} volume={volume} muted={muted} onMute={() => setMuted(value => !value)} onVolumeChange={value => { setVolume(value); setMuted(value === 0); }} note={connected ? state.starting ? 'Getting playback ready for the room…' : transportStatus || 'Everyone can control playback' : 'Reconnecting to room…'}>
       <details className="player-track-menu" onKeyDown={event => { if (event.key === 'Escape') { event.currentTarget.open = false; event.currentTarget.querySelector('summary').focus(); event.stopPropagation(); } }}>
         <summary className="player-control" aria-label="Audio and subtitles" title="Audio and subtitles"><FaCog /></summary>
         <div className="player-track-panel">
