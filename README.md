@@ -42,16 +42,21 @@ Your Jellyfin server stays at home. **Mellettem Connect** links it to your accou
 4. **Choose what to watch.** Open **Share something** and share a YouTube video, or select **Your Jellyfin library**, choose your connected server, and sign in to Jellyfin or use **Quick Connect** to pick a movie.
 5. **Invite and watch.** Select **Invite friends**, send the full invitation link, and approve your friends' requests. Each viewer can choose their own available audio and subtitle tracks.
 
-[![Install Mellettem Connect, link your Google account, and open your Jellyfin library from anywhere](docs/images/install-plugin-steps.png)](docs/images/install-plugin-steps.png)
+## Watch from anywhere
 
-**Using your Jellyfin library?** Mellettem Connect is a Jellyfin server plugin that securely links your home library to your Mellettem account through an outbound connection. It needs no port forwarding or public Jellyfin address. Install it once, connect with Google, and your server is available from your account on other devices. Friends can join your room without installing the plugin.
-
-- Requires **Jellyfin 12.3 / .NET 10**.
-- The plugin supports direct movie delivery over WebRTC and HTTPS fallback where needed.
-- Install from the [Mellettem Connect catalog](jellyfin-plugin-samerow/manifest.json), then pair it from Jellyfin's plugin settings.
-- Follow the illustrated [Mellettem Connect installation guide](docs/mellettem-connect-installation.md) for repository setup, pairing, and troubleshooting.
+Your Jellyfin server stays at home. Mellettem Connect links it securely to your Mellettem account over an outbound connection, so friends can watch from other networks without port forwarding or a public Jellyfin address.
 
 [![Watch your Jellyfin library remotely with Mellettem, without port forwarding](docs/images/watch-from-anywhere.png)](docs/images/watch-from-anywhere.png)
+
+## Get started
+
+Mellettem Connect is in public beta for **Jellyfin 12.3 / .NET 10**. Install the plugin, connect your server, then approve access with your Google account.
+
+[![Install Mellettem Connect, link your Google account, and open your Jellyfin library from anywhere](docs/images/install-plugin-steps.png)](docs/images/install-plugin-steps.png)
+
+- Install **Mellettem Connect** from the [plugin catalog](jellyfin-plugin-samerow/manifest.json), then restart Jellyfin.
+- Open **Dashboard → Plugins → Mellettem Connect**, select **Connect Mellettem**, and approve the connection.
+- Follow the [full installation guide and troubleshooting steps](docs/mellettem-connect-installation.md).
 
 ![Mellettem lobby with sign-in, room controls, and connected-library access](docs/images/lobby.jpg)
 
