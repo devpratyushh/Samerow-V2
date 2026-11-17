@@ -2,7 +2,7 @@
 name: Jellyfin plugin
 on:
   push:
-    paths: ['jellyfin-plugin-mellettem/**', 'jellyfin-plugin-mellettem.tests/**', 'jellyfin-plugin-samerow/manifest.json', '.github/workflows/jellyfin-plugin.yml']
+    branches: [main]
     tags: ['mellettem-connect-v*']
   pull_request:
     paths: ['jellyfin-plugin-mellettem/**', 'jellyfin-plugin-mellettem.tests/**', 'jellyfin-plugin-samerow/manifest.json', '.github/workflows/jellyfin-plugin.yml']

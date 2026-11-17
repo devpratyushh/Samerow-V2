@@ -56,7 +56,7 @@ await store.set(`room:${roomId}`, { ownerUid: 'owner', invite: 'fixture-invite' 
 const sources = await fetch(fixture.url + '/Items', { headers: { 'X-Emby-Token': 'fixture-token' } }).then(r => r.json());
 const item = sources.Items[0];
 await store.set(`jellyfin-room:${roomId}`, { id: sessionId, base, connectionToken, apiToken: 'fixture-token', item,
-  itemId: item.Id, sourceId: 'source', sourceIds: ['source'], title: item.Name, duration: 65, playing: true,
+  itemId: item.Id, sourceId: 'source', sourceIds: ['source'], title: item.Name, duration: 65, playing: false,
   timestamp: 0, updatedAt: Date.now(), revision: 1,
   audioTracks: [{ index: 1, title: 'English', default: true }, { index: 2, title: 'Spanish' }],
   subtitleTracks: [{ index: 3, text: true, title: 'English' }, { index: 4, text: true, title: 'Spanish' }] });
@@ -149,6 +149,8 @@ try {
   }
   assert.ok(await store.get(`direct-online:${connector}`));
   const owner = await addViewer('Owner', 'owner');
+  await owner.locator('.jellyfin-player[data-transport=webrtc][data-phase=paused]').waitFor();
+  await owner.getByRole('button', { name: 'Play for everyone', exact: true }).click();
   await play(owner);
   assert.equal(await owner.locator('.jellyfin-player').getAttribute('data-transport'), 'webrtc');
   assert.equal(await owner.locator('.jellyfin-player').getAttribute('data-delivery'), 'original');
@@ -214,14 +216,26 @@ try {
     return window.fixtureSocket.emitWithAck('jellyfin-direct-offer', { sessionId, accessToken, sdp: offer.sdp });
   }, { sessionId, accessToken: guestToken });
   assert.ok(unauthorized.error);
+  const beforeSettings = await guest.evaluateHandle(() => window.movieChannel);
   await guest.getByLabel('Audio and subtitles', { exact: true }).click();
+  await guest.getByLabel('Audio track').waitFor();
+  assert.ok(await guest.evaluate(channel => channel === window.movieChannel && channel.readyState === 'open', beforeSettings));
+  assert.equal(await guest.locator('.jellyfin-player').getAttribute('data-transport'), 'webrtc');
+  await beforeSettings.dispose();
   await guest.getByLabel('Subtitles', { exact: true }).selectOption('4');
+  let interruptedManifests = 0;
+  fixture.controls.resourceStatus = url => {
+    if (/\/(?:master|main)\.m3u8$/.test(url.pathname) && url.searchParams.get('AudioStreamIndex') === '2' && interruptedManifests++ === 0) return 503;
+  };
   await guest.getByLabel('Audio track').selectOption('2');
+  await guest.waitForFunction(() => document.querySelector('.jellyfin-player[data-transport=webrtc]') &&
+    window.socketEmissions.filter(event => event.name === 'jellyfin-direct-offer' && event.args[0].settings.audio === '2').length === 2);
+  delete fixture.controls.resourceStatus;
   await guest.waitForFunction(() => {
     const track = document.querySelector('video[aria-label="Shared Jellyfin video"]')?.textTracks[0];
     return track?.cues?.[0]?.text.includes('Hola');
   });
-  assert.ok(fixture.requests.some(req => req.path.endsWith('/main.m3u8') && req.query.AudioStreamIndex === '2'));
+  assert.ok(interruptedManifests >= 2);
   assert.equal(await owner.locator('video[aria-label="Shared Jellyfin video"]').evaluate(v => v.textTracks.length), 0);
   assert.equal(relayMedia, 0);
   const command = (action, time) => owner.evaluate(({ action, roomId, sessionId, time }) => {
@@ -301,13 +315,18 @@ try {
   assert.equal(await guest.getByLabel('Subtitles', { exact: true }).inputValue(), '4');
   const guestPosition = await guest.locator('video[aria-label="Shared Jellyfin video"]').evaluate(video => video.currentTime);
   assert.ok(guestPosition >= 24 && guestPosition < 40);
+  await guest.getByRole('button', { name: 'Retry direct connection' }).click();
+  await guest.locator('.jellyfin-player[data-transport=webrtc]').waitFor();
+  await play(guest);
+  assert.equal(await guest.getByLabel('Audio track').inputValue(), '2');
+  assert.equal(await guest.getByLabel('Subtitles', { exact: true }).inputValue(), '4');
   const restrictiveViewer = await addViewer('Restrictive network', 'owner', true);
   await play(restrictiveViewer);
   assert.equal(await restrictiveViewer.locator('.jellyfin-player').getAttribute('data-transport'), 'https');
   assert.ok(await restrictiveViewer.evaluate(() => window.socketEmissions.filter(event => event.name === 'jellyfin-direct-offer').length >= 2));
   await store.set(`connector:${connector}`, null);
   await owner.waitForFunction(() => window.movieChannel.readyState === 'closed');
-  console.log(`PASS ${browserName}: two direct original HLS viewers with no gateway media, isolated tracks, shared seek and pause, startup and active fallback, and connector revocation`);
+  console.log(`PASS ${browserName}: direct HLS, uninterrupted settings disclosure, track-change retry, shared seeking, HTTPS fallback, direct reconnect, and connector revocation`);
 } catch (error) {
   for (const page of viewers) {
     console.error((await page.locator('body').innerText()).slice(0, 2200));

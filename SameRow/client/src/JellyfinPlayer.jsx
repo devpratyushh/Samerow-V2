@@ -19,6 +19,7 @@ const playbackTolerance = 0.05;
 const frameWaitLimit = 500;
 const seekFrameTolerance = 0.25;
 const seekPosition = (time, duration) => Math.min(time, Math.max(0, duration - stillFrameTolerance));
+const transientDirectStatus = status => !status || [408, 502, 503, 504].includes(status);
 
 function bufferedTrack(video, duration) {
   const stops = [];
@@ -36,8 +37,7 @@ export default function JellyfinPlayer({ state, base, socket, command, connected
   const hlsRef = useRef(null);
   const networkRef = useRef(null);
   const [directPeer, setDirectPeer] = useState(null);
-  const [relayReason, setRelayReason] = useState(() => state.direct && !globalThis.RTCPeerConnection ? 'WebRTC is unavailable in this browser' : '');
-  const relayReasonForSession = useRef(relayReason);
+  const [relayFallback, setRelayFallback] = useState(null);
   const [transportStatus, setTransportStatus] = useState('');
   const [subtitleBlob, setSubtitleBlob] = useState(null);
   const firstFrame = useRef(null);
@@ -71,7 +71,10 @@ export default function JellyfinPlayer({ state, base, socket, command, connected
   const root = `${base}/api/jellyfin/${state.accessToken}`;
   const sessionId = state.sessionId;
   const accessToken = state.accessToken;
-  const preferDirect = Boolean(state.direct && socket && globalThis.RTCPeerConnection && !relayReason);
+  const canUseDirect = Boolean(state.direct && socket && globalThis.RTCPeerConnection);
+  const currentRelayFallback = relayFallback?.accessToken === accessToken ? relayFallback : null;
+  const relayReason = currentRelayFallback?.reason || (state.direct && !globalThis.RTCPeerConnection ? 'WebRTC is unavailable in this browser' : '');
+  const preferDirect = canUseDirect && !currentRelayFallback;
   // A capacity change should only affect a new playback request.
   const quality = useJellyfinQuality(`${root}/quality${preferDirect ? '?direct=1' : ''}`);
   const qualityMode = quality.policy?.mode;
@@ -293,13 +296,14 @@ export default function JellyfinPlayer({ state, base, socket, command, connected
         Number.isFinite(estimate) && estimate > 0 ? estimate * 0.7 : Infinity))));
       setFallback({ key: streamKey, reason });
     };
-    const switchToRelay = reason => {
-      if (disposed || relayReasonForSession.current) return;
-      relayReasonForSession.current = reason;
+    let switchingToRelay = false;
+    const switchToRelay = (reason, retryable = true) => {
+      if (disposed || switchingToRelay) return;
+      switchingToRelay = true;
       peer?.close();
       setDirectPeer(null);
       setTransportStatus('Switching to HTTPS relay…');
-      setRelayReason(reason);
+      setRelayFallback({ accessToken, reason, retryable });
     };
     const adaptiveTimer = setInterval(() => {
       if (!bufferingSince || performance.now() - bufferingSince < 8000 || !ready || video.paused || video.seeking) return;
@@ -337,7 +341,7 @@ export default function JellyfinPlayer({ state, base, socket, command, connected
         setTransportStatus('Connecting to home Jellyfin…');
         const { default: Hls } = await import('hls.js');
         if (disposed) return;
-        if (!Hls.isSupported()) { switchToRelay('This browser uses HTTPS HLS'); return; }
+        if (!Hls.isSupported()) { switchToRelay('This browser uses HTTPS HLS', false); return; }
         const settings = Object.fromEntries(new URL(url, window.location.href).searchParams);
         for (let retry = 0; retry < 2; retry++) {
           try {
@@ -356,7 +360,7 @@ export default function JellyfinPlayer({ state, base, socket, command, connected
             peer?.close();
             if (disposed) return;
             if (error.code === 409 && original) { switchToCompatibleStream('Original video is unavailable for these playback settings.'); return; }
-            if (retry || error.code || error.message === 'Home sender unavailable') {
+            if (retry || !transientDirectStatus(error.code) || error.message === 'Home sender unavailable') {
               switchToRelay(error.code ? `Direct media returned HTTP ${error.code}` : error.message === 'Home sender unavailable' ? 'Home sender unavailable' : 'Direct media validation failed');
               return;
             }
@@ -422,7 +426,7 @@ export default function JellyfinPlayer({ state, base, socket, command, connected
             return;
           }
           const status = data.response?.code;
-          if (validated && data.type === Hls.ErrorTypes.NETWORK_ERROR && (!status || status === 408 || status === 502 || status === 503 || status === 504)) {
+          if (validated && data.type === Hls.ErrorTypes.NETWORK_ERROR && transientDirectStatus(status)) {
             if (recoveryAttempts++ === 0) { hls.startLoad(initialTime()); return; }
             switchToRelay('Direct media requests stopped completing'); return;
           }
@@ -563,6 +567,7 @@ export default function JellyfinPlayer({ state, base, socket, command, connected
           <strong>Audio &amp; subtitles</strong><p>Only changes your playback.</p>
           <label>Audio track<select aria-label="Audio track" value={audio} onChange={event => setAudio(Number(event.target.value))} disabled={!state.audioTracks.length}>{!state.audioTracks.length && <option value="-1">No audio</option>}{state.audioTracks.map(track => <option key={track.index} value={track.index}>{track.title}</option>)}</select></label>
           <label>Subtitles<select aria-label="Subtitles" value={subtitle} onChange={event => setSubtitle(Number(event.target.value))}><option value="-1">Off</option>{state.subtitleTracks.map(track => <option key={track.index} value={track.index}>{track.title}{!track.text ? ' (video subtitles)' : ''}</option>)}</select></label>
+          {canUseDirect && currentRelayFallback?.retryable && <button className="sr-button" onClick={() => setRelayFallback(null)} disabled={!connected}>Retry direct connection</button>}
           {onOpenNative && <button className="sr-button" onClick={onOpenNative}>Open Jellyfin Web player</button>}
           <button className="sr-button" onClick={event => { event.currentTarget.closest('details').open = false; }}>Done</button>
         </div>

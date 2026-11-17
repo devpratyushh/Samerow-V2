@@ -12,8 +12,8 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/devpratyushh/Samerow-V2/actions/workflows/ci.yml"><img src="https://github.com/devpratyushh/Samerow-V2/actions/workflows/ci.yml/badge.svg" alt="Application checks" /></a>
-  <a href="https://github.com/devpratyushh/Samerow-V2/actions/workflows/jellyfin-plugin.yml"><img src="https://github.com/devpratyushh/Samerow-V2/actions/workflows/jellyfin-plugin.yml/badge.svg" alt="Plugin checks" /></a>
+  <a href="https://github.com/devpratyushh/Samerow-V2/actions/workflows/ci.yml?query=branch%3Amain"><img src="https://github.com/devpratyushh/Samerow-V2/actions/workflows/ci.yml/badge.svg?branch=main" alt="Application checks" /></a>
+  <a href="https://github.com/devpratyushh/Samerow-V2/actions/workflows/jellyfin-plugin.yml?query=branch%3Amain"><img src="https://github.com/devpratyushh/Samerow-V2/actions/workflows/jellyfin-plugin.yml/badge.svg?branch=main" alt="Plugin checks" /></a>
   <a href="https://github.com/devpratyushh/Samerow-V2/releases"><img src="https://img.shields.io/badge/Mellettem_Connect-v1.0.7.0-9b6dff" alt="Mellettem Connect v1.0.7.0" /></a>
   <a href="jellyfin-plugin-mellettem/README.md"><img src="https://img.shields.io/badge/Jellyfin-12.3-00a4dc" alt="Jellyfin 12.3" /></a>
 </p>

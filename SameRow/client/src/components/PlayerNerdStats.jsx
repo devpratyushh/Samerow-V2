@@ -66,8 +66,8 @@ export default function PlayerNerdStats({ videoRef, hlsRef, reported, policy, ph
   return <details className="player-nerd-stats" onToggle={event => setOpen(event.currentTarget.open)}>
     <summary>Stats for nerds <span>· playback &amp; network</span></summary>
     {open && <div className="player-nerd-stats-body"><p>{videoRef ? 'Updates every second while open.' : 'Jellyfin Web reports every 5 seconds; unavailable fields are marked.'} Bandwidth estimate is not measured movie delivery throughput.</p>
-      <h3>Network delivery</h3><PlaybackNetworkDetails network={network} endpoint={endpoint} peer={direct} />
       <h3>Playback on this device</h3><dl>{rows.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
+      <h3>Network delivery</h3><PlaybackNetworkDetails network={network} endpoint={endpoint} peer={direct} />
     </div>}
   </details>;
 }

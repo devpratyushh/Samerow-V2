@@ -24,6 +24,8 @@ export async function jellyfinFixture({ media = false } = {}) {
     const authorized = req.headers['x-emby-token'] === 'fixture-token' || /(?:^|[,\s])Token="fixture-token"(?:,|\s|$)/.test(req.headers.authorization || '');
     requests.push({path:url.pathname,query:Object.fromEntries(url.searchParams),authorized,method:req.method});
     if(!authorized){res.writeHead(401).end();return;}
+    const status = controls.resourceStatus?.(url);
+    if (status) { res.writeHead(status).end(); return; }
     if(url.pathname==='/Users/Me'){
       res.setHeader('Content-Type','application/json');res.end(JSON.stringify({Id:'fixture-user'}));return;
     }
