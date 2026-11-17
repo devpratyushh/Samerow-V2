@@ -188,7 +188,7 @@
 }
 .sr-chat-send {
   color: #151617;
-  background: var(--accent, #dedede);
+  background: var(--accent-gradient);
 }
 .sr-chat-send:hover:not(:disabled) {
   filter: brightness(1.12);

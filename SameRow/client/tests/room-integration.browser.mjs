@@ -36,7 +36,12 @@ try {
   await page.getByRole('button',{name:'Everyone',exact:true}).click();
   await page.getByRole('button',{name:'Your screen',exact:true}).click();
   assert.ok(await page.evaluate(()=>window.screenVideo===document.querySelector('[data-participant="screen-self"] video')));
-  await page.getByRole('button',{name:'Stop sharing',exact:true}).click();
+  const closeScreenTab = page.getByRole('button', { name: 'Stop sharing your screen', exact: true });
+  await closeScreenTab.focus();
+  await page.keyboard.press('Enter');
+  await closeScreenTab.waitFor({ state: 'detached' });
+  assert.equal(await page.getByRole('button', { name: 'Everyone', exact: true }).getAttribute('aria-pressed'), 'true');
+  assert.equal(await page.evaluate(() => document.activeElement.textContent), 'Everyone');
   await page.locator('[data-participant="screen-self"]').waitFor({state:'detached'});
   assert.equal(await page.evaluate(()=>window.screenTrack.readyState),'ended');
   console.log('PASS real screen stream is contained, survives focus changes, and stops cleanly');

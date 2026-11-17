@@ -39,7 +39,7 @@ const Button = styled.button`
   padding: 12px 18px;
   border: 1px solid transparent;
   border-radius: 10px;
-  background: ${props => props.$stop ? 'var(--danger, #ef6c73)' : 'var(--accent, #779bff)'};
+  background: ${props => props.$stop ? 'var(--danger, #ef6c73)' : 'var(--accent-gradient)'};
   color: #0a1020;
   font: inherit;
   font-weight: 700;

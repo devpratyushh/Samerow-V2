@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { FaMicrophone, FaMicrophoneSlash, FaVideo, FaVideoSlash, FaPhoneSlash, FaEllipsisH, FaExpand, FaCompress, FaThLarge, FaDesktop, FaCopy, FaCommentAlt, FaPlay, FaUsers, FaChevronDown, FaChevronUp, FaPlus, FaCircle, FaSlidersH } from 'react-icons/fa';
+import { FaMicrophone, FaMicrophoneSlash, FaVideo, FaVideoSlash, FaPhoneSlash, FaEllipsisH, FaExpand, FaCompress, FaThLarge, FaDesktop, FaCopy, FaCommentAlt, FaPlay, FaUsers, FaChevronDown, FaChevronUp, FaPlus, FaCircle, FaSlidersH, FaTimes } from 'react-icons/fa';
 import Dialog from './Dialog';
 import { RoomPresentation } from './RoomPresentation';
 import MediaTile from './MediaTile';
@@ -40,7 +40,7 @@ export default function RoomView({ roomId, userName, connected = true, participa
   const gridRef = useRef(null);
   const sources = [
     { id: 'people', label: 'Everyone', icon: <FaUsers /> },
-    ...screenShares.map(source => ({ id: source.id, label: source.isSelf ? 'Your screen' : `${source.name}’s screen`, icon: <FaDesktop /> })),
+    ...screenShares.map(source => ({ id: source.id, label: source.isSelf ? 'Your screen' : `${source.name}’s screen`, icon: <FaDesktop />, isSelf: source.isSelf })),
     ...(youtube?.active ? [{ id: 'youtube', label: 'YouTube', icon: <FaPlay /> }] : []),
     ...(jellyfin?.active ? [{ id: 'jellyfin', label: 'Jellyfin', icon: <FaPlay /> }] : []),
   ];
@@ -177,7 +177,26 @@ export default function RoomView({ roomId, userName, connected = true, participa
     <div className="room-workspace">
       <main className="room-canvas" aria-label="Room content">
         <div className="stage-heading"><div><span className="room-eyebrow">{contentFocused ? 'Shared content' : 'Room'}</span><h2>{contentFocused ? currentSource.label : participants.length === 1 ? 'Waiting for others' : 'Everyone'}</h2></div><span className="people-count"><FaUsers /> {participants.length}<span> in the room</span></span></div>
-        <div className="source-bar" data-room-bar="top" onPointerEnter={event => enterBar('top', event)} onPointerLeave={() => leaveBar('top')}><div className="source-tabs" role="group" aria-label="Choose what to view">{sources.map(source => <button key={source.id} aria-pressed={source.id === sourceId} className={source.id === sourceId ? 'is-active' : ''} onClick={() => setSelectedSource(source.id)}>{source.icon}<span>{source.label}</span>{source.id === sourceId && sourceId !== 'people' && <i className="live-dot" />}</button>)}</div><button className="icon-button expand-stage" onClick={toggleFullscreen} aria-label={fullscreen ? 'Exit fullscreen' : 'Enter fullscreen'} title={fullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}>{fullscreen ? <FaCompress /> : <FaExpand />}</button></div>
+        <div className="source-bar" data-room-bar="top" onPointerEnter={event => enterBar('top', event)} onPointerLeave={() => leaveBar('top')}>
+          <div className="source-tabs" role="group" aria-label="Choose what to view">
+            {sources.map(source => {
+              const active = source.id === sourceId;
+              const tab = <button key={source.id} type="button" aria-pressed={active} className={active ? 'is-active' : ''} onClick={() => setSelectedSource(source.id)}>
+                {source.icon}<span>{source.label}</span>{active && sourceId !== 'people' && <i className="live-dot" />}
+              </button>;
+              if (!source.isSelf || !onStopScreen) return tab;
+              return <div className="screen-share-tab" key={source.id}>
+                {tab}
+                <button type="button" className="screen-share-tab-close" aria-label="Stop sharing your screen" title="Stop sharing your screen" onClick={event => {
+                  const tabs = event.currentTarget.closest('.source-tabs');
+                  tabs.querySelector(active ? 'button' : '[aria-pressed="true"]')?.focus();
+                  onStopScreen();
+                }}><FaTimes aria-hidden="true" /></button>
+              </div>;
+            })}
+          </div>
+          <button className="icon-button expand-stage" onClick={toggleFullscreen} aria-label={fullscreen ? 'Exit fullscreen' : 'Enter fullscreen'} title={fullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}>{fullscreen ? <FaCompress /> : <FaExpand />}</button>
+        </div>
         <div className={`room-composition ${contentFocused ? 'has-content' : ''} ${railHidden && contentFocused ? 'rail-hidden' : ''}`}>
           <section className="content-stage" hidden={!contentFocused} aria-label={currentSource.label}>
             {screenShares.map(source => <div key={source.id} className="source-pane" hidden={sourceId !== source.id}>{source.node || <MediaTile participant={source} screen hidden={sourceId !== source.id} />}{source.isSelf && <div className="screen-share-actions" data-room-bar="top" onPointerEnter={event => enterBar('top', event)} onPointerLeave={() => leaveBar('top')}><span><i className="live-dot" /> You’re sharing your screen</span><button onClick={onStopScreen}>Stop sharing</button></div>}</div>)}

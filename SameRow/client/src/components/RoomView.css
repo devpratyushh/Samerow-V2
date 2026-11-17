@@ -130,7 +130,7 @@
   background: #333;
 }
 .sr-button--primary {
-  background: var(--accent);
+  background: var(--accent-gradient);
   color: #171717;
   border-color: var(--accent);
 }
@@ -1487,13 +1487,26 @@
     padding-bottom: max(6px,env(safe-area-inset-bottom));
   }
 }
-/* Warm, restrained details keep the interface lively without competing with media. */
 .room-brand { color: #f0e9dd; }
-.source-tabs button.is-active { border-color: #dfbd7d45; background: #dfbd7d10; }
+.source-tabs button.is-active { border-color: color-mix(in srgb, var(--accent) 27%, transparent); background: color-mix(in srgb, var(--accent) 6%, transparent); }
 .source-tabs button.is-active > svg { color: var(--accent); }
-.media-tile.is-pinned { border-color: #dfbd7d8c; }
-/* Jellyfin-inspired purple and blue accents for the call dock. */
-.toolbar-controls { --accent: #00a4dc; --call-purple: #aa5cc3; }
+.screen-share-tab {
+  position: relative;
+  flex: none;
+}
+.screen-share-tab > button:first-child { padding-inline-end: 43px; }
+.source-tabs .screen-share-tab-close {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-end: 1px;
+  justify-content: center;
+  width: 40px;
+  min-height: 0;
+  padding: 0;
+}
+.source-tabs .screen-share-tab-close:hover { color: var(--text); }
+.screen-share-tab-close:focus-visible { outline-offset: -4px; }
+.media-tile.is-pinned { border-color: color-mix(in srgb, var(--accent) 55%, transparent); }
 .toolbar-controls .room-control {
   transition: color .15s ease, background-color .15s ease, border-color .15s ease;
 }
@@ -1501,16 +1514,16 @@
   color: #dfe4ed; background: #272930; border-color: #444650;
 }
 .toolbar-controls .room-control.is-active {
-  color: #ead9f3; background: #aa5cc326; border-color: #aa5cc37a;
+  color: var(--accent); background: color-mix(in srgb, var(--accent) 15%, transparent); border-color: color-mix(in srgb, var(--accent) 48%, transparent);
 }
 .toolbar-controls .room-control[aria-pressed='false'] {
   color: #aeb7c7; background: #22242a; border-color: #41434d;
 }
 .toolbar-controls .room-control:not(.is-danger):hover {
-  color: #d5f1fc; background: #00a4dc26; border-color: #00a4dc;
+  color: var(--accent); background: color-mix(in srgb, var(--accent) 15%, transparent); border-color: var(--accent);
 }
 .toolbar-controls .room-control.is-active:hover {
-  color: #f4eafa; background: #aa5cc33d; border-color: var(--call-purple);
+  color: var(--text); background: color-mix(in srgb, var(--accent) 24%, transparent); border-color: var(--accent);
 }
 .tile-avatar span { color: #e4d3b6; background: #464039; }
 .media-tile:nth-child(3n+2) .tile-avatar span { color: #d7e0e5; background: #3b4449; }

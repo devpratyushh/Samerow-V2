@@ -3,7 +3,8 @@
   color: #f3f3f3; background: #151617; color-scheme: dark;
   font-synthesis: none; text-rendering: optimizeLegibility; -webkit-font-smoothing: antialiased;
   --bg: #151617; --surface: #1c1d1f; --surface-raised: #27282b; --text: #f3f3f3;
-  --muted: #a2a3a6; --border: #36373a; --accent: #dfbd7d; --danger: #d8878e;
+  --accent-gradient: linear-gradient(105deg, #d9b5f5, var(--accent) 55%, #d6b1f4);
+  --muted: #a2a3a6; --border: #36373a; --accent: #d2abf2; --danger: #d8878e;
 }
 * { box-sizing: border-box; }
 html, body, #root { margin: 0; min-width: 320px; min-height: 100%; }
@@ -21,7 +22,7 @@ input, textarea { min-width: 0; }
 [hidden] { display: none !important; }
 .mellettem-mark { width: 1.55em; height: 1.55em; flex: none; object-fit: contain; }
 .sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
-::selection { background: #dedede44; }
+::selection { background: color-mix(in srgb, var(--accent) 27%, transparent); }
 * { scrollbar-width: thin; scrollbar-color: #3b475a transparent; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
