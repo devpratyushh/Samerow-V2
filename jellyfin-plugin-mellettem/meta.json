@@ -1,14 +1,14 @@
 {
   "category": "General",
-  "changelog": "New Mellettem identity across the plugin and catalog. Direct WebRTC movie delivery with HTTPS fallback, synchronized watch rooms, and personal playback preferences.",
+  "changelog": "Responsive Jellyfin settings with grouped account and relay details, plus correctly scaled plugin artwork in the catalog and installed plugin cards.",
   "description": "Bring your Jellyfin library to Mellettem watch parties. Pair once, invite friends, and watch together without port forwarding.",
   "guid": "a14b5c7e-8d90-4123-b567-9876543210ab",
   "name": "Mellettem Connect",
   "overview": "Synchronized movies with video calls and chat. Direct WebRTC delivery where supported, HTTPS fallback, and personal audio, subtitles, and quality.",
   "owner": "Mellettem",
   "targetAbi": "12.3.0.0",
-  "timestamp": "2026-11-15T18:30:00Z",
-  "version": "1.0.7.0",
+  "timestamp": "2026-11-17T07:49:54Z",
+  "version": "1.0.8.0",
   "status": "Active",
   "autoUpdate": false,
   "assemblies": [

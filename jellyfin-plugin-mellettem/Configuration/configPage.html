@@ -4,125 +4,320 @@
     <title>Mellettem Connect</title>
 </head>
 <body>
-<div id="mellettemConfigurationPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-button,emby-input,emby-select">
-    <div data-role="content">
-        <div class="content-primary">
-            <div class="verticalSection">
-                <div class="sectionTitleContainer flex align-items-center">
-                    <img id="mellettemLogo" hidden width="280" height="76" alt="Mellettem" style="margin-inline-end: .6em; max-width: 55%; object-fit: contain; border-radius: 8px;">
-                    <h2 class="sectionTitle">Mellettem Connect</h2>
-                </div>
-                <p class="fieldDescription">
-                    Connect your Jellyfin server directly to Mellettem so you and up to three friends can watch movies and shows together in real time.
-                    The plugin connects outbound; no reverse proxy or exposed ports are required.
-                </p>
+<div id="mellettemConfigurationPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-button,emby-input">
+    <style>
+        #mellettemConfigurationPage .mellettem-content {
+            box-sizing: border-box;
+            width: 100%;
+            max-width: 68rem;
+            margin-inline: auto;
+            padding: clamp(1.25rem, 4vw, 3rem) clamp(1rem, 4vw, 2.5rem) 4rem;
+            line-height: 1.5;
+        }
+
+        #mellettemConfigurationPage .mellettem-content [hidden] {
+            display: none !important;
+        }
+
+        #mellettemConfigurationPage .mellettem-header {
+            margin-bottom: 1.5rem;
+        }
+
+        #mellettemConfigurationPage .mellettem-title {
+            margin: 0;
+            font-size: clamp(1.75rem, 4vw, 2.5rem);
+            font-weight: 600;
+            line-height: 1.2;
+        }
+
+        #mellettemConfigurationPage .mellettem-intro {
+            max-width: 64ch;
+            margin: .65rem 0 0;
+        }
+
+        #mellettemConfigurationPage .mellettem-panel {
+            box-sizing: border-box;
+            max-width: none;
+            margin: 0 0 1rem;
+            padding: clamp(1rem, 3vw, 1.5rem);
+            border: 1px solid rgba(128, 128, 128, .36);
+            border-radius: .75rem;
+            background: rgba(128, 128, 128, .08);
+        }
+
+        #mellettemConfigurationPage .mellettem-panel-heading {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: space-between;
+            gap: .6rem 1rem;
+            margin-bottom: 1rem;
+        }
+
+        #mellettemConfigurationPage .mellettem-panel h3 {
+            margin: 0;
+            font-size: 1.2rem;
+            font-weight: 600;
+        }
+
+        #mellettemConfigurationPage .mellettem-badge {
+            padding: .25rem .75rem;
+            border-radius: 999px;
+            background: #535861;
+            color: #fff;
+            font-size: .875rem;
+            font-weight: 600;
+        }
+
+        #mellettemConfigurationPage .mellettem-badge[data-state="connected"] {
+            background: #22663e;
+        }
+
+        #mellettemConfigurationPage .mellettem-badge[data-state="error"] {
+            background: #963837;
+        }
+
+        #mellettemConfigurationPage .mellettem-details {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr));
+            gap: 1rem 2rem;
+        }
+
+        #mellettemConfigurationPage .mellettem-details h4 {
+            margin: 0 0 .25rem;
+            font-size: 1rem;
+            font-weight: 600;
+        }
+
+        #mellettemConfigurationPage .mellettem-details dl {
+            margin: 0;
+        }
+
+        #mellettemConfigurationPage .mellettem-details dl > div {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(min(100%, 8rem), 1fr));
+            gap: .15rem .75rem;
+            padding: .4rem 0;
+            border-bottom: 1px solid rgba(128, 128, 128, .25);
+        }
+
+        #mellettemConfigurationPage #accountDetails dl > div {
+            grid-template-columns: minmax(0, 1fr);
+        }
+
+        #mellettemConfigurationPage .mellettem-details dt {
+            opacity: .82;
+        }
+
+        #mellettemConfigurationPage .mellettem-details dd {
+            min-width: 0;
+            margin: 0;
+            overflow-wrap: anywhere;
+        }
+
+        #mellettemConfigurationPage .mellettem-details code {
+            font-size: .875em;
+        }
+
+        #mellettemConfigurationPage .mellettem-actions {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: .5rem;
+            margin-top: 1rem;
+        }
+
+        #mellettemConfigurationPage .mellettem-actions .emby-button {
+            margin: 0;
+            white-space: normal;
+        }
+
+        #mellettemConfigurationPage .mellettem-actions .mellettem-danger {
+            color: #fff;
+            background: #a63838;
+        }
+
+        #mellettemConfigurationPage .mellettem-link {
+            display: inline-block;
+            padding: .5rem .25rem;
+            color: inherit;
+            text-underline-offset: .2em;
+        }
+
+        #mellettemConfigurationPage .mellettem-error,
+        #mellettemConfigurationPage .mellettem-confirmation {
+            padding: .65rem .85rem;
+            border-inline-start: .2rem solid #c85454;
+            background: rgba(184, 58, 58, .12);
+            overflow-wrap: anywhere;
+        }
+
+        #mellettemConfigurationPage .mellettem-error {
+            margin: 0 0 1rem;
+        }
+
+        #mellettemConfigurationPage .mellettem-error:empty {
+            display: none;
+        }
+
+        #mellettemConfigurationPage .mellettem-confirmation {
+            margin-top: 1rem;
+        }
+
+        #mellettemConfigurationPage .mellettem-confirmation p,
+        #mellettemConfigurationPage .mellettem-footer p {
+            margin: 0;
+        }
+
+        #mellettemConfigurationPage .mellettem-pairing ol {
+            padding-inline-start: 1.5rem;
+        }
+
+        #mellettemConfigurationPage .mellettem-pairing li + li {
+            margin-top: .5rem;
+        }
+
+        #mellettemConfigurationPage .mellettem-settings-fields {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(min(100%, 17rem), 1fr));
+            gap: 1rem 1.25rem;
+        }
+
+        #mellettemConfigurationPage .mellettem-settings-fields .inputContainer {
+            min-width: 0;
+            margin: 0;
+        }
+
+        #mellettemConfigurationPage .mellettem-settings-fields input {
+            box-sizing: border-box;
+            width: 100%;
+        }
+
+        #mellettemConfigurationPage .mellettem-settings-fields .fieldDescription {
+            margin-top: .35rem;
+        }
+
+        #mellettemConfigurationPage .mellettem-footer {
+            max-width: 78ch;
+            margin-top: 1.5rem;
+            font-size: .875rem;
+        }
+
+        #mellettemConfigurationPage .mellettem-footer a {
+            color: inherit;
+        }
+    </style>
+
+    <div class="mellettem-content">
+        <header class="mellettem-header">
+            <h2 class="mellettem-title">Mellettem Connect</h2>
+            <p class="mellettem-intro">Watch movies and shows from your Jellyfin server in sync with up to three friends. The plugin uses an outbound connection, so there’s no port forwarding to set up.</p>
+        </header>
+
+        <section class="mellettem-panel" aria-labelledby="mellettemStatusTitle">
+            <div class="mellettem-panel-heading">
+                <h3 id="mellettemStatusTitle">Connection Status</h3>
+                <span id="connectionBadge" class="mellettem-badge" role="status">Checking…</span>
             </div>
 
-            <p class="fieldDescription">Copyright © 2026 devpratyushh. Mellettem Connect is free software under
-                <a href="https://github.com/devpratyushh/Samerow-V2/blob/main/jellyfin-plugin-mellettem/LICENSING.md" target="_blank" rel="noopener noreferrer">GPL-3.0-or-later</a>,
-                without any warranty. You may modify and redistribute it under those terms.
+            <p id="statusRequestError" class="mellettem-error" role="alert"></p>
+            <p id="errorContainer" class="mellettem-error" hidden>
+                <strong>Relay error:</strong> <span id="displayError"></span>
             </p>
 
-            <!-- Connection Status Box -->
-            <div class="verticalSection">
-                <div id="statusContainer" class="paperList" style="padding: 1.5em; border-radius: 8px; margin-bottom: 2em; background: rgba(0,0,0,0.2);">
-                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1em;">
-                        <h3 style="margin: 0;">Connection Status</h3>
-                        <span id="connectionBadge" style="padding: 4px 12px; border-radius: 12px; font-weight: bold; background: #666; color: #fff;">Checking...</span>
-                    </div>
-
-                    <p id="statusRequestError" role="alert" style="color: #ff8585;"></p>
-                    <div id="statusDetails" style="display: none; line-height: 1.8;">
-                        <div id="accountDetails">
-                            <div><strong>Bound Mellettem account:</strong> <span id="displayBoundAccount">Not checked</span></div>
-                            <div><strong>Jellyfin user:</strong> <span id="displayBoundJellyfin">Not bound yet</span></div>
-                            <div><strong>Connector ID:</strong> <span id="displayConnectorId" style="font-family: monospace;">-</span></div>
-                            <div><strong>Gateway:</strong> <span id="displayGateway">-</span></div>
-                        </div>
-                        <div><strong>Time connected:</strong> <span id="displayConnectedDuration">—</span></div>
-                        <div><strong>Last connection duration:</strong> <span id="displayLastConnectionDuration">—</span></div>
-                        <div><strong>Last connected:</strong> <span id="displayLastConnected">—</span></div>
-                        <div><strong>Last disconnected:</strong> <span id="displayLastDisconnected">—</span></div>
-                        <div><strong>Last relay activity:</strong> <span id="displayLastActivity">—</span></div>
-                        <div><strong>Active relay requests:</strong> <span id="displayActiveJobs">0</span></div>
-                        <div><strong>Total relay requests completed:</strong> <span id="displayTotalJobs">0</span></div>
-                        <div><strong>Total Data Relayed:</strong> <span id="displayTotalBytes">0 MB</span></div>
-                        <div id="errorContainer" style="display: none; color: #ff5252; margin-top: 0.5em;">
-                            <strong>Error:</strong> <span id="displayError"></span>
-                        </div>
-                    </div>
-
-                    <div id="pairingActionContainer" style="margin-top: 1.5em;">
-                        <button is="emby-button" type="button" class="raised button-submit" id="btnConnect" style="background: #00a4dc; color: #fff; font-weight: bold;">
-                            <span>Connect Mellettem</span>
-                        </button>
-                        <button is="emby-button" type="button" class="raised" id="btnDisconnect" style="background: #e53935; color: #fff; display: none;">
-                            <span>Disconnect Server</span>
-                        </button>
-                        <button is="emby-button" type="button" class="raised" id="btnRotate" style="display: none;">Rotate credential</button>
-                        <a id="btnOpenMellettem" href="https://samerow-v2.vercel.app" target="_blank" rel="noopener noreferrer" is="emby-button" class="raised" style="margin-left: 1em; display: none;">
-                            <span>Open Mellettem Web &rarr;</span>
-                        </a>
-                    </div>
+            <div id="statusDetails" class="mellettem-details" hidden>
+                <div id="accountDetails" hidden>
+                    <h4>Account</h4>
+                    <dl>
+                        <div><dt>Mellettem account</dt><dd id="displayBoundAccount">Checking…</dd></div>
+                        <div><dt>Jellyfin user</dt><dd id="displayBoundJellyfin">Checking…</dd></div>
+                        <div><dt>Connector ID</dt><dd><code id="displayConnectorId">—</code></dd></div>
+                        <div><dt>Gateway</dt><dd id="displayGateway">—</dd></div>
+                    </dl>
+                </div>
+                <div>
+                    <h4>Connection history</h4>
+                    <dl>
+                        <div><dt>Time connected</dt><dd id="displayConnectedDuration">—</dd></div>
+                        <div><dt>Last connection duration</dt><dd id="displayLastConnectionDuration">—</dd></div>
+                        <div><dt>Last connected</dt><dd id="displayLastConnected">—</dd></div>
+                        <div><dt>Last disconnected</dt><dd id="displayLastDisconnected">—</dd></div>
+                    </dl>
+                </div>
+                <div>
+                    <h4>Relay activity</h4>
+                    <dl>
+                        <div><dt>Last activity</dt><dd id="displayLastActivity">—</dd></div>
+                        <div><dt>Active requests</dt><dd id="displayActiveJobs">0</dd></div>
+                        <div><dt>Completed requests</dt><dd id="displayTotalJobs">0</dd></div>
+                        <div><dt>Data relayed</dt><dd id="displayTotalBytes">0 MB</dd></div>
+                    </dl>
                 </div>
             </div>
 
-            <!-- Pairing Modal / Steps -->
-            <div id="pairingModal" class="paperList" style="display: none; padding: 1.5em; border-radius: 8px; margin-bottom: 2em; border: 2px solid #00a4dc; background: rgba(0, 164, 220, 0.08);">
-                <h3 style="margin-top: 0;">Approve Connection on Mellettem</h3>
-                <p>Follow these two simple steps to authorize your Jellyfin server:</p>
-                <ol style="line-height: 2;">
-                    <li>Click the link below to open the approval page in a new tab:</li>
-                    <div style="margin: 0.5em 0 1em 1em;">
-                        <a id="linkApproval" href="#" target="_blank" rel="noopener noreferrer" is="emby-button" class="raised button-submit" style="background: #2e7d32; color: #fff; display: inline-block;">
-                            <span>Click here to Approve on Mellettem Web &rarr;</span>
-                        </a>
-                    </div>
-                    <li>Sign into your Mellettem account and click <strong>Approve</strong>. This page will automatically detect approval.</li>
-                </ol>
-                <div style="display: flex; align-items: center; gap: 8px; margin-top: 1em; color: #aaa;">
-                    <div class="mdl-spinner mdl-js-spinner is-active" style="width: 20px; height: 20px;"></div>
-                    <span id="pairingMessage" role="status">Waiting for approval on Mellettem Web…</span>
-                    <button is="emby-button" type="button" id="btnCancelPairing" class="button-flat" style="margin-left: auto;">Cancel</button>
-                </div>
+            <div class="mellettem-actions">
+                <button is="emby-button" type="button" class="raised button-submit" id="btnConnect" hidden>Connect Mellettem</button>
+                <a id="btnOpenMellettem" class="mellettem-link" href="https://samerow-v2.vercel.app" target="_blank" rel="noopener noreferrer" hidden>Open Mellettem Web &rarr;</a>
+                <button is="emby-button" type="button" class="raised" id="btnRotate" hidden>Rotate credential</button>
+                <button is="emby-button" type="button" class="raised" id="btnDisconnect" aria-controls="disconnectConfirmation" aria-expanded="false" hidden>Disconnect Server</button>
             </div>
 
-            <!-- Plugin Settings Form -->
-            <div id="disconnectConfirmation" role="alert" style="display:none;padding:1em;">
+            <div id="disconnectConfirmation" class="mellettem-confirmation" hidden>
                 <p>Disconnect this Jellyfin server from its current Mellettem account?</p>
-                <button is="emby-button" type="button" id="confirmDisconnect" class="raised">Confirm disconnect</button>
-                <button is="emby-button" type="button" id="cancelDisconnect" class="raised">Cancel</button>
-            </div>
-            <form id="mellettemSettingsForm" class="verticalSection">
-                <div class="sectionTitleContainer">
-                    <h3 class="sectionTitle">Server Settings</h3>
+                <div class="mellettem-actions">
+                    <button is="emby-button" type="button" id="confirmDisconnect" class="raised mellettem-danger">Confirm disconnect</button>
+                    <button is="emby-button" type="button" id="cancelDisconnect" class="raised">Cancel</button>
                 </div>
+            </div>
+        </section>
 
+        <section id="pairingModal" class="mellettem-panel mellettem-pairing" aria-labelledby="mellettemPairingTitle" hidden>
+            <h3 id="mellettemPairingTitle">Approve Connection</h3>
+            <ol>
+                <li><a id="linkApproval" class="mellettem-link" href="#" target="_blank" rel="noopener noreferrer">Open the Mellettem approval page &rarr;</a></li>
+                <li>Sign in to Mellettem and choose <strong>Approve</strong>. This page updates automatically.</li>
+            </ol>
+            <div class="mellettem-actions">
+                <span id="pairingMessage" role="status">Waiting for approval on Mellettem Web…</span>
+                <button is="emby-button" type="button" id="btnCancelPairing" class="raised">Cancel pairing</button>
+            </div>
+        </section>
+
+        <form id="mellettemSettingsForm" class="mellettem-panel" aria-labelledby="mellettemSettingsTitle">
+            <div class="mellettem-panel-heading">
+                <h3 id="mellettemSettingsTitle">Server Settings</h3>
+            </div>
+            <div class="mellettem-settings-fields">
                 <div class="inputContainer">
                     <label class="inputLabel inputLabelUnfocused" for="txtServerName">Server Name on Mellettem</label>
-                    <input is="emby-input" type="text" id="txtServerName" class="emby-input" placeholder="e.g. Home Cinema" />
-                    <div class="fieldDescription">A name to identify this connection in the plugin settings.</div>
+                    <input is="emby-input" type="text" id="txtServerName" class="emby-input" placeholder="e.g. Home Cinema" aria-describedby="mellettemServerNameHelp">
+                    <div class="fieldDescription" id="mellettemServerNameHelp">A name to identify this connection in the plugin settings.</div>
                 </div>
 
                 <div class="inputContainer">
                     <label class="inputLabel inputLabelUnfocused" for="txtWebUrl">Mellettem Web Client URL</label>
-                    <input is="emby-input" type="url" id="txtWebUrl" class="emby-input" value="https://samerow-v2.vercel.app" />
-                    <div class="fieldDescription">Hosted web app endpoint for watch rooms.</div>
+                    <input is="emby-input" type="url" id="txtWebUrl" class="emby-input" value="https://samerow-v2.vercel.app" aria-describedby="mellettemWebUrlHelp">
+                    <div class="fieldDescription" id="mellettemWebUrlHelp">Hosted web app endpoint for watch rooms.</div>
                 </div>
 
                 <div class="inputContainer">
                     <label class="inputLabel inputLabelUnfocused" for="numWorkers">Relay Worker Loops</label>
-                    <input is="emby-input" type="number" id="numWorkers" class="emby-input" min="1" max="16" value="8" />
-                    <div class="fieldDescription">Number of parallel outbound long polls (default: 8).</div>
+                    <input is="emby-input" type="number" id="numWorkers" class="emby-input" min="1" max="16" value="8" aria-describedby="mellettemWorkersHelp">
+                    <div class="fieldDescription" id="mellettemWorkersHelp">Number of parallel outbound long polls (default: 8).</div>
                 </div>
+            </div>
 
-                <div style="margin-top: 1.5em;">
-                    <button is="emby-button" type="submit" class="raised button-submit">
-                        <span>Save Settings</span>
-                    </button>
-                </div>
-            </form>
-        </div>
+            <div class="mellettem-actions">
+                <button is="emby-button" type="submit" class="raised button-submit">Save Settings</button>
+            </div>
+        </form>
+
+        <footer class="mellettem-footer">
+            <p>Copyright © 2026 devpratyushh. Mellettem Connect is free software under
+                <a href="https://github.com/devpratyushh/Samerow-V2/blob/main/jellyfin-plugin-mellettem/LICENSING.md" target="_blank" rel="noopener noreferrer">GPL-3.0-or-later</a>,
+                without any warranty. You may modify and redistribute it under those terms.
+            </p>
+        </footer>
     </div>
 
     <script type="text/javascript">
@@ -180,24 +375,30 @@
                     ? null : connectedDuration + (performance.now() - sampledAt) / 1000);
             }
 
+            function setConnectionBadge(label, state) {
+                var badge = get('connectionBadge');
+                if (badge.textContent !== label) badge.textContent = label;
+                badge.dataset.state = state;
+            }
+
+            function showDisconnectConfirmation(visible) {
+                get('disconnectConfirmation').hidden = !visible;
+                get('btnDisconnect').setAttribute('aria-expanded', String(visible));
+            }
+
             function renderStatus(data) {
                 get('statusRequestError').textContent = '';
-                var logo = get('mellettemLogo');
-                if (data.pluginVersion && !logo.hasAttribute('src')) {
-                    logo.addEventListener('load', function() { logo.hidden = false; }, { once: true });
-                    logo.src = ApiClient.getUrl('Plugins/a14b5c7e-8d90-4123-b567-9876543210ab/' + data.pluginVersion + '/Image');
-                }
                 var paired = data.isPaired;
-                var badge = get('connectionBadge');
-                badge.textContent = paired ? data.connectionState || 'Connecting' : 'Not connected';
-                badge.style.background = data.connectionState === 'Connected' ? '#2e7d32' : '#666';
-                get('accountDetails').style.display = paired ? 'block' : 'none';
-                get('statusDetails').style.display = 'block';
-                get('btnConnect').style.display = paired ? 'none' : 'inline-block';
-                get('btnDisconnect').style.display = paired ? 'inline-block' : 'none';
-                get('btnRotate').style.display = paired ? 'inline-block' : 'none';
+                setConnectionBadge(paired ? data.connectionState || 'Connecting' : 'Not connected',
+                    paired && data.connectionState === 'Connected' ? 'connected' : '');
+                get('accountDetails').hidden = !paired;
+                get('statusDetails').hidden = false;
+                get('btnConnect').hidden = paired;
+                get('btnDisconnect').hidden = !paired;
+                get('btnRotate').hidden = !paired;
                 get('btnRotate').textContent = data.rotationPending ? 'Retry credential rotation' : 'Rotate credential';
-                get('btnOpenMellettem').style.display = paired ? 'inline-block' : 'none';
+                get('btnOpenMellettem').hidden = !paired;
+                if (!paired) showDisconnectConfirmation(false);
                 get('btnOpenMellettem').href = (data.mellettemWebUrl || 'https://samerow-v2.vercel.app').replace(/\/$/, '') + '/#bind=' + encodeURIComponent(data.connectorId || '');
                 get('displayConnectorId').textContent = data.connectorId || '-';
                 get('displayGateway').textContent = data.gatewayUrl || '-';
@@ -212,10 +413,10 @@
                 get('displayActiveJobs').textContent = data.activeJobs || 0;
                 get('displayTotalJobs').textContent = data.totalJobs || 0;
                 get('displayTotalBytes').textContent = ((data.totalBytes || 0) / 1048576).toFixed(1) + ' MB';
-                get('errorContainer').style.display = data.lastError ? 'block' : 'none';
+                get('errorContainer').hidden = !data.lastError;
                 get('displayError').textContent = data.lastError || '';
                 currentPairingId = data.pendingPairing && data.pendingPairing.id;
-                get('pairingModal').style.display = currentPairingId ? 'block' : 'none';
+                get('pairingModal').hidden = !currentPairingId;
                 if (currentPairingId) get('linkApproval').href = data.pendingPairing.approvalUrl;
                 get('btnConnect').disabled = busy || !!currentPairingId;
                 if (!settingsLoaded) {
@@ -251,8 +452,7 @@
                     if (active) {
                         connectedDuration = null;
                         renderConnectedDuration();
-                        get('connectionBadge').textContent = 'Connection check failed';
-                        get('connectionBadge').style.background = '#d32f2f';
+                        setConnectionBadge('Connection check failed', 'error');
                         get('statusRequestError').textContent = error.message;
                     }
                 } finally { refreshing = false; }
@@ -282,10 +482,18 @@
             get('btnCancelPairing').addEventListener('click', function() { void action('Pair/Cancel', {}); });
             get('btnRotate').addEventListener('click', function() { void action('Rotate', {}); });
             get('btnDisconnect').addEventListener('click', function() {
-                get('disconnectConfirmation').style.display = 'block';
+                var open = get('disconnectConfirmation').hidden;
+                showDisconnectConfirmation(open);
+                if (open) get('cancelDisconnect').focus();
             });
-            get('confirmDisconnect').addEventListener('click', function() { get('disconnectConfirmation').style.display = 'none'; void action('Disconnect', {}); });
-            get('cancelDisconnect').addEventListener('click', function() { get('disconnectConfirmation').style.display = 'none'; });
+            get('confirmDisconnect').addEventListener('click', function() {
+                showDisconnectConfirmation(false);
+                void action('Disconnect', {});
+            });
+            get('cancelDisconnect').addEventListener('click', function() {
+                showDisconnectConfirmation(false);
+                get('btnDisconnect').focus();
+            });
             get('mellettemSettingsForm').addEventListener('submit', function(event) {
                 event.preventDefault();
                 void action('Settings', {

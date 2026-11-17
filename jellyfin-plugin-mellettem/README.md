@@ -6,7 +6,7 @@ This plugin connects a Jellyfin server to Mellettem using outbound HTTPS. The se
 
 ## Install from the Jellyfin catalog
 
-**The published beta targets Jellyfin 12.3 and .NET 10.** Mellettem Connect 1.0.7.0 is available from the catalog and includes connection metrics. Install using the third-party repository URL below. The earlier [directory submission](https://github.com/jellyfin/jellyfin.org/pull/2089) was closed without merging; this plugin is not listed in Jellyfin's default repository or directory.
+**The published beta targets Jellyfin 12.3 and .NET 10.** Mellettem Connect 1.0.8.0 is available from the catalog and includes a responsive settings page with connection and relay metrics. Install using the third-party repository URL below. The earlier [directory submission](https://github.com/jellyfin/jellyfin.org/pull/2089) was closed without merging; this plugin is not listed in Jellyfin's default repository or directory.
 
 1. Open Jellyfin **Dashboard → Plugins → Repositories** and add a repository.
 2. Name it **Mellettem Connect** and paste this URL:
@@ -19,7 +19,7 @@ This plugin connects a Jellyfin server to Mellettem using outbound HTTPS. The se
 4. Install the latest catalog version and restart Jellyfin. Existing installations keep their pairing.
 5. Open **Dashboard → Plugins → Mellettem Connect** and follow the pairing steps below.
 
-[Release downloads and corresponding source](https://github.com/devpratyushh/Samerow-V2/releases/tag/mellettem-connect-v1.0.7.0). If the plugin does not appear, check your Jellyfin version: this package has been built and tested against 12.3. It has not been validated on other versions. Older releases such as 10.x need a separate compatible build.
+[Release downloads and corresponding source](https://github.com/devpratyushh/Samerow-V2/releases/tag/mellettem-connect-v1.0.8.0). If the plugin does not appear, check your Jellyfin version: this package has been built and tested against 12.3. It has not been validated on other versions. Older releases such as 10.x need a separate compatible build.
 
 ## Compatibility and build
 
@@ -35,7 +35,7 @@ The default assembly path is the workspace's sibling jellyfin-sandbox/jellyfin d
 ## Manual installation and pairing
 
 1. Stop Jellyfin.
-2. Download `Mellettem-Connect-1.0.7.0.zip` from the [release](https://github.com/devpratyushh/Samerow-V2/releases/tag/mellettem-connect-v1.0.7.0) and extract it into Jellyfin's `plugins/Mellettem Connect_1.0.7.0` directory. Keep the DLL, icon, metadata, and sender executables directly inside that directory.
+2. Download `Mellettem-Connect-1.0.8.0.zip` from the [release](https://github.com/devpratyushh/Samerow-V2/releases/tag/mellettem-connect-v1.0.8.0) and extract it into Jellyfin's `plugins/Mellettem Connect_1.0.8.0` directory. Keep the DLL, icon, metadata, and sender executables directly inside that directory.
 3. Start Jellyfin and open Dashboard → Plugins → Mellettem Connect.
 4. Select Connect, sign in to Mellettem Web, and approve the connection.
 5. Return to the plugin page and wait for Connected. Open Mellettem Web and select the connected server in the Jellyfin library dialog.
