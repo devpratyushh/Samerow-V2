@@ -52,7 +52,9 @@ try {
     await settle();
     const box = await controls.boundingBox();
     const row = controls.locator('.player-controls-row');
-    assert.ok(box.width <= 961 && box.x >= 10 && box.x + box.width <= viewport.width - 10);
+    assert.ok(box.width >= viewport.width - 65 && box.x >= 10 && box.x + box.width <= viewport.width - 10);
+    const seek = await controls.getByRole('slider', { name: /seek/i }).boundingBox();
+    assert.ok(seek.width >= box.width - 41, 'Timeline spans the responsive control bar');
     assert.ok(Math.abs(box.x - (viewport.width - box.x - box.width)) < 2, 'Playback bar is centered');
     assert.ok(await row.evaluate(el => el.scrollWidth <= el.clientWidth), 'Playback controls fit their bar');
   }
@@ -110,6 +112,10 @@ try {
   assert.ok(after.x > before.x && after.y > before.y, 'Touch drag did not move panel');
   await page.keyboard.press('Escape');
   await page.locator('.floating-participants').waitFor({state: 'detached'});
+  await page.goto(`${base}/ui-preview?scene=youtube&count=1`);
+  await page.getByRole('button', { name: 'Enter fullscreen', exact: true }).click();
+  await page.locator('.floating-participants--strip').waitFor();
+  assert.equal(await layout.inputValue(), 'auto');
   assert.deepEqual(errors, []);
   console.log('PASS fullscreen layouts, mouse/touch/keyboard movement, viewport bounds, stable video nodes, and theater fallback');
 } finally { await browser.close(); }

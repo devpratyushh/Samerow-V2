@@ -38,7 +38,10 @@ try {
   assert.match(text, /1080p/);
   assert.doesNotMatch(text, /diagnostics-test-secret|Preparing the stream|transcoding/i);
   await page.waitForFunction(() => /[1-9]\d*s elapsed/.test(document.querySelector('.jellyfin-player-status').innerText));
-  await page.locator('.player-nerd-stats > summary').click();
+  const stats = page.getByRole('dialog', { name: 'Stats for nerds' });
+  assert.equal(await stats.count(), 0);
+  await page.locator('.player-track-menu > summary').click();
+  await page.getByRole('button', { name: 'Stats for nerds', exact: true }).click();
   await page.getByText('HLS bandwidth estimate', { exact: true }).waitFor();
   await page.evaluate(() => {
     const video = document.querySelector('.jellyfin-player video');
@@ -54,9 +57,6 @@ try {
   assert.match(statsText, /12.0 s/);
   assert.match(statsText, /fragLoadError · HTTP 503/);
   assert.doesNotMatch(statsText, /diagnostics-test-secret/);
-  const footer = await page.locator('.player-nerd-stats').boundingBox();
-  const controls = await page.locator('.player-controls').boundingBox();
-  assert.ok(footer.y >= controls.y + controls.height - 1, 'Stats stay below playback controls');
   if (process.env.UI_ARTIFACT_DIR) await page.screenshot({ path: `${process.env.UI_ARTIFACT_DIR}/player-stats-desktop.png` });
   await page.setViewportSize({ width: 390, height: 844 });
   const bounds = await page.locator('.jellyfin-playback-details').boundingBox();
@@ -64,7 +64,8 @@ try {
   const statsBounds = await page.locator('.player-nerd-stats').boundingBox();
   assert.ok(statsBounds.x >= 0 && statsBounds.x + statsBounds.width <= 391 && statsBounds.y + statsBounds.height <= 845);
   if (process.env.UI_ARTIFACT_DIR) await page.screenshot({ path: `${process.env.UI_ARTIFACT_DIR}/player-stats-mobile.png` });
-  await page.locator('.player-nerd-stats > summary').click();
+  await page.keyboard.press('Escape');
+  await stats.waitFor({ state: 'detached' });
   await page.getByText('HLS bandwidth estimate', { exact: true }).waitFor({ state: 'detached' });
   assert.deepEqual(errors, []);
   const stalled = await browser.newPage();
@@ -104,5 +105,5 @@ try {
   assert.equal(Number(compatibleUrl.searchParams.get('bitrate')), 4000000);
   assert.equal(compatibleUrl.searchParams.has('original'), false);
   await fallback.close();
-  console.log('PASS settings HTTP failure, timeout and retry; real HLS segment/HTTP diagnostics; elapsed time; live bottom-of-player stats; mobile layout; no credential exposure.');
+  console.log('PASS settings HTTP failure, timeout and retry; real HLS segment/HTTP diagnostics; elapsed time; dismissible live player stats; mobile layout; no credential exposure.');
 } finally { await browser.close(); }

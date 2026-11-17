@@ -50,7 +50,7 @@ export default function RoomView({ roomId, userName, connected = true, participa
   const currentSource = sources.find(source => source.id === sourceId);
   const fullscreen = fullScreen || theater;
   const immersive = fullscreen && contentFocused;
-  const floatingLayout = participantLayout === 'auto' ? (participants.length > 1 ? 'strip' : 'circles') : participantLayout;
+  const floatingLayout = participantLayout === 'auto' ? 'strip' : participantLayout;
   const moveParticipants = useCallback((x, y) => {
     const panel = participantRef.current;
     const bounds = panel?.offsetParent;

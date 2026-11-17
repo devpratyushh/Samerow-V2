@@ -37,7 +37,8 @@ try {
  assert.match(await host.locator('.jellyfin-playback-details').innerText(), /Waiting for response/);
  release();
  await playing(host);
- await host.locator('.player-nerd-stats > summary').click();
+ await host.locator('.player-track-menu > summary').click();
+ await host.getByRole('button', { name: 'Stats for nerds', exact: true }).click();
  await host.waitForFunction(() => document.querySelector('.player-nerd-stats').textContent.includes('HTTP 200'));
  const text = await host.locator('.player-nerd-stats').innerText();
  assert.match(text, /ms first byte/);

@@ -44,6 +44,7 @@ export default function JellyfinPlayer({ state, base, socket, command, connected
   const presentedFrame = useRef(null);
   const [audio, setAudio] = useState(() => state.audioTracks.find(track => track.default)?.index ?? state.audioTracks[0]?.index ?? -1);
   const [subtitle, setSubtitle] = useState(-1);
+  const [statsOpen, setStatsOpen] = useState(false);
   const [volume, setVolume] = useState(1);
   const [muted, setMuted] = useState(false);
   const [phase, setPhase] = useState('loading');
@@ -568,6 +569,12 @@ export default function JellyfinPlayer({ state, base, socket, command, connected
           <label>Audio track<select aria-label="Audio track" value={audio} onChange={event => setAudio(Number(event.target.value))} disabled={!state.audioTracks.length}>{!state.audioTracks.length && <option value="-1">No audio</option>}{state.audioTracks.map(track => <option key={track.index} value={track.index}>{track.title}</option>)}</select></label>
           <label>Subtitles<select aria-label="Subtitles" value={subtitle} onChange={event => setSubtitle(Number(event.target.value))}><option value="-1">Off</option>{state.subtitleTracks.map(track => <option key={track.index} value={track.index}>{track.title}{!track.text ? ' (video subtitles)' : ''}</option>)}</select></label>
           {canUseDirect && currentRelayFallback?.retryable && <button className="sr-button" onClick={() => setRelayFallback(null)} disabled={!connected}>Retry direct connection</button>}
+          <button className="sr-button" onClick={event => {
+            const menu = event.currentTarget.closest('details');
+            menu.open = false;
+            menu.querySelector('summary').focus();
+            setStatsOpen(true);
+          }}>Stats for nerds</button>
           {onOpenNative && <button className="sr-button" onClick={onOpenNative}>Open Jellyfin Web player</button>}
           <button className="sr-button" onClick={event => { event.currentTarget.closest('details').open = false; }}>Done</button>
         </div>
@@ -575,7 +582,7 @@ export default function JellyfinPlayer({ state, base, socket, command, connected
       {onBrowse && <button className="player-control" onClick={onBrowse} title="Browse Jellyfin library" aria-label="Browse Jellyfin library"><FaFilm /></button>}
     <button className="player-control" aria-label="Stop movie for everyone" title="Stop movie for everyone" onClick={() => command?.('stop')} disabled={!command}><FaStop /></button>
     </PlaybackControls>
-    <PlayerNerdStats network={telemetry.network} endpoint={root} videoRef={videoRef} hlsRef={hlsRef} policy={quality.policy} phase={policyFailed ? 'error' : phase}
+    <PlayerNerdStats open={statsOpen} onClose={() => setStatsOpen(false)} network={telemetry.network} endpoint={root} videoRef={videoRef} hlsRef={hlsRef} policy={quality.policy} phase={policyFailed ? 'error' : phase}
       transport={transportStatus || 'HTTPS'} transportError={relayReason || telemetry.direct?.lastError} direct={telemetry.direct} firstFrame={telemetry.firstFrame}
       stage={policyReady ? diagnostics.stage : 'Playback settings request'} failure={policyFailed ? quality.error : diagnostics.lastError || error}
       delivery={policyReady ? original ? 'Original video · fragmented MP4' : 'Compatible HLS' : 'Waiting for settings'}

@@ -87,10 +87,8 @@
 .is-fullscreen.is-watching .player-controls {
   position: absolute;
   bottom: calc(var(--fullscreen-playback-offset) + env(safe-area-inset-bottom));
-  left: max(12px, env(safe-area-inset-left));
-  right: max(var(--fullscreen-playback-right), env(safe-area-inset-right));
-  max-width: 960px;
-  margin-inline: auto;
+  left: max(clamp(12px, 2vw, 32px), env(safe-area-inset-left));
+  right: max(var(--fullscreen-playback-right), clamp(12px, 2vw, 32px), env(safe-area-inset-right));
   padding: clamp(10px, 3dvh, 24px) clamp(8px, 2vw, 20px) 8px;
   border-radius: 12px;
   background: linear-gradient(transparent, rgb(10 11 12 / 93%));

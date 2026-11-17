@@ -15,6 +15,7 @@ export default function JellyfinNativePlayer({ state, base, command, connected, 
   const [attempt, setAttempt] = useState(0);
   const [qualityNote, setQualityNote] = useState('');
   const [status, setStatus] = useState({ phase: 'loading' });
+  const [statsOpen, setStatsOpen] = useState(false);
   const [reportedStats, setReportedStats] = useState(null);
   const { fullscreen, toggleFullscreen } = useRoomPresentation();
   const quality = useJellyfinQuality(`${base}/api/jellyfin-native/${state.accessToken}/samerow/quality`);
@@ -55,7 +56,18 @@ export default function JellyfinNativePlayer({ state, base, command, connected, 
   return <div className="jellyfin-native-player" data-phase={status.phase}>
     {recovery && <p className="jellyfin-recovery" role="status">{recovery}</p>}
     <div className="jellyfin-native-stage">
-      <details className="jellyfin-native-quality"><summary>Quality</summary><JellyfinQuality {...quality} select={mode => { setQualityNote(''); return quality.select(mode); }} />{qualityNote && <small role="status">{qualityNote}</small>}{onOpenMellettem && <button className="sr-button" onClick={onOpenMellettem}>Open Mellettem player</button>}</details>
+      <details className="jellyfin-native-quality">
+        <summary>Quality</summary>
+        <JellyfinQuality {...quality} select={mode => { setQualityNote(''); return quality.select(mode); }} />
+        {qualityNote && <small role="status">{qualityNote}</small>}
+        {onOpenMellettem && <button className="sr-button" onClick={onOpenMellettem}>Open Mellettem player</button>}
+        <button className="sr-button" onClick={event => {
+          const menu = event.currentTarget.closest('details');
+          menu.open = false;
+          menu.querySelector('summary').focus();
+          setStatsOpen(true);
+        }}>Stats for nerds</button>
+      </details>
       <iframe ref={frameRef} className="jellyfin-native-frame" src={src} title="Jellyfin player" allow="autoplay; fullscreen; picture-in-picture 'none'" sandbox="allow-scripts allow-forms allow-pointer-lock allow-downloads" referrerPolicy="no-referrer" />
       {['loading', 'blocked', 'error', 'ended'].includes(status.phase) && <div className="jellyfin-native-status" role="status"><p>{status.message || (status.phase === 'loading' ? 'Opening Jellyfin’s player…' : status.phase === 'blocked' ? 'Press Play to join the movie.' : status.phase === 'ended' ? 'The movie has ended.' : 'Playback could not start.')}</p>
         {status.phase === 'blocked' && <button className="sr-button sr-button--primary" onClick={() => send('play-local')}>Play on this device</button>}
@@ -64,7 +76,7 @@ export default function JellyfinNativePlayer({ state, base, command, connected, 
       </div>}
     </div>
     <div className="jellyfin-native-info"><span title={state.title}>{state.title}<small>{connected ? 'Shared playback · personal audio & subtitles' : 'Reconnecting to room…'}</small></span><div><button className="icon-button" onClick={onBrowse} title="Browse Jellyfin library" aria-label="Browse Jellyfin library"><FaFilm /></button><button className="icon-button" onClick={() => command('stop')} disabled={!connected} title="Stop movie for everyone" aria-label="Stop movie for everyone"><FaStop /></button></div></div>
-    <PlayerNerdStats reported={reportedStats} policy={quality.policy} phase={status.phase} delivery="Jellyfin Web player"
+    <PlayerNerdStats open={statsOpen} onClose={() => setStatsOpen(false)} reported={reportedStats} policy={quality.policy} phase={status.phase} delivery="Jellyfin Web player"
       stage={status.message || status.phase} failure={status.phase === 'error' ? status.message : quality.error} />
   </div>;
 }

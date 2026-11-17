@@ -154,10 +154,11 @@ try {
   await play(owner);
   assert.equal(await owner.locator('.jellyfin-player').getAttribute('data-transport'), 'webrtc');
   assert.equal(await owner.locator('.jellyfin-player').getAttribute('data-delivery'), 'original');
-  await owner.locator('.player-nerd-stats > summary').click();
+  await owner.locator('.player-track-menu > summary').click();
+  await owner.getByRole('button', { name: 'Stats for nerds', exact: true }).click();
   await owner.locator('.player-nerd-stats').getByText(/s setup .* s connected/).waitFor();
   await owner.locator('.player-nerd-stats').getByText('WebRTC path', { exact: true }).waitFor();
-  await owner.locator('.player-nerd-stats > summary').click();
+  await owner.getByRole('button', { name: 'Close stats for nerds' }).click();
   const ownerOffer = await owner.evaluate(() => {
     return window.socketEmissions.find(event => event.name === 'jellyfin-direct-offer').args[0].sessionId;
   });

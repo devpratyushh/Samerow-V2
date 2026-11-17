@@ -1,13 +1,13 @@
 import { useEffect, useEffectEvent, useRef, useState } from 'react';
 import { playbackStats } from '../playbackStats';
 import { mediaReadiness } from '../playbackDiagnostics';
+import Dialog from './Dialog';
 import './PlayerNerdStats.css';
 import PlaybackNetworkDetails from './PlaybackNetworkDetails';
 
 const number = (value, suffix = '', digits = 1) => Number.isFinite(value) ? `${value.toFixed(digits)}${suffix}` : 'Not reported';
 
-export default function PlayerNerdStats({ videoRef, hlsRef, reported, policy, phase, stage, failure, delivery, audio, subtitle, targetTime, network, endpoint, transport, transportError, direct, firstFrame }) {
-  const [open, setOpen] = useState(false);
+export default function PlayerNerdStats({ open, onClose, videoRef, hlsRef, reported, policy, phase, stage, failure, delivery, audio, subtitle, targetTime, network, endpoint, transport, transportError, direct, firstFrame }) {
   const [sample, setSample] = useState(null);
   const previous = useRef(null);
   const collect = useEffectEvent(() => {
@@ -63,11 +63,10 @@ export default function PlayerNerdStats({ videoRef, hlsRef, reported, policy, ph
     ['Last player event', stage || 'Not reported'],
     ['Last error', failure || 'None reported'],
   ];
-  return <details className="player-nerd-stats" onToggle={event => setOpen(event.currentTarget.open)}>
-    <summary>Stats for nerds <span>· playback &amp; network</span></summary>
-    {open && <div className="player-nerd-stats-body"><p>{videoRef ? 'Updates every second while open.' : 'Jellyfin Web reports every 5 seconds; unavailable fields are marked.'} Bandwidth estimate is not measured movie delivery throughput.</p>
+  return <Dialog open={open} onClose={onClose} title="Stats for nerds" className="player-nerd-stats">
+    {open && <div><p>{videoRef ? 'Updates every second while open.' : 'Jellyfin Web reports every 5 seconds; unavailable fields are marked.'} Bandwidth estimate is not measured movie delivery throughput.</p>
       <h3>Playback on this device</h3><dl>{rows.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
       <h3>Network delivery</h3><PlaybackNetworkDetails network={network} endpoint={endpoint} peer={direct} />
     </div>}
-  </details>;
+  </Dialog>;
 }
