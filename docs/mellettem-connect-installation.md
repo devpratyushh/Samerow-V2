@@ -4,7 +4,7 @@ Mellettem Connect is the Jellyfin server plugin that securely links your home li
 
 The paired plugin can deliver movie resources directly over WebRTC on supported browsers. Playback uses HTTPS fallback when a browser or network cannot use the direct path. Your Jellyfin server and internet connection must stay online during a watch party.
 
-> **Compatibility:** Mellettem Connect 1.0.7.0 is a public beta built for **Jellyfin 12.3 and .NET 10**. Other Jellyfin versions have not been validated. The project provides this third-party plugin catalog; Mellettem Connect is not listed in Jellyfin's default catalog.
+> **Compatibility:** Mellettem Connect 1.0.8.0 is a public beta built for **Jellyfin 12.3 and .NET 10**. Other Jellyfin versions have not been validated. The project provides this third-party plugin catalog; Mellettem Connect is not listed in Jellyfin's default catalog.
 
 ## Install from the plugin catalog
 
@@ -19,9 +19,9 @@ The paired plugin can deliver movie resources directly over WebRTC on supported 
 4. Restart Jellyfin when installation finishes.
 5. Open **Dashboard → Plugins → Mellettem Connect**.
 
-![Illustrative Mellettem Connect page in the Jellyfin dashboard](screenshots/mellettem-connect-dashboard.png)
+![Mellettem Connect settings page in the Jellyfin dashboard](../jellyfin-plugin-mellettem/dashboard-preview.png)
 
-*Illustrative preview of the plugin dashboard. Connection activity and example values are shown to explain the page; your dashboard displays your server's actual status.*
+*Illustrative plugin settings preview. Your dashboard displays your server’s live connection status and relay activity.*
 
 ## Link your server to your Google account
 

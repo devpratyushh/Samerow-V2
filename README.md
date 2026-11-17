@@ -14,7 +14,7 @@
 <p align="center">
   <a href="https://github.com/devpratyushh/Samerow-V2/actions/workflows/ci.yml?query=branch%3Amain"><img src="https://github.com/devpratyushh/Samerow-V2/actions/workflows/ci.yml/badge.svg?branch=main" alt="Application checks" /></a>
   <a href="https://github.com/devpratyushh/Samerow-V2/actions/workflows/jellyfin-plugin.yml?query=branch%3Amain"><img src="https://github.com/devpratyushh/Samerow-V2/actions/workflows/jellyfin-plugin.yml/badge.svg?branch=main" alt="Plugin checks" /></a>
-  <a href="https://github.com/devpratyushh/Samerow-V2/releases"><img src="https://img.shields.io/badge/Mellettem_Connect-v1.0.7.0-9b6dff" alt="Mellettem Connect v1.0.7.0" /></a>
+  <a href="https://github.com/devpratyushh/Samerow-V2/releases"><img src="https://img.shields.io/badge/Mellettem_Connect-v1.0.8.0-9b6dff" alt="Mellettem Connect v1.0.8.0" /></a>
   <a href="jellyfin-plugin-mellettem/README.md"><img src="https://img.shields.io/badge/Jellyfin-12.3-00a4dc" alt="Jellyfin 12.3" /></a>
 </p>
 
@@ -50,13 +50,19 @@ Your Jellyfin server stays at home. Mellettem Connect links it securely to your 
 
 ## Get started
 
-Mellettem Connect is in public beta for **Jellyfin 12.3 / .NET 10**. Install the plugin, connect your server, then approve access with your Google account.
+Mellettem Connect is in public beta for **Jellyfin 12.3 / .NET 10**.
+
+Add this repository in Jellyfin under **Dashboard → Plugins → Repositories**:
+
+```text
+https://raw.githubusercontent.com/devpratyushh/Samerow-V2/main/jellyfin-plugin-samerow/manifest.json
+```
+
+Install **Mellettem Connect** from the plugin catalog and restart Jellyfin. Then open **Dashboard → Plugins → Mellettem Connect**, select **Connect Mellettem**, and approve the connection with your Google account.
 
 [![Install Mellettem Connect, link your Google account, and open your Jellyfin library from anywhere](docs/images/install-plugin-steps.png)](docs/images/install-plugin-steps.png)
 
-- Install **Mellettem Connect** from the [plugin catalog](jellyfin-plugin-samerow/manifest.json), then restart Jellyfin.
-- Open **Dashboard → Plugins → Mellettem Connect**, select **Connect Mellettem**, and approve the connection.
-- Follow the [full installation guide and troubleshooting steps](docs/mellettem-connect-installation.md).
+- See the [full installation guide and troubleshooting steps](docs/mellettem-connect-installation.md).
 
 <p align="center">
   <img src="docs/images/lobby.png" alt="Mellettem lobby with sign-in, camera preview, room controls, and Jellyfin connection" width="49%" />

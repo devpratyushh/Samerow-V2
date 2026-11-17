@@ -21,6 +21,10 @@ This plugin connects a Jellyfin server to Mellettem using outbound HTTPS. The se
 
 [Release downloads and corresponding source](https://github.com/devpratyushh/Samerow-V2/releases/tag/mellettem-connect-v1.0.8.0). If the plugin does not appear, check your Jellyfin version: this package has been built and tested against 12.3. It has not been validated on other versions. Older releases such as 10.x need a separate compatible build.
 
+![Mellettem Connect settings page in the Jellyfin dashboard](dashboard-preview.png)
+
+*Illustrative plugin settings preview. Your dashboard displays your server’s live connection status and relay activity.*
+
 ## Compatibility and build
 
 This package targets Jellyfin 12.3 and .NET 10. Build against your Jellyfin server assemblies:
@@ -32,14 +36,14 @@ python3 jellyfin-plugin-mellettem/package.py
 
 The default assembly path is the workspace's sibling jellyfin-sandbox/jellyfin directory. Other Jellyfin versions require a compatible build and validation.
 
-## Manual installation and pairing
+## Pairing
 
-1. Stop Jellyfin.
-2. Download `Mellettem-Connect-1.0.8.0.zip` from the [release](https://github.com/devpratyushh/Samerow-V2/releases/tag/mellettem-connect-v1.0.8.0) and extract it into Jellyfin's `plugins/Mellettem Connect_1.0.8.0` directory. Keep the DLL, icon, metadata, and sender executables directly inside that directory.
-3. Start Jellyfin and open Dashboard → Plugins → Mellettem Connect.
-4. Select Connect, sign in to Mellettem Web, and approve the connection.
-5. Return to the plugin page and wait for Connected. Open Mellettem Web and select the connected server in the Jellyfin library dialog.
-6. Sign in to Jellyfin to choose the movie. Guests receive access scoped to the room's selected movie.
+After installing from the catalog and restarting Jellyfin:
+
+1. Open **Dashboard → Plugins → Mellettem Connect**.
+2. Select **Connect Mellettem**, open the approval link, and approve access with your Google account.
+3. Return to Jellyfin and wait for the status to show **Connected**.
+4. In Mellettem Web, select the connected server in the Jellyfin library dialog.
 
 The dashboard shows how long the relay has been connected, how long the last completed connection lasted, and the latest connection and relay activity times. Relay durations begin with the first successful authenticated gateway poll. The dashboard also shows active requests, completed requests, and relayed data. Metrics reset when Jellyfin restarts.
 
@@ -55,7 +59,7 @@ Use Rotate credential in the dashboard to replace the cloud token. A proposed re
 
 ## Updating and uninstalling
 
-Update through the catalog and restart Jellyfin. For a manual update, stop Jellyfin, install the entire new package, then restart. Verify Connected in the dashboard. Keep the plugin configuration and encryption key during upgrades.
+Update through the catalog and restart Jellyfin. Restart Jellyfin after the catalog update and verify Connected in the dashboard. Keep the plugin configuration and encryption key during upgrades.
 
 To uninstall, disconnect in the dashboard first to revoke cloud access, stop Jellyfin, and remove the plugin directory. Remove its configuration and key only when you no longer need the pairing. Removing the DLL alone does not revoke cloud credentials. The Mellettem connected-server page also supports removing the server.
 
